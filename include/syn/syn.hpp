@@ -37,3 +37,5 @@
 #include "syn/classroom/instructional_design.hpp"
 #include "syn/classroom/learner.hpp"
 #include "syn/classroom/sensitivities.hpp"
+
+#include "syn/gpu/fused_classroom.hpp"

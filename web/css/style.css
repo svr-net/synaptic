@@ -221,3 +221,8 @@ pre.code { background: var(--surface-2); border: 1px solid var(--border); border
 .lever output { font-variant-numeric: tabular-nums; text-align: right; color: var(--text-secondary); }
 .levers { grid-column: 1 / -1; display: grid; gap: 2px 24px; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); }
 ul.plain { margin: 6px 0 0; padding-left: 18px; color: var(--text-secondary); font-size: 13px; }
+
+/* WebGPU diagnostics: each check stacked above its answer (fits phone screens). */
+dl.diagnostics { margin: 8px 0 0; }
+dl.diagnostics dt { font-weight: 600; margin-top: 10px; overflow-wrap: anywhere; }
+dl.diagnostics dd { margin: 2px 0 0; color: var(--text-muted); overflow-wrap: anywhere; font-family: var(--mono); font-size: 12px; }

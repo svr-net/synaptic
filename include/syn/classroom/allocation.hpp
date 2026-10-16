@@ -37,4 +37,22 @@ struct AllocationResult {
 AllocationResult allocateLearningGain(const ClassroomEngine& engine, const InstructionalDesign& design,
                                       const InstructionalDesign& baseline, int permutations, std::uint64_t orderSeed = 7);
 
+/**
+ * The same allocation in two steps, so that any engine can evaluate the designs (one batch on
+ * the GPU): `designs` lists every design the allocation needs, and `allocateFromScores` turns
+ * their delayed test scores (in the same order) into the result. The random orders depend only
+ * on `orderSeed`, never on the scores.
+ */
+struct AllocationRequest {
+  InstructionalDesign design, baseline;
+  int permutations = 0;
+  std::vector<int> active;                      // levers that differ
+  std::vector<unsigned long long> masks;        // switched levers of each design to evaluate
+  std::vector<std::vector<int>> orders;         // one random order of `active` positions per permutation
+  std::vector<InstructionalDesign> designs;     // the design of each mask
+};
+AllocationRequest allocationRequest(const InstructionalDesign& design, const InstructionalDesign& baseline, int permutations,
+                                    std::uint64_t orderSeed = 7);
+AllocationResult allocateFromScores(const AllocationRequest& request, const std::vector<double>& scores);
+
 }  // namespace syn

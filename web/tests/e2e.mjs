@@ -5,7 +5,11 @@
 // Serves web/ (or --root DIR, e.g. dist/standalone) on a local port, or with --file opens the
 // pages straight from disk as file:// URLs (the copy-and-open deployment of the standalone
 // build, which must then make no network request at all). Opens every page, waits for its
-// automatic run and checks that it finished without errors and rendered charts.
+// automatic run and checks that it finished without errors and rendered charts. Pages with the
+// engine selector also run on each engine: Auto must dispatch the fused kernels on WebGPU,
+// devices without an adapter must fall back to the CPU fused kernels, and WebGPU, the CPU
+// kernels and WebAssembly must agree within Monte Carlo error on the same spec.
+// WebGPU runs on SwiftShader in headless mode, so this works without a GPU.
 // Environment: PLAYWRIGHT_MODULE (path to playwright's index.mjs), CHROMIUM_PATH.
 import http from 'node:http';
 import fs from 'node:fs';
@@ -32,26 +36,49 @@ await new Promise((r) => server.listen(0, '127.0.0.1', r));
 const base = `http://127.0.0.1:${server.address().port}`;
 
 const localChromium = ['/opt/pw-browsers/chromium', '/opt/pw-browsers/chromium-1194/chrome-linux/chrome'].find((p) => fs.existsSync(p) && fs.statSync(p).isFile());
-const browser = await chromium.launch({ executablePath: process.env.CHROMIUM_PATH || localChromium });
+const browser = await chromium.launch({
+  executablePath: process.env.CHROMIUM_PATH || localChromium,
+  args: ['--enable-unsafe-webgpu', '--enable-features=Vulkan', '--use-vulkan=swiftshader', '--use-webgpu-adapter=swiftshader', '--disable-vulkan-surface'],
+});
 
 // Small learner counts keep the run fast; the pages pick the spec up from localStorage.
 const testSpec = { sim: { learners: 200, seed: 11 } };
+const pairSpec = { sim: { learners: 3000, seed: 11 } };
 const pages = ['index', 'core', 'behaviorism', 'humanism', 'cognitivism', 'constructivism', 'social', 'development', 'andragogy', 'motivation',
   'classroom', 'theories', 'allocation', 'sensitivity'];
+// Pages with the engine selector. With no stored choice they run on Auto, which must pick WebGPU.
+const enginePages = ['index', 'classroom', 'theories', 'allocation', 'sensitivity'];
 const cases = [
-  ...pages.map((name) => ({ name, file: name, spec: testSpec })),
-  // A first visit (nothing stored): the defaults must work on their own.
-  { name: 'classroom-first-visit', file: 'classroom' },
+  ...pages.map((name) => ({ name, file: name, spec: testSpec, ...(enginePages.includes(name) ? { engine: 'auto', expectEngine: 'WebGPU' } : {}) })),
+  ...['classroom', 'allocation'].map((name) => ({ name: `${name}-wasm`, file: name, spec: testSpec, engine: 'wasm', expectEngine: 'WebAssembly' })),
+  // A first visit (nothing stored): the defaults, on Auto.
+  { name: 'classroom-first-visit', file: 'classroom', expectEngine: 'WebGPU' },
   // Adults with the andragogy design, chosen through the stored spec.
-  { name: 'classroom-adults', file: 'classroom', spec: { ...testSpec, population: { preset: 'adults', age: 35 }, designPreset: 'andragogy' } },
-  // A phone: the collapsed menu must leave the page content in view, with no sideways scroll.
-  { name: 'classroom-mobile', file: 'classroom', spec: testSpec, device: 'iPhone 14' },
+  { name: 'classroom-adults', file: 'classroom', spec: { ...testSpec, population: { preset: 'adults', age: 35 }, designPreset: 'andragogy' }, engine: 'auto', expectEngine: 'WebGPU' },
+  // A course beyond the kernel limits (more than 16 sessions): Auto falls back to WebAssembly and says why.
+  { name: 'classroom-long-course', file: 'classroom', spec: { ...testSpec, course: { sessions: 20, sessionGap: 3, difficulty: 0.3, difficultyStep: 0.05, delayedTest: 30, abstraction: 0.6, atRiskBelow: 0.3 } }, engine: 'auto', expectEngine: 'WebAssembly', expectReason: '16 sessions' },
+  { name: 'gpu', file: 'gpu', spec: testSpec },
+  // The same spec on every engine: headline numbers must agree within Monte Carlo error.
+  ...['classroom', 'theories', 'allocation'].flatMap((name) => [
+    { name: `${name}-wasm-pair`, file: name, spec: pairSpec, engine: 'wasm', expectEngine: 'WebAssembly', pair: name },
+    { name: `${name}-gpu-pair`, file: name, spec: pairSpec, engine: 'gpu', expectEngine: 'WebGPU', pair: name },
+    { name: `${name}-cpu-pair`, file: name, spec: pairSpec, engine: 'cpu', expectEngine: 'CPU fused kernels', pair: name },
+  ]),
+  // No adapter at all (WebGPU blocked): Auto runs the same fused kernels on the CPU.
+  { name: 'classroom-no-adapter', file: 'classroom', spec: testSpec, engine: 'auto', expectEngine: 'CPU fused kernels', gpuStub: 'no-adapter', expectReason: 'WebGPU unavailable', device: 'Pixel 7' },
+  { name: 'sensitivity-no-adapter', file: 'sensitivity', spec: testSpec, engine: 'auto', expectEngine: 'CPU fused kernels', gpuStub: 'no-adapter' },
+  { name: 'gpu-no-adapter', file: 'gpu', spec: testSpec, gpuStub: 'no-adapter' },
+  // Only a compatibility-mode adapter (WebGPU on OpenGL ES): the kernels stay within its limits.
+  { name: 'classroom-compat-only', file: 'classroom', spec: testSpec, engine: 'auto', expectEngine: 'WebGPU', gpuStub: 'compat-only', expectReason: 'compatibility mode' },
+  // Phones: the collapsed menu must leave the page content in view, with no sideways scroll.
+  { name: 'classroom-mobile', file: 'classroom', spec: testSpec, engine: 'auto', expectEngine: 'WebGPU', device: 'iPhone 14' },
   { name: 'theories-mobile', file: 'theories', spec: testSpec, device: 'Pixel 7' },
 ];
+const pairs = {};
 let failures = 0;
 console.log(`testing ${root} ${fileMode ? 'from file:// (no server)' : `over ${base}`}`);
 
-for (const { name, file, spec, device } of cases.filter((c) => !filter || c.name.includes(filter))) {
+for (const { name, file, spec, engine, expectEngine, expectReason, pair, device, gpuStub } of cases.filter((c) => !filter || c.name.includes(filter))) {
   const context = await browser.newContext(device ? { ...devices[device] } : { viewport: { width: 1400, height: 1000 } });
   const page = await context.newPage();
   const errors = [];
@@ -59,12 +86,20 @@ for (const { name, file, spec, device } of cases.filter((c) => !filter || c.name
   page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()); });
   const network = [];
   page.on('request', (r) => { if (!/^(file|data|blob):/.test(r.url())) network.push(r.url()); });
-  await page.addInitScript((stored) => {
+  if (gpuStub) await page.addInitScript((stub) => {
+    const gpu = navigator.gpu;
+    if (!gpu) return;
+    const original = gpu.requestAdapter.bind(gpu);
+    gpu.requestAdapter = (options = {}) =>
+      stub === 'no-adapter' || (stub === 'compat-only' && !('featureLevel' in options)) ? Promise.resolve(null) : original(options);
+  }, gpuStub);
+  await page.addInitScript(({ stored, engine }) => {
     if (!sessionStorage.getItem('seeded')) {
       if (stored) localStorage.setItem('syn-spec-v1', JSON.stringify(stored)); else localStorage.removeItem('syn-spec-v1');
+      if (engine) localStorage.setItem('syn-engine', engine); else localStorage.removeItem('syn-engine');
       sessionStorage.setItem('seeded', '1');
     }
-  }, spec || null);
+  }, { stored: spec || null, engine: engine || null });
   const t0 = Date.now();
   await page.goto(fileMode ? pathToFileURL(path.join(root, `${file}.html`)).href : `${base}/${file}.html`);
   let status = '';
@@ -84,6 +119,28 @@ for (const { name, file, spec, device } of cases.filter((c) => !filter || c.name
   if (charts === 0) problems.push('no charts rendered');
   if (!/WASM: synaptic \d/.test(wasm)) problems.push(`library version not shown: ${wasm}`);
   if (fileMode && network.length) problems.push(`network requests from a file:// page: ${network.slice(0, 3).join(', ')}`);
+  if (expectEngine && !status.includes(`· ${expectEngine}`)) problems.push(`expected the ${expectEngine} engine: ${status}`);
+  if (expectReason && !status.includes(expectReason)) problems.push(`expected the reason "${expectReason}": ${status}`);
+  // The status line is not enough: the fused kernels must really have been dispatched on WebGPU
+  // (and never when another engine ran).
+  const gpuRuns = await page.evaluate(() => globalThis.__synGpuRuns || 0);
+  const cpuRuns = await page.evaluate(() => globalThis.__synCpuKernelRuns || 0);
+  if (expectEngine === 'WebGPU' && gpuRuns === 0) problems.push('no fused pipeline was dispatched on WebGPU');
+  if (expectEngine === 'CPU fused kernels' && cpuRuns === 0) problems.push('the CPU fused kernels did not run');
+  if (expectEngine && expectEngine !== 'WebGPU' && gpuRuns > 0) problems.push(`${gpuRuns} WebGPU dispatches while the ${expectEngine} engine ran`);
+  if (pair) pairs[pair] = { ...(pairs[pair] || {}), [engine]: await page.evaluate(() => window.__synEngineRun) };
+  if (file === 'gpu' && !problems.length) {
+    const r = await page.evaluate(() => window.__synLastRun);
+    if (!r) problems.push('no validation result');
+    else {
+      const c = r.checks;
+      if (!(c.delayed < c.tol)) problems.push(`delayed score mismatch ${c.delayed} > ${c.tol}`);
+      if (!(c.median < 2 * c.tol + 0.002)) problems.push(`median mismatch ${c.median}`);
+      if (!gpuStub && !/^WebGPU/.test(r.engine)) problems.push(`the GPU page did not run on WebGPU: ${r.engine}`);
+      if (gpuStub && !/^CPU fused kernels/.test(r.engine)) problems.push(`without an adapter the GPU page must validate the CPU kernels: ${r.engine}`);
+      console.log(`       fused vs WASM: delayed ${(c.delayed).toFixed(4)} (tol ${c.tol.toFixed(4)}), median ${c.median.toFixed(4)} · ${r.engine.slice(0, 60)}`);
+    }
+  }
   if (device) {
     const layout = await page.evaluate(() => ({
       menuHidden: document.getElementById('nav-links').offsetParent === null,
@@ -101,10 +158,39 @@ for (const { name, file, spec, device } of cases.filter((c) => !filter || c.name
     if (shown !== 'adults') problems.push(`population selector shows ${shown}`);
   }
   if (process.env.SCREENSHOTS) await page.screenshot({ path: path.join(process.env.SCREENSHOTS, `${name}.png`), fullPage: true });
-  console.log(`${problems.length ? 'FAIL' : 'ok  '} ${name.padEnd(22)} ${String(Date.now() - t0).padStart(6)} ms  charts=${charts}  ${status.trim().slice(0, 60)}`);
+  console.log(`${problems.length ? 'FAIL' : 'ok  '} ${name.padEnd(24)} ${String(Date.now() - t0).padStart(6)} ms  charts=${charts}  gpu=${gpuRuns}  ${status.trim().slice(0, 70)}`);
   for (const p of problems) console.log('       ' + p);
   failures += problems.length ? 1 : 0;
   await context.close();
+}
+
+// The same spec on every engine. WebGPU and the CPU kernels run the same f32 algorithm and the same
+// counter-based random numbers, so they agree closely; WebAssembly draws other random numbers and
+// agrees within Monte Carlo error (3,000 learners).
+const metrics = {
+  classroom: [['delayed score', (r) => r.delayedScore], ['end score', (r) => r.endScore]],
+  theories: [['blended (secondary)', (r) => r.blended], ['banking (secondary)', (r) => r.banking]],
+  allocation: [['total gain', (r) => r.totalGain]],
+};
+for (const [name, r] of Object.entries(pairs)) {
+  for (const fused of ['gpu', 'cpu']) {
+    if (!r.wasm || !r[fused]) continue;
+    for (const [label, get] of metrics[name]) {
+      const w = get(r.wasm), g = get(r[fused]);
+      const diff = Math.abs(g - w);
+      const tol = 0.012;
+      const ok = diff < tol;
+      console.log(`${ok ? 'ok  ' : 'FAIL'} ${`${name} WASM/${fused}`.padEnd(20)} ${label}: WASM ${w.toFixed(4)} vs ${fused.toUpperCase()} ${g.toFixed(4)} (diff ${diff.toFixed(4)}, tol ${tol})`);
+      if (!ok) failures++;
+    }
+  }
+  if (r.gpu && r.cpu) {
+    const [label, get] = metrics[name][0];
+    const diff = Math.abs(get(r.cpu) - get(r.gpu));
+    const ok = diff < 2e-3;
+    console.log(`${ok ? 'ok  ' : 'FAIL'} ${`${name} GPU/CPU`.padEnd(20)} ${label}: GPU ${get(r.gpu).toFixed(5)} vs CPU kernels ${get(r.cpu).toFixed(5)} (diff ${diff.toExponential(1)})`);
+    if (!ok) failures++;
+  }
 }
 
 await browser.close();

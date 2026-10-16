@@ -1,5 +1,5 @@
-import { run } from '../syn-client.js';
 import { fmt, lineChart } from '../charts.js';
+import { engineNote, engineSelector, runAnalysis } from '../gpu/backend.js';
 import { PAGES, card, el, grid, initPage, runButton, table, tiles } from '../ui.js';
 
 const page = initPage({
@@ -9,7 +9,8 @@ const page = initPage({
   description:
     'Interactive front end for a library modelling <i>Learning Theories: Understanding How People Learn</i> (chapter 3 of <i>Instruction in Libraries ' +
     'and Information Centers</i>, Illinois Open Publishing Network). Each theory of the chapter is a computational model, and a classroom engine ' +
-    'runs all of them on the same simulated learners. The C++ library is compiled to WebAssembly and runs in a worker; each page exercises one part of it ' +
+    'runs all of them on the same simulated learners. The C++ library is compiled to WebAssembly and runs in a worker. The classroom simulations also run as ' +
+    'fused compute kernels, on WebGPU or, where the browser offers no GPU, on the CPU across Web Workers. Each page exercises one part of the library ' +
     'on a shared, editable specification.',
 });
 
@@ -27,6 +28,7 @@ const DESCRIPTIONS = {
   theories: 'Activity 3.3 designed by each theory, on children, teenagers and adults.',
   allocation: 'Shapley, incremental and standalone allocation of a design\'s gain to its practices.',
   sensitivity: 'Which practice to strengthen next, with common random numbers.',
+  gpu: 'The classroom simulation as fused WebGPU kernels, validated against WebAssembly and benchmarked.',
 };
 
 const map = card(page.main, 'Contexts', 'Each page maps onto one part of the library and one section of the chapter.');
@@ -39,14 +41,16 @@ for (const group of PAGES.slice(1))
 map.append(g);
 page.main.insertBefore(map.parentNode, page.toolbar);
 
-runButton(page, 'Run the shared course', async (spec) => {
-  const r = await run('classroom', spec);
-  window.__synLastRun = { page: 'index', delayedScore: r.delayedScore };
+const button = runButton(page, 'Run the shared course', async (spec) => {
+  const t0 = performance.now();
+  const runResult = await runAnalysis('classroom', spec);
+  const r = runResult.result;
+  window.__synEngineRun = { page: 'index', engine: runResult.engine, delayedScore: r.delayedScore };
   tiles(page.content, [
     { label: 'Design', value: spec.designPreset || 'custom', hint: spec.population.label || spec.population.preset },
     { label: 'Score after the course', value: fmt.num(r.endScore, 3) },
     { label: 'Score a month later', value: fmt.num(r.delayedScore, 3), hint: `retention ${fmt.pct(r.retention, 0)}` },
-    { label: 'Learners × sessions', value: `${fmt.num(r.learners)} × ${spec.course.sessions}`, hint: `${fmt.num(r.elapsedMs)} ms in WebAssembly` },
+    { label: 'Learners × sessions', value: `${fmt.num(r.learners)} × ${spec.course.sessions}`, hint: runResult.fused ? `${fmt.num(r.gpuMs)} ms on the ${runResult.label}` : `${fmt.num(r.elapsedMs)} ms in WebAssembly` },
   ]);
   const gr = grid(page.content);
   lineChart(card(gr, 'Score profile of the shared design', 'Full analysis on the <a href="classroom.html">classroom page</a>.'), {
@@ -66,6 +70,13 @@ web/wasm/syn.{js,wasm}  ── run in a Worker (js/syn-worker.js)
    │   gagne · equilibration · zpd · dialogue · development · andragogy
    │   motivation · classroom · theories · allocation · sensitivity
    ▼
+syn::gpu (C++): compile() → plan buffers (population, course, model constants,
+   │            one lever row per job) + the WGSL kernels; summarise() on read-back
+   ▼
+WebGPU host (js/gpu/engine.js): upload ▸ classroom-fused (learners × jobs)
+   │                            ▸ reduce-partials ▸ score-quantiles ▸ read back
+   │   no adapter: the same kernels on the CPU across Web Workers
+   ▼
 pages (js/pages/*.js): render the results as charts and tables` }));
   table(card(gr, 'The chapter, section by section', ''), ['section', 'page', 'library'], [
     ['Behaviorism', 'Behaviourism', 'syn/behaviorism'], ['Humanism', 'Humanism', 'syn/humanism'], ['Cognitivism (incl. Gagné)', 'Cognitivism', 'syn/cognitivism, syn/classroom'],
@@ -73,4 +84,6 @@ pages (js/pages/*.js): render the results as charts and tables` }));
     ['Developmental stages (Piaget, Perry, ZPD)', 'Developmental stages, Social', 'syn/development, syn/social'], ['Andragogy', 'Andragogy', 'syn/andragogy'],
     ['Motivation, growth mindset', 'Motivation & mindset', 'syn/motivation'], ['Activity 3.3, conclusion', 'Theories compared, Gain allocation', 'syn/classroom'],
   ]);
+  return engineNote(runResult, performance.now() - t0);
 });
+engineSelector(page, () => button.click());

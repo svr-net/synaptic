@@ -104,6 +104,31 @@ const al = run('allocation', () => syn.allocation({ ...small, allocation: { perm
 if (al) near(al.shapleySum, al.totalGain, 1e-12, 'Shapley allocation adds up');
 const sens = run('sensitivity', () => syn.sensitivity({ ...small, sensitivity: { replications: 3, maxLearners: 100 } }));
 if (sens) check(sens.varianceReduction > 5, `CRN variance reduction ${sens.varianceReduction}`);
+// Fused kernels: plans for the GPU, the CPU kernel slices, and the kernels' reference.
+const kernels = run('gpuKernels', () => syn.gpuKernels());
+if (kernels) check(['classroomFused', 'reducePartials', 'scoreQuantiles'].every((k) => kernels[k].includes('@compute')), 'WGSL sources');
+for (const analysis of ['classroom', 'theories', 'allocation', 'sensitivity']) {
+  const aspec = { ...small, analysis, allocation: { permutations: 4 }, sensitivity: { replications: 3, maxLearners: 100 } };
+  const jobs = run(`gpuJobs ${analysis}`, () => syn.gpuJobs(aspec));
+  if (!jobs) continue;
+  check(jobs.plans.every((p) => p.header.length === 12 && p.seeds.length === p.numJobs && p.dispatch.fused > 0), `${analysis} plans`);
+  const emulated = run(`gpuEmulate ${analysis}`, () => syn.gpuEmulate(aspec));
+  const parts = [0, 1, 2].map((part) => syn.cpuKernelSlices({ ...aspec, part, parts: 3 }));
+  const cpuKernels = run(`cpuKernelAnalyse ${analysis}`, () => syn.cpuKernelAnalyse({ ...aspec, parts }));
+  if (!emulated || !cpuKernels) continue;
+  // Three workers give exactly the single-pass reference.
+  check(JSON.stringify(cpuKernels) === JSON.stringify(emulated), `${analysis}: CPU kernels on 3 workers = reference`);
+  const wasmResult = syn[analysis](aspec);
+  if (analysis === 'classroom') near(emulated.delayedScore, wasmResult.delayedScore, 0.03, 'kernel vs WebAssembly delayed score');
+  if (analysis === 'allocation') {
+    near(emulated.shapleySum, emulated.totalGain, 1e-9, 'GPU Shapley adds up');
+    near(emulated.totalGain, wasmResult.totalGain, 0.04, 'kernel vs WebAssembly gain');
+  }
+  if (analysis === 'theories') check(emulated.populations.every((p) => p.results[7].delayedScore === Math.max(...p.results.map((r) => r.delayedScore))), 'kernels: blended is best');
+}
+const tooLong = syn.gpuJobs({ ...small, analysis: 'classroom', course: { ...small.course, sessions: 20 } });
+check(tooLong.unsupported && /16 sessions/.test(tooLong.unsupported), 'courses beyond the kernel limits fall back');
+
 const bad = syn.classroom({ ...spec, course: { ...spec.course, sessions: 0 } });
 check(bad && typeof bad.error === 'string', 'errors come back as { error }');
 

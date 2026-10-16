@@ -48,6 +48,11 @@ val arr(const std::array<double, N>& a) {
   return arr(std::vector<double>(a.begin(), a.end()));
 }
 
+template <class T>
+val typedArray(const std::vector<T>& v) {
+  return val(emscripten::typed_memory_view(v.size(), v.data())).call<val>("slice");
+}
+
 val arrOfArr(const std::vector<std::vector<double>>& rows) {
   val out = val::array();
   for (const auto& r : rows) out.call<void>("push", arr(r));
@@ -796,40 +801,149 @@ val motivation(val spec) {
   });
 }
 
+// ------------------------------------------------------------------ the classroom analyses
+//
+// classroom, theories, allocation and sensitivity run on any of three engines: the
+// ClassroomEngine here (WebAssembly), the fused WebGPU kernels (gpuJobs → GPU → gpuAnalyse) or
+// the same kernels on the CPU (cpuKernelSlices on every worker → cpuKernelAnalyse). The result
+// objects are built by the same functions whichever engine produced the numbers.
+
+val classroomJs(const ClassroomResult& r) {
+  val o = summaryToJs(r);
+  o.set("score", profileToJs(r.score));
+  o.set("recall", profileToJs(r.recall));
+  val s = val::object();
+  const auto& t = r.sessions;
+  s.set("day", arr(t.day));
+  s.set("ability", arr(t.ability));
+  s.set("effort", arr(t.effort));
+  s.set("motivation", arr(t.motivation));
+  s.set("value", arr(t.value));
+  s.set("efficacy", arr(t.efficacy));
+  s.set("anxiety", arr(t.anxiety));
+  s.set("readiness", arr(t.readiness));
+  s.set("growth", arr(t.growth));
+  s.set("engaged", arr(t.engaged));
+  s.set("zpdShare", arr(t.zpdShare));
+  o.set("sessions", s);
+  return o;
+}
+
+val theoriesJs(const std::vector<std::string>& populations, const std::vector<std::vector<ClassroomResult>>& results) {
+  val o = val::object();
+  std::vector<std::string> names;
+  val designs = val::array();
+  for (int t = 0; t < kTheories; ++t) {
+    names.push_back(theoryName(static_cast<Theory>(t)));
+    designs.call<void>("push", designToJs(theoryDesign(static_cast<Theory>(t))));
+  }
+  o.set("theories", strings(names));
+  o.set("designs", designs);
+  val pops = val::array();
+  for (std::size_t i = 0; i < populations.size(); ++i) {
+    val p = val::object();
+    p.set("population", populations[i]);
+    val list = val::array();
+    for (const auto& r : results[i]) {
+      val x = summaryToJs(r);
+      x.set("days", arr(r.score.days));
+      x.set("mean", arr(r.score.mean));
+      list.call<void>("push", x);
+    }
+    p.set("results", list);
+    pops.call<void>("push", p);
+  }
+  o.set("populations", pops);
+  return o;
+}
+
+val allocationJs(const AllocationResult& r) {
+  val o = val::object();
+  o.set("baselineScore", r.baselineScore);
+  o.set("designScore", r.designScore);
+  o.set("totalGain", r.totalGain);
+  o.set("shapleySum", r.shapleySum);
+  o.set("permutations", r.permutations);
+  o.set("evaluations", r.evaluations);
+  val levers = val::array();
+  for (const auto& c : r.levers) {
+    val x = val::object();
+    x.set("lever", std::string(leverName(c.lever)));
+    x.set("theory", std::string(leverTheory(c.lever)));
+    x.set("baseline", c.baselineValue);
+    x.set("design", c.designValue);
+    x.set("shapley", c.shapley);
+    x.set("incremental", c.incremental);
+    x.set("standalone", c.standalone);
+    levers.call<void>("push", x);
+  }
+  o.set("levers", levers);
+  return o;
+}
+
+val sensitivityJs(const SensitivityResult& r, int learners) {
+  val o = val::object();
+  o.set("score", r.score);
+  o.set("bump", r.bump);
+  o.set("replications", r.replications);
+  o.set("learners", learners);
+  o.set("varianceReduction", r.meanVarianceReduction);
+  val levers = val::array();
+  for (const auto& l : r.levers) {
+    val x = val::object();
+    x.set("lever", std::string(leverName(l.lever)));
+    x.set("theory", std::string(leverTheory(l.lever)));
+    x.set("value", l.value);
+    x.set("crn", l.crn);
+    x.set("crnSe", l.crnStdError);
+    x.set("independent", l.independent);
+    x.set("independentSe", l.independentStdError);
+    levers.call<void>("push", x);
+  }
+  o.set("levers", levers);
+  return o;
+}
+
+const std::vector<PopulationSpec>& theoryPopulations() {
+  static const std::vector<PopulationSpec> p = {PopulationSpec::children(), PopulationSpec::secondary(), PopulationSpec::adults()};
+  return p;
+}
+
+AllocationRequest allocationRequestOf(const val& spec) {
+  const val a = sub(spec, "allocation");
+  const InstructionalDesign baseline = has(a, "baseline") ? parseDesign(a["baseline"]) : theoryDesign(Theory::Banking);
+  return allocationRequest(parseDesign(sub(spec, "design")), baseline, integer(a, "permutations", 12));
+}
+
+int sensitivityLearners(const val& spec) {
+  return std::min(integer(sub(spec, "sensitivity"), "maxLearners", 300), integer(sub(spec, "sim"), "learners", 500));
+}
+
+SensitivityRequest sensitivityRequestOf(const val& spec) {
+  const val s = sub(spec, "sensitivity");
+  return sensitivityRequest(parseDesign(sub(spec, "design")), num(s, "bump", 0.1), integer(s, "replications", 6), seedOf(spec));
+}
+
+// ---- WebAssembly engine
+
 val classroom(val spec) {
   return guarded([&] {
     const double t0 = nowMs();
     const auto engine = parseEngine(spec);
     const auto r = engine.run(parseDesign(sub(spec, "design")));
-    val o = summaryToJs(r);
-    o.set("score", profileToJs(r.score));
-    o.set("recall", profileToJs(r.recall));
-    val s = val::object();
-    const auto& t = r.sessions;
-    s.set("day", arr(t.day));
-    s.set("ability", arr(t.ability));
-    s.set("effort", arr(t.effort));
-    s.set("motivation", arr(t.motivation));
-    s.set("value", arr(t.value));
-    s.set("efficacy", arr(t.efficacy));
-    s.set("anxiety", arr(t.anxiety));
-    s.set("readiness", arr(t.readiness));
-    s.set("growth", arr(t.growth));
-    s.set("engaged", arr(t.engaged));
-    s.set("zpdShare", arr(t.zpdShare));
-    o.set("sessions", s);
+    val o = classroomJs(r);
+    // Per-learner views: only this engine keeps individual learners.
     const std::size_t sample = std::min<std::size_t>(r.learners.size(), static_cast<std::size_t>(integer(spec, "scatterLearners", 400)));
-    std::vector<double> capital, delayed, gain;
+    std::vector<double> capital, delayed, gain, all;
     for (std::size_t i = 0; i < sample; ++i) {
       capital.push_back(r.learners[i].capital);
       delayed.push_back(r.learners[i].delayedScore);
       gain.push_back(r.learners[i].abilityGain);
     }
+    for (const auto& l : r.learners) all.push_back(l.delayedScore);
     o.set("capital", arr(capital));
     o.set("delayed", arr(delayed));
     o.set("gain", arr(gain));
-    std::vector<double> all;
-    for (const auto& l : r.learners) all.push_back(l.delayedScore);
     o.set("delayedAll", arr(all));
     o.set("elapsedMs", nowMs() - t0);
     return o;
@@ -844,32 +958,15 @@ val theories(val spec) {
     s.learners = integer(sim, "learners", 500);
     s.seed = seedOf(spec);
     const CourseSpec course = parseCourse(sub(spec, "course"));
-    val o = val::object();
     std::vector<std::string> names;
-    val designs = val::array();
-    for (int t = 0; t < kTheories; ++t) {
-      names.push_back(theoryName(static_cast<Theory>(t)));
-      designs.call<void>("push", designToJs(theoryDesign(static_cast<Theory>(t))));
-    }
-    o.set("theories", strings(names));
-    o.set("designs", designs);
-    val pops = val::array();
-    for (const auto& pop : {PopulationSpec::children(), PopulationSpec::secondary(), PopulationSpec::adults()}) {
+    std::vector<std::vector<ClassroomResult>> results;
+    for (const auto& pop : theoryPopulations()) {
       ClassroomEngine engine(pop, course, s);
-      val p = val::object();
-      p.set("population", pop.name);
-      val results = val::array();
-      for (int t = 0; t < kTheories; ++t) {
-        const auto r = engine.run(theoryDesign(static_cast<Theory>(t)));
-        val x = summaryToJs(r);
-        x.set("days", arr(r.score.days));
-        x.set("mean", arr(r.score.mean));
-        results.call<void>("push", x);
-      }
-      p.set("results", results);
-      pops.call<void>("push", p);
+      names.push_back(pop.name);
+      results.emplace_back();
+      for (int t = 0; t < kTheories; ++t) results.back().push_back(engine.run(theoryDesign(static_cast<Theory>(t))));
     }
-    o.set("populations", pops);
+    val o = theoriesJs(names, results);
     o.set("elapsedMs", nowMs() - t0);
     return o;
   });
@@ -905,29 +1002,10 @@ val allocation(val spec) {
   return guarded([&] {
     const double t0 = nowMs();
     const auto engine = parseEngine(spec);
-    const val a = sub(spec, "allocation");
-    const InstructionalDesign baseline = has(a, "baseline") ? parseDesign(a["baseline"]) : theoryDesign(Theory::Banking);
-    const auto r = allocateLearningGain(engine, parseDesign(sub(spec, "design")), baseline, integer(a, "permutations", 12));
-    val o = val::object();
-    o.set("baselineScore", r.baselineScore);
-    o.set("designScore", r.designScore);
-    o.set("totalGain", r.totalGain);
-    o.set("shapleySum", r.shapleySum);
-    o.set("permutations", r.permutations);
-    o.set("evaluations", r.evaluations);
-    val levers = val::array();
-    for (const auto& c : r.levers) {
-      val x = val::object();
-      x.set("lever", std::string(leverName(c.lever)));
-      x.set("theory", std::string(leverTheory(c.lever)));
-      x.set("baseline", c.baselineValue);
-      x.set("design", c.designValue);
-      x.set("shapley", c.shapley);
-      x.set("incremental", c.incremental);
-      x.set("standalone", c.standalone);
-      levers.call<void>("push", x);
-    }
-    o.set("levers", levers);
+    const auto q = allocationRequestOf(spec);
+    std::vector<double> scores;
+    for (const auto& d : q.designs) scores.push_back(engine.objective(d));
+    val o = allocationJs(allocateFromScores(q, scores));
     o.set("elapsedMs", nowMs() - t0);
     return o;
   });
@@ -936,30 +1014,191 @@ val allocation(val spec) {
 val sensitivity(val spec) {
   return guarded([&] {
     const double t0 = nowMs();
-    const val s = sub(spec, "sensitivity");
-    const auto engine = parseEngine(spec, integer(s, "maxLearners", 300));
-    const auto r = leverSensitivities(engine, parseDesign(sub(spec, "design")), num(s, "bump", 0.1), integer(s, "replications", 6));
-    val o = val::object();
-    o.set("score", r.score);
-    o.set("bump", r.bump);
-    o.set("replications", r.replications);
-    o.set("learners", engine.settings().learners);
-    o.set("varianceReduction", r.meanVarianceReduction);
-    val levers = val::array();
-    for (const auto& l : r.levers) {
-      val x = val::object();
-      x.set("lever", std::string(leverName(l.lever)));
-      x.set("theory", std::string(leverTheory(l.lever)));
-      x.set("value", l.value);
-      x.set("crn", l.crn);
-      x.set("crnSe", l.crnStdError);
-      x.set("independent", l.independent);
-      x.set("independentSe", l.independentStdError);
-      levers.call<void>("push", x);
-    }
-    o.set("levers", levers);
+    const auto engine = parseEngine(spec, sensitivityLearners(spec));
+    const auto q = sensitivityRequestOf(spec);
+    std::vector<double> scores;
+    for (const auto& run : q.runs) scores.push_back(engine.objective(run.design, run.seed));
+    val o = sensitivityJs(sensitivitiesFromScores(q, scores), engine.settings().learners);
     o.set("elapsedMs", nowMs() - t0);
     return o;
+  });
+}
+
+// ---- fused kernels (WebGPU, or the same kernels on the CPU)
+
+// The batches of an analysis, compiled for the fused kernels.
+std::vector<gpu::FusedPlan> fusedPlans(const val& spec) {
+  const std::string analysis = str(spec, "analysis", "classroom");
+  const CourseSpec course = parseCourse(sub(spec, "course"));
+  const int learners = integer(sub(spec, "sim"), "learners", 500);
+  const auto seed = static_cast<std::uint32_t>(seedOf(spec));
+  std::vector<gpu::FusedPlan> plans;
+  if (analysis == "classroom") {
+    plans.push_back(gpu::compile(parsePopulation(sub(spec, "population")), course, learners, {{parseDesign(sub(spec, "design")), seed}}, true, true));
+  } else if (analysis == "theories") {
+    std::vector<gpu::FusedJob> jobs;
+    for (int t = 0; t < kTheories; ++t) jobs.push_back({theoryDesign(static_cast<Theory>(t)), seed});
+    for (const auto& pop : theoryPopulations()) plans.push_back(gpu::compile(pop, course, learners, jobs, true, false));
+  } else if (analysis == "allocation") {
+    std::vector<gpu::FusedJob> jobs;
+    for (const auto& d : allocationRequestOf(spec).designs) jobs.push_back({d, seed});
+    plans.push_back(gpu::compile(parsePopulation(sub(spec, "population")), course, learners, jobs, false, false));
+  } else if (analysis == "sensitivity") {
+    std::vector<gpu::FusedJob> jobs;
+    for (const auto& run : sensitivityRequestOf(spec).runs) jobs.push_back({run.design, static_cast<std::uint32_t>(run.seed)});
+    plans.push_back(gpu::compile(parsePopulation(sub(spec, "population")), course, sensitivityLearners(spec), jobs, false, false));
+  } else {
+    throw std::invalid_argument("the fused kernels do not run the analysis " + analysis);
+  }
+  return plans;
+}
+
+// The analysis result from the kernels' read-backs, one FusedOutput per plan.
+val fusedAnalyse(const val& spec, const std::vector<gpu::FusedPlan>& plans, const std::vector<gpu::FusedOutput>& outputs) {
+  const std::string analysis = str(spec, "analysis", "classroom");
+  if (outputs.size() != plans.size()) throw std::invalid_argument("one read-back per plan expected");
+  if (analysis == "classroom") return classroomJs(gpu::summarise(plans[0], outputs[0], 0));
+  if (analysis == "theories") {
+    std::vector<std::string> names;
+    std::vector<std::vector<ClassroomResult>> results;
+    for (std::size_t i = 0; i < plans.size(); ++i) {
+      names.push_back(theoryPopulations()[i].name);
+      results.emplace_back();
+      for (std::size_t j = 0; j < plans[i].numJobs; ++j) results.back().push_back(gpu::summarise(plans[i], outputs[i], j));
+    }
+    return theoriesJs(names, results);
+  }
+  if (analysis == "allocation") return allocationJs(allocateFromScores(allocationRequestOf(spec), gpu::delayedScores(plans[0], outputs[0])));
+  return sensitivityJs(sensitivitiesFromScores(sensitivityRequestOf(spec), gpu::delayedScores(plans[0], outputs[0])),
+                       static_cast<int>(plans[0].numLearners));
+}
+
+template <class T>
+std::vector<T> typedVec(const val& v) {
+  return emscripten::convertJSArrayToNumberVector<T>(v);
+}
+
+val gpuKernels(val) {
+  val o = val::object();
+  o.set("classroomFused", gpu::classroomFusedKernel());
+  o.set("reducePartials", gpu::reducePartialsKernel());
+  o.set("scoreQuantiles", gpu::scoreQuantilesKernel());
+  return o;
+}
+
+val gpuJobs(val spec) {
+  return guarded([&] {
+    const double t0 = nowMs();
+    const std::string why = gpu::limitation(parseCourse(sub(spec, "course")), static_cast<std::size_t>(integer(sub(spec, "sim"), "learners", 500)));
+    if (!why.empty()) {
+      val o = val::object();
+      o.set("unsupported", why);
+      return o;
+    }
+    const auto plans = fusedPlans(spec);
+    val list = val::array();
+    for (const auto& p : plans) {
+      // The kernel reads one constant buffer: params | days | jobs.
+      std::vector<float> constants = p.params;
+      constants.insert(constants.end(), p.dayTable.begin(), p.dayTable.end());
+      constants.insert(constants.end(), p.jobs.begin(), p.jobs.end());
+      val x = val::object();
+      x.set("header", typedArray(p.header));
+      x.set("constants", typedArray(constants));
+      x.set("seeds", typedArray(p.seeds));
+      val dispatch = val::object();
+      dispatch.set("fused", static_cast<double>(p.fusedDispatch()));
+      dispatch.set("jobs", static_cast<double>(p.numJobs));
+      dispatch.set("reduce", static_cast<double>(p.reduceDispatch()));
+      dispatch.set("quantiles", static_cast<double>(p.quantileDispatch()));
+      x.set("dispatch", dispatch);
+      val bytes = val::object();
+      bytes.set("scratch", static_cast<double>(p.scratchBytes()));
+      bytes.set("partials", static_cast<double>(p.partialsBytes()));
+      bytes.set("sums", static_cast<double>(p.sumsBytes()));
+      bytes.set("quantiles", static_cast<double>(p.quantileBytes()));
+      x.set("bytes", bytes);
+      x.set("numJobs", static_cast<double>(p.numJobs));
+      x.set("numLearners", static_cast<double>(p.numLearners));
+      x.set("numDays", static_cast<double>(p.numDays()));
+      list.call<void>("push", x);
+    }
+    val o = val::object();
+    o.set("plans", list);
+    o.set("compileMs", nowMs() - t0);
+    return o;
+  });
+}
+
+val gpuAnalyse(val spec) {
+  return guarded([&] {
+    const auto plans = fusedPlans(spec);
+    std::vector<gpu::FusedOutput> outputs;
+    const val reads = spec["gpuOutputs"];
+    for (unsigned i = 0; i < reads["length"].as<unsigned>(); ++i) {
+      gpu::FusedOutput out;
+      out.sums = typedVec<float>(reads[i]["sums"]);
+      if (has(reads[i], "quantiles")) out.quantiles = typedVec<float>(reads[i]["quantiles"]);
+      if (!plans[i].quantiles) out.quantiles.clear();
+      outputs.push_back(std::move(out));
+    }
+    return fusedAnalyse(spec, plans, outputs);
+  });
+}
+
+val cpuKernelSlices(val spec) {
+  return guarded([&] {
+    const double t0 = nowMs();
+    const auto plans = fusedPlans(spec);
+    const int part = integer(spec, "part", 0), parts = std::max(1, integer(spec, "parts", 1));
+    val list = val::array();
+    for (const auto& p : plans) {
+      const std::size_t tiles = p.numJobs * p.numWorkgroups();
+      const std::size_t begin = tiles * part / parts, end = tiles * (part + 1) / parts;
+      const auto slice = gpu::runFusedTiles(p, begin, end);
+      val x = val::object();
+      x.set("tileBegin", static_cast<double>(slice.tileBegin));
+      x.set("tileEnd", static_cast<double>(slice.tileEnd));
+      x.set("partials", typedArray(slice.partials));
+      x.set("scores", typedArray(slice.scores));
+      list.call<void>("push", x);
+    }
+    val o = val::object();
+    o.set("slices", list);
+    o.set("elapsedMs", nowMs() - t0);
+    return o;
+  });
+}
+
+val cpuKernelAnalyse(val spec) {
+  return guarded([&] {
+    const auto plans = fusedPlans(spec);
+    const val parts = spec["parts"];
+    std::vector<gpu::FusedOutput> outputs;
+    for (std::size_t i = 0; i < plans.size(); ++i) {
+      std::vector<gpu::FusedSlice> slices;
+      for (unsigned k = 0; k < parts["length"].as<unsigned>(); ++k) {
+        const val x = parts[k]["slices"][i];
+        gpu::FusedSlice s;
+        s.tileBegin = static_cast<std::size_t>(x["tileBegin"].as<double>());
+        s.tileEnd = static_cast<std::size_t>(x["tileEnd"].as<double>());
+        s.partials = typedVec<float>(x["partials"]);
+        s.scores = typedVec<float>(x["scores"]);
+        slices.push_back(std::move(s));
+      }
+      outputs.push_back(gpu::finishFused(plans[i], slices));
+    }
+    return fusedAnalyse(spec, plans, outputs);
+  });
+}
+
+// Runs the kernels' CPU reference in this worker (Node tests of the GPU path).
+val gpuEmulate(val spec) {
+  return guarded([&] {
+    const auto plans = fusedPlans(spec);
+    std::vector<gpu::FusedOutput> outputs;
+    for (const auto& p : plans) outputs.push_back(gpu::runFusedReference(p));
+    return fusedAnalyse(spec, plans, outputs);
   });
 }
 
@@ -993,4 +1232,10 @@ EMSCRIPTEN_BINDINGS(syn) {
   emscripten::function("gagne", &gagne);
   emscripten::function("allocation", &allocation);
   emscripten::function("sensitivity", &sensitivity);
+  emscripten::function("gpuKernels", &gpuKernels);
+  emscripten::function("gpuJobs", &gpuJobs);
+  emscripten::function("gpuAnalyse", &gpuAnalyse);
+  emscripten::function("gpuEmulate", &gpuEmulate);
+  emscripten::function("cpuKernelSlices", &cpuKernelSlices);
+  emscripten::function("cpuKernelAnalyse", &cpuKernelAnalyse);
 }

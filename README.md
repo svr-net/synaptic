@@ -17,6 +17,9 @@ strengthen next.
 It is an independent implementation. It does not reproduce the text of the chapter. The models are illustrative: their parameters
 are chosen so that the effects the chapter describes appear with plausible sizes. They are not fitted to data.
 
+The classroom simulations also run as **fused WebGPU compute kernels** (see below), with the same kernels on the CPU across
+Web Workers where the browser offers no GPU.
+
 All geometry is **pure elliptic conformal geometric algebra** (see below): the conformal model of the sphere, Cl(n+1, 1) with
 e² = −1, with no Euclidean origin and no point at infinity.
 
@@ -46,7 +49,7 @@ headers and a `syn::syn` CMake target.
 | `native (ASan + UBSan)` | Debug build with address and undefined-behaviour sanitizers, `ctest` |
 | `wasm` | Embind module built in `emscripten/emsdk:4.0.10`. Runs the Node checks of every entry point, and fails if the committed `web/wasm/` is out of date |
 | `standalone` | Copy-deployable site and zip, uploaded as the `synaptic-standalone` artifact |
-| `e2e` | Every page in headless Chromium: dev site over HTTP, standalone from `file://` and over HTTP, including phone layouts. Screenshots are uploaded as an artifact |
+| `e2e` | Every page in headless Chromium (WebGPU on SwiftShader): dev site over HTTP, standalone from `file://` and over HTTP, including phone layouts, compatibility-mode and no-adapter devices, and WebGPU / CPU kernels / WebAssembly agreement. Screenshots are uploaded as an artifact |
 | `docker` | `native` and `web` images with BuildKit layer caching, plus a smoke test of the nginx image |
 
 GitHub Pages: `.github/workflows/pages.yml` deploys the standalone site after CI passes on every push to `main`. Pages must be enabled once under *Settings → Pages* with **Source: GitHub Actions**.
@@ -69,15 +72,15 @@ npm --prefix tools/standalone ci && node tools/standalone/build.mjs
 
 ```
 dist/standalone/
-  index.html, core.html, ... sensitivity.html   14 pages
-  assets/app.<hash>.js                          all pages (classic script, ~70 KiB)
+  index.html, core.html, ... gpu.html           15 pages
+  assets/app.<hash>.js                          all pages (classic script, ~90 KiB)
   assets/syn-runtime.<hash>.js                  WASM worker with embedded library (~530 KiB)
   assets/style.<hash>.css
   manifest.json, README.txt                     build commit, file sizes and SHA-256
 ```
 
-The whole site is about 610 KiB (about 240 KiB zipped). `node web/tests/e2e.mjs --root dist/standalone --file` opens every page from
-disk and checks that the pages make no network request at all.
+The whole site is about 750 KiB (about 290 KiB zipped). `node web/tests/e2e.mjs --root dist/standalone --file` opens every page from
+disk and checks that the pages make no network request at all, and that the WebGPU kernels still agree with WASM.
 
 ## Docker
 
@@ -90,7 +93,7 @@ docker run --rm -p 8080:80 synaptic                # web front end at http://loc
 docker build --target native -t synaptic:native .  # native C++ build, ctest
 docker run --rm synaptic:native                    # end-to-end demo
 
-docker build --target e2e .                        # every page in headless Chromium:
+docker build --target e2e .                        # every page in headless Chromium, WebGPU on SwiftShader:
                                                    # dev site over HTTP, standalone from file:// and over HTTP
 docker build --target standalone-artifacts --output dist .  # export the standalone site and zip
 docker build --target wasm-artifacts --output web/wasm .    # export syn.js / syn.wasm to the host
@@ -103,7 +106,7 @@ docker build --target wasm-artifacts --output web/wasm .    # export syn.js / sy
 | `wasm-artifacts` | `scratch` | Only `syn.js` and `syn.wasm`, for `--output` |
 | `standalone` | `node:22-alpine` | Copy-deployable site built with the pinned esbuild |
 | `standalone-artifacts` | `scratch` | `standalone/` folder and `synaptic-standalone.zip`, for `--output` |
-| `e2e` | `mcr.microsoft.com/playwright` | Browser test of all pages in three modes |
+| `e2e` | `mcr.microsoft.com/playwright` | Browser test of all pages in three modes, including WebGPU-vs-WASM agreement |
 | `web` (default) | `nginx:1.27-alpine` | The standalone site; hashed assets are cached as immutable |
 
 If the network goes through a TLS-intercepting proxy, give the npm stages the proxy's CA so they can reach the registry:
@@ -134,9 +137,38 @@ python3 -m http.server -d web 8000      # any static server; file:// will not lo
 | `theories.html` | Activity 3.3 designed by every theory, on three populations | `theories` |
 | `allocation.html` | Shapley, incremental and standalone allocation of a design's gain | `allocation` |
 | `sensitivity.html` | Lever sensitivities with common random numbers vs independent seeds | `sensitivity` |
+| `gpu.html` | Fused WebGPU kernels validated against WebAssembly, a batch benchmark and adapter diagnostics | `gpuJobs` · `gpuAnalyse` |
 
 The pages share one specification: the learner population, the course, the instructional design (sixteen levers, or any theory's
 preset) and the simulation settings. You edit it on any page, and the browser's local storage keeps it.
+
+**Compute engine.** The overview, classroom, theories, allocation and sensitivity pages have an *Engine* selector:
+- **Auto** (the default) runs the fused **WebGPU** kernels wherever the browser offers a WebGPU adapter, including a
+  compatibility-mode (OpenGL ES) adapter: the kernels stay within its limits (4 storage buffers per stage, 128 invocations per
+  workgroup).
+- Where there is no adapter, Auto runs the **same fused kernels on the CPU**, with the (job, workgroup) tiles split across
+  Web Workers (one per core, at most 8). The result is identical however many workers run, and agrees with WebGPU to about 1e-6.
+- Courses beyond the kernel limits (more than 16 sessions) and failures fall back to **WebAssembly** (the library's
+  `ClassroomEngine`). The status line names the engine that ran and why. Per-learner views (the capital/score scatter and the
+  score histogram) are WebAssembly-only, because the kernels never return individual learners.
+
+**WebGPU fused kernels** (`include/syn/gpu/fused_classroom.hpp`). `compile()` turns a batch of courses into flat buffers: a
+uniform header, the population, course and model constants, one row of levers per job, the job seeds and the reporting days.
+Three WGSL kernels (`src/gpu/fused_kernels.cpp`) run on them:
+1. **classroom-fused** runs one invocation per learner and job (grid: learner workgroups × jobs). It samples the learner from
+   counter-based random numbers, runs every session (needs, affect, motivation, the ZPD in elliptic CGA with the scaffold as a
+   dilation versor, encoding and the spaced/retrieval review slots, the response to success and failure), evaluates the score on
+   every reporting day, and the 64 learners of the workgroup sum their statistics into one partial. No per-day state survives
+   the kernel except the scores the quantile kernel needs.
+2. **reduce-partials** sums the workgroup partials into per-job means.
+3. **score-quantiles** histograms each (day, job) and reads off the 10%, 50% and 90% quantiles.
+
+Because jobs are a grid dimension, a whole Shapley allocation (`allocationRequest` → one batch → `allocateFromScores`) or
+sensitivity analysis (`sensitivityRequest` → `sensitivitiesFromScores`) is a single dispatch, and jobs with the same seed share
+learners (common random numbers on the GPU too). `runFusedReference()` (`src/gpu/fused_reference.cpp`) executes the same
+kernels on the CPU in single precision, draw for draw, so the unit tests check the kernel algorithm natively against the
+`ClassroomEngine`; split into `runFusedTiles()` and `finishFused()`, it is the CPU backend (`cpuKernelSlices`,
+`cpuKernelAnalyse`). The GPU's random numbers differ from the engine's, so the two agree within Monte Carlo error.
 
 **All numerics are in C++.** `wasm/bindings.cpp` turns the JS spec into library objects and returns plain objects of numbers and
 `Float64Array`s; the JavaScript only routes calls and draws charts (a small dependency-free canvas library, `web/js/charts.js`).
@@ -147,7 +179,7 @@ preset) and the simulation settings. You edit it on any page, and the browser's 
 emcmake cmake -S . -B build-wasm -DCMAKE_BUILD_TYPE=Release
 cmake --build build-wasm                 # writes web/wasm/syn.js and syn.wasm
 node web/tests/wasm.test.mjs             # every entry point plus invariant checks, in Node
-node web/tests/e2e.mjs                   # every page in headless Chromium (Playwright)
+node web/tests/e2e.mjs                   # every page in headless Chromium (Playwright; WebGPU via SwiftShader)
 ```
 
 ## Geometry: pure elliptic CGA
@@ -204,6 +236,7 @@ ZPD geometry reproduces the logistic model to 1e-13.
 | Activity 3.3 | `classroom/instructional_design.hpp` | The lesson each theory would design (16 levers), including the blended design of the conclusion |
 | Allocation | `classroom/allocation.hpp` | Shapley (adds up exactly), incremental and standalone contributions of each practice |
 | Sensitivities | `classroom/sensitivities.hpp` | Bump-and-rerun slopes per lever with common random numbers vs independent seeds, with standard errors |
+| GPU classroom | `gpu/fused_classroom.hpp` | The classroom engine as fused WGSL kernels: plan compiler, kernel sources, read-back summary, and a CPU reference of the kernels |
 
 ## Conventions
 

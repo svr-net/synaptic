@@ -34,4 +34,23 @@ struct SensitivityResult {
 SensitivityResult leverSensitivities(const ClassroomEngine& engine, const InstructionalDesign& design, double bump,
                                      int replications);
 
+/**
+ * The same in two steps, so any engine can run the courses (one batch on the GPU): `runs`
+ * lists every (design, seed) course needed, and `sensitivitiesFromScores` turns their delayed
+ * test scores (same order) into the result. Run 0 is the design itself on the base seed.
+ */
+struct SensitivityRequest {
+  InstructionalDesign design;
+  double bump = 0.1;
+  int replications = 0;
+  std::uint64_t baseSeed = 0;
+  struct Run {
+    InstructionalDesign design;
+    std::uint64_t seed;
+  };
+  std::vector<Run> runs;
+};
+SensitivityRequest sensitivityRequest(const InstructionalDesign& design, double bump, int replications, std::uint64_t baseSeed);
+SensitivityResult sensitivitiesFromScores(const SensitivityRequest& request, const std::vector<double>& scores);
+
 }  // namespace syn

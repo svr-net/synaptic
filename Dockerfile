@@ -8,7 +8,8 @@
 #   docker build --target native -t synaptic:native .   # C++ build + unit tests
 #   docker run --rm synaptic:native                     # runs the end-to-end demo
 #
-#   docker build --target e2e .                     # browser tests of every page (Playwright);
+#   docker build --target e2e .                     # browser tests of every page (Playwright,
+#                                                   # WebGPU on SwiftShader);
 #                                                   # behind a TLS-intercepting proxy add
 #                                                   # --secret id=ca,src=<proxy CA bundle>
 #   docker build --target wasm-artifacts --output web/wasm .   # export syn.js/syn.wasm to the host

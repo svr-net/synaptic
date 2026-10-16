@@ -1,5 +1,5 @@
-import { run } from '../syn-client.js';
 import { barChart, fmt } from '../charts.js';
+import { engineNote, engineSelector, runAnalysis } from '../gpu/backend.js';
 import { card, grid, initPage, runButton, specEditor, table, tiles, toolbarNumber } from '../ui.js';
 
 const page = initPage({
@@ -16,16 +16,19 @@ specEditor(page, ['population', 'course', 'design', 'simulation']);
 const bump = toolbarNumber(page, 'bump', 0.1, { step: 0.05, width: 60 });
 const reps = toolbarNumber(page, 'replications', 6, { step: 1, width: 60 });
 
-runButton(page, 'Compute sensitivities', async (spec) => {
-  const r = await run('sensitivity', { ...spec, sensitivity: { bump: bump(), replications: reps(), maxLearners: 300 } });
-  window.__synLastRun = { page: 'sensitivity', varianceReduction: r.varianceReduction };
+const button = runButton(page, 'Compute sensitivities', async (spec) => {
+  const t0 = performance.now();
+  // The fused kernels batch every course into one dispatch, so they afford more learners.
+  const runResult = await runAnalysis('sensitivity', { ...spec, sensitivity: { bump: bump(), replications: reps(), maxLearners: 300 } });
+  const r = runResult.result;
+  window.__synEngineRun = { page: 'sensitivity', engine: runResult.engine, varianceReduction: r.varianceReduction, score: r.score };
   const sorted = [...r.levers].sort((a, b) => b.crn - a.crn);
   tiles(page.content, [
     { label: 'Delayed score', value: fmt.num(r.score, 3) },
     { label: 'Most valuable next step', value: sorted[0].lever, hint: `+${fmt.num(sorted[0].crn * 0.1, 4)} per +0.1` },
     { label: 'Least valuable', value: sorted[sorted.length - 1].lever },
     { label: 'Variance reduction (CRN)', value: `×${fmt.num(r.varianceReduction, 0)}`, hint: 'mean (se independent / se CRN)²' },
-    { label: 'Runs', value: fmt.num(2 * 2 * r.replications * r.levers.length), hint: `${r.learners} learners each, ${fmt.num(r.elapsedMs)} ms` },
+    { label: 'Courses run', value: fmt.num(1 + 3 * r.replications * r.levers.length), hint: `${r.learners} learners each, ` + (runResult.fused ? `one batch, ${fmt.num(r.gpuMs)} ms on the ${runResult.label}` : `${fmt.num(r.elapsedMs)} ms in WebAssembly`) },
   ]);
   const g = grid(page.content, true);
   barChart(card(g, '∂ score / ∂ lever', 'Common random numbers against independent seeds, at the current design.'), {
@@ -34,4 +37,6 @@ runButton(page, 'Compute sensitivities', async (spec) => {
   });
   table(card(g, 'Sensitivity table', ''), ['practice', 'theory', 'level', 'CRN', '± se', 'independent', '± se', 'se ratio'],
     sorted.map((l) => [l.lever, l.theory, fmt.num(l.value, 2), fmt.num(l.crn, 4), fmt.num(l.crnSe, 4), fmt.num(l.independent, 4), fmt.num(l.independentSe, 4), l.crnSe > 0 ? `×${fmt.num(l.independentSe / l.crnSe, 0)}` : '–']));
+  return engineNote(runResult, performance.now() - t0);
 });
+engineSelector(page, () => button.click());

@@ -15,6 +15,7 @@ const pages = {
   theories: () => import('./pages/theories.js'),
   allocation: () => import('./pages/allocation.js'),
   sensitivity: () => import('./pages/sensitivity.js'),
+  gpu: () => import('./pages/gpu.js'),
 };
 
 const id = document.body.dataset.page || 'index';

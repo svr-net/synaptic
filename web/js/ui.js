@@ -33,6 +33,7 @@ export const PAGES = [
       { id: 'sensitivity', href: 'sensitivity.html', title: 'Lever sensitivities' },
     ],
   },
+  { group: 'Acceleration', items: [{ id: 'gpu', href: 'gpu.html', title: 'WebGPU fused kernels' }] },
 ];
 
 export function el(tag, attrs = {}, ...children) {
@@ -70,8 +71,10 @@ export function initPage({ id, title, context, description }) {
     for (const p of g.items) links.append(el('a', { href: p.href, class: p.id === id ? 'active' : '', text: p.title }));
   }
   const wasmDot = el('span', { class: 'dot' });
+  const gpuDot = el('span', { class: 'dot' });
   const wasmText = el('span', { text: 'WASM: loading…' });
-  links.append(el('div', { class: 'env' }, el('div', {}, wasmDot, wasmText)));
+  const gpuText = el('span', { text: 'WebGPU: checking…' });
+  links.append(el('div', { class: 'env' }, el('div', {}, wasmDot, wasmText), el('div', {}, gpuDot, gpuText)));
 
   const status = el('span', { class: 'status', id: 'run-status' });
   const toolbar = el('div', { class: 'toolbar' });
@@ -87,8 +90,21 @@ export function initPage({ id, title, context, description }) {
   import('./syn-client.js').then(({ run }) => run('version', {}))
     .then((v) => { wasmDot.className = 'dot ok'; wasmText.textContent = `WASM: ${v.library}`; })
     .catch((e) => { wasmDot.className = 'dot bad'; wasmText.textContent = 'WASM: ' + e.message; });
+  gpuStatus().then((s) => { gpuDot.className = 'dot ' + (s.ok ? 'ok' : 'bad'); gpuText.textContent = 'WebGPU: ' + s.text; });
 
   return { main, toolbar, status, content, spec: loadSpec() };
+}
+
+export async function gpuStatus() {
+  if (!('gpu' in navigator)) return { ok: false, text: 'not available' };
+  try {
+    const adapter = await navigator.gpu.requestAdapter();
+    if (!adapter) return { ok: false, text: 'no adapter (CPU kernels)' };
+    const info = adapter.info || {};
+    return { ok: true, text: [info.vendor, info.architecture].filter(Boolean).join(' ') || 'available' };
+  } catch (e) {
+    return { ok: false, text: e.message };
+  }
 }
 
 export function card(parent, title, note) {

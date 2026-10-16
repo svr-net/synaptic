@@ -1,5 +1,5 @@
-import { run } from '../syn-client.js';
 import { barChart, fmt, lineChart } from '../charts.js';
+import { engineNote, engineSelector, runAnalysis } from '../gpu/backend.js';
 import { LEVERS } from '../spec.js';
 import { callout, card, grid, initPage, runButton, specEditor, table, tiles } from '../ui.js';
 
@@ -13,8 +13,11 @@ const page = initPage({
 });
 specEditor(page, ['course', 'simulation']);
 
-runButton(page, 'Compare', async (spec) => {
-  const r = await run('theories', spec);
+const button = runButton(page, 'Compare', async (spec) => {
+  const t0 = performance.now();
+  const runResult = await runAnalysis('theories', spec);
+  const r = runResult.result;
+  window.__synEngineRun = { page: 'theories', engine: runResult.engine, blended: r.populations[1].results[7].delayedScore, banking: r.populations[1].results[0].delayedScore };
   const [kids, teens, adults] = r.populations;
   const best = (p) => p.results.reduce((a, b, i) => (b.delayedScore > p.results[a].delayedScore ? i : a), 0);
   const single = (p) => p.results.slice(1, -1).reduce((a, b, i) => (b.delayedScore > p.results[a + 1].delayedScore ? i : a), 0) + 1;
@@ -44,4 +47,6 @@ runButton(page, 'Compare', async (spec) => {
   table(card(g, 'The lesson each theory designs', 'Lever settings (0–1).'), ['lever', ...r.theories], LEVERS.map((l) => [l.name, ...r.designs.map((d) => fmt.num(d[l.key], 1))]));
   callout(page.content, 'Load any of these designs into the shared specification with the <i>start from the lesson of</i> selector on the <a href="classroom.html">classroom page</a>, ' +
     'then see where its gain comes from on <a href="allocation.html">Gain allocation</a>.');
+  return engineNote(runResult, performance.now() - t0);
 });
+engineSelector(page, () => button.click());

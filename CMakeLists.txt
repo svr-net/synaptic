@@ -41,6 +41,9 @@ add_library(syn
   src/classroom/classroom_engine.cpp
   src/classroom/allocation.cpp
   src/classroom/sensitivities.cpp
+  src/gpu/fused_classroom.cpp
+  src/gpu/fused_kernels.cpp
+  src/gpu/fused_reference.cpp
 )
 add_library(syn::syn ALIAS syn)
 
@@ -94,6 +97,7 @@ if(SYN_BUILD_TESTS)
     tests/test_andragogy.cpp
     tests/test_motivation.cpp
     tests/test_classroom.cpp
+    tests/test_gpu.cpp
   )
   target_link_libraries(syn_tests PRIVATE syn)
   add_test(NAME syn_tests COMMAND syn_tests)
