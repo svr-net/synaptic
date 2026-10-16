@@ -60,6 +60,10 @@ if(EMSCRIPTEN)
   target_compile_options(syn PRIVATE ${SYN_WASM_FLAGS})
   add_executable(syn_wasm wasm/bindings.cpp)
   target_compile_options(syn_wasm PRIVATE ${SYN_WASM_FLAGS})
+  # The wrapper is glue only. At -O3, LLVM places wasm exception-handling try/delegate blocks
+  # in the wrapper non-deterministically, so the committed syn.wasm could not be checked
+  # against a rebuild. -O2 is byte-reproducible; the library itself stays at -O3.
+  set_source_files_properties(wasm/bindings.cpp PROPERTIES COMPILE_OPTIONS -O2)
   target_compile_definitions(syn_wasm PRIVATE SYN_VERSION="${PROJECT_VERSION}")
   target_link_libraries(syn_wasm PRIVATE syn)
   target_link_options(syn_wasm PRIVATE
