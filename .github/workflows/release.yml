@@ -1,0 +1,83 @@
+name: Release
+
+# Publishes a GitHub release with the copy-deployable standalone site, either by pushing a
+# tag that matches the CMake project version (e.g. v0.1.0), or by running this workflow
+# manually on main, which creates that tag on the tested commit. Either way the full CI runs
+# first, and the zip attached to the release is the one CI built and tested.
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  ci:
+    uses: ./.github/workflows/ci.yml
+
+  release:
+    needs: ci
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Resolve the release tag
+        id: tag
+        run: |
+          version=$(sed -n 's/^ *VERSION \([0-9][0-9.]*\)$/\1/p' CMakeLists.txt | head -n 1)
+          tag="v${version}"
+          if [ "${GITHUB_EVENT_NAME}" = "push" ] && [ "${GITHUB_REF_NAME}" != "${tag}" ]; then
+            echo "::error::Tag ${GITHUB_REF_NAME} does not match project VERSION ${version} in CMakeLists.txt"
+            exit 1
+          fi
+          if [ "${GITHUB_EVENT_NAME}" = "workflow_dispatch" ]; then
+            if [ "${GITHUB_REF}" != "refs/heads/main" ]; then
+              echo "::error::Manual releases run from main only (got ${GITHUB_REF})"
+              exit 1
+            fi
+            if git ls-remote --exit-code --tags origin "refs/tags/${tag}" >/dev/null; then
+              echo "::error::Tag ${tag} already exists: bump VERSION in CMakeLists.txt for a new release"
+              exit 1
+            fi
+          fi
+          echo "tag=${tag}" >> "$GITHUB_OUTPUT"
+      - uses: actions/download-artifact@v4
+        with:
+          name: synaptic-standalone
+          path: dist
+      - name: Package release assets
+        env:
+          TAG: ${{ steps.tag.outputs.tag }}
+        run: |
+          cd dist
+          asset="synaptic-standalone-${TAG}.zip"
+          mv synaptic-standalone.zip "${asset}"
+          sha256sum "${asset}" > "${asset}.sha256"
+          cat "${asset}.sha256"
+      - name: Publish GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.tag.outputs.tag }}
+          target_commitish: ${{ github.sha }}
+          name: synaptic ${{ steps.tag.outputs.tag }}
+          generate_release_notes: true
+          fail_on_unmatched_files: true
+          files: |
+            dist/synaptic-standalone-${{ steps.tag.outputs.tag }}.zip
+            dist/synaptic-standalone-${{ steps.tag.outputs.tag }}.zip.sha256
+          body: |
+            Learning-theory library (C++17), modelling *Learning Theories: Understanding How People Learn* (chapter 3 of *Instruction in Libraries and Information Centers*), with a WebAssembly front end.
+
+            ### Standalone site: `synaptic-standalone-${{ steps.tag.outputs.tag }}.zip`
+            Unzip it anywhere and open `index.html`. It needs no server and no install, because the WebAssembly library is embedded in the bundle.
+            The same folder can be uploaded unchanged to any static host (S3, GitHub Pages, nginx, IIS).
+            It has 14 pages, one per library context: core numerics, behaviourism, humanism, cognitivism, constructivism, social constructivism, developmental stages, andragogy, motivation and mindset, the classroom simulation, the theories compared, gain allocation and lever sensitivities.
+            Verify the download with the attached `.sha256` file.
+
+            ### From source
+            - `cmake -S . -B build && cmake --build build && ctest --test-dir build` builds the native library and runs its tests.
+            - `docker build -t synaptic . && docker run -p 8080:80 synaptic` builds the site and serves it on nginx.
+
+            Before this release was published, the full CI passed on this tag: GCC and Clang builds, sanitizers, the WebAssembly build, browser tests of every page (including the zip's contents opened from `file://`), and the Docker images.
