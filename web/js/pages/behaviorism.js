@@ -1,26 +1,27 @@
-import { run } from '../syn-client.js';
 import { barChart, fmt, lineChart } from '../charts.js';
-import { callout, card, grid, initPage, runButton, table, tiles, toolbarNumber } from '../ui.js';
+import { modelButton, runModels } from '../engine/run.js';
+import { callout, card, grid, initPage, table, tiles, toolbarNumber } from '../ui.js';
 
 const page = initPage({
   id: 'behaviorism',
   title: 'Behaviourism: conditioning and reinforcement',
-  context: 'syn/behaviorism: RescorlaWagner · simulateOperant · simulateTokenEconomy',
+  context: 'models: conditioning · operant · tokenEconomy · fused kernels in the space Cl(4, 1)',
   description: 'Learning as a change in behaviour brought about by the environment. <b>Classical conditioning</b> (Pavlov, Watson) uses the ' +
     'Rescorla–Wagner rule ΔV = αβ(λ − ΣV): a bell paired with food comes to predict it. <b>Operant conditioning</b> (Skinner) strengthens ' +
     'behaviour that is reinforced, on continuous or intermittent schedules, and weakens it when reinforcement stops. A classroom ' +
-    '<b>point system</b> treats motivation as external: engagement rises while points are given and falls back when they are withdrawn.',
+    '<b>point system</b> treats motivation as external: engagement rises while points are given and falls back when they are withdrawn.' +
+    ' <i>In the space:</i> associative strengths and response probabilities are points; Rescorla–Wagner trials and reinforcement are mixtures towards the learner; every random event is a cap test; fear generalises by the similarity of stimulus points.',
 });
 
 const salience = toolbarNumber(page, 'CS salience α', 0.3, { step: 0.05 });
 const ratio = toolbarNumber(page, 'schedule ratio / interval', 5, { step: 1 });
 
-runButton(page, 'Run experiments', async (spec) => {
-  const [c, o, t] = await Promise.all([
-    run('conditioning', { ...spec, conditioning: { salience: salience() } }),
-    run('operant', { ...spec, operant: { ratio: ratio(), learners: 200 } }),
-    run('tokenEconomy', spec),
-  ]);
+modelButton(page, 'Run experiments', async (spec) => {
+  const { results: [c, o, t], note } = await runModels([
+    ['conditioning', { ...spec, conditioning: { salience: salience() } }],
+    ['operant', { ...spec, operant: { ratio: ratio(), learners: 200 } }],
+    ['tokenEconomy', spec],
+  ], page);
   const crf = o.runs[0], vr = o.runs[2];
   tiles(page.content, [
     { label: 'Bell after acquisition', value: fmt.num(c.pavlov[c.acquisitionTrials - 1], 3), hint: 'associative strength V' },
@@ -43,7 +44,7 @@ runButton(page, 'Run experiments', async (spec) => {
   barChart(card(g, "Watson's experiment: generalised fear", 'A white rat paired with a loud noise; fear spreads to things that resemble the rat.'), {
     labels: c.fear.map((p) => p.stimulus), series: [{ name: 'fear response', values: c.fear.map((p) => p.fear) }], yFormat: (v) => v.toFixed(2),
   });
-  const steps = Array.from(crf.probability, (_, i) => i + 1);
+  const steps = Array.from(o.steps);
   lineChart(card(g, 'Response probability by schedule', `Training for ${o.training} opportunities, then extinction (no reinforcement).`), {
     x: steps, xLabel: 'opportunity', yLabel: 'P(response)', series: o.runs.map((r, i) => ({ name: r.schedule, y: Array.from(r.probability), colorIndex: i })),
   });
@@ -60,4 +61,5 @@ runButton(page, 'Run experiments', async (spec) => {
     o.runs.map((r) => [r.schedule, fmt.num(r.acquisitionSteps), fmt.num(r.resistance), fmt.num(r.reinforcersPerResponse, 2)]));
   callout(page.content, 'In the classroom engine the <i>reinforcement</i> lever is the point system: it adds external value (more for younger learners), builds habit, ' +
     'and slightly erodes intrinsic interest. See <a href="classroom.html">the classroom simulation</a>.');
+  return note;
 });

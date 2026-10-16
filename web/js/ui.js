@@ -5,7 +5,7 @@ import { fmt } from './charts.js';
 
 export const PAGES = [
   { group: 'Overview', items: [{ id: 'index', href: 'index.html', title: 'Overview' }] },
-  { group: 'Foundations', items: [{ id: 'core', href: 'core.html', title: 'Core numerics' }] },
+  { group: 'Foundations', items: [{ id: 'core', href: 'core.html', title: 'The space' }] },
   {
     group: 'Learning theories',
     items: [
@@ -95,7 +95,7 @@ export function initPage({ id, title, context, description }) {
     .catch((e) => { wasmDot.className = 'dot bad'; wasmText.textContent = 'WASM: ' + e.message; });
   gpuStatus().then((s) => { gpuDot.className = 'dot ' + (s.ok ? 'ok' : 'bad'); gpuText.textContent = 'WebGPU: ' + s.text; });
 
-  return { main, toolbar, status, content, spec: loadSpec() };
+  return { id, main, toolbar, status, content, spec: loadSpec() };
 }
 
 export async function gpuStatus() {

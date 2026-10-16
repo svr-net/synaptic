@@ -1,24 +1,30 @@
-import { run } from '../syn-client.js';
 import { barChart, fmt, lineChart } from '../charts.js';
-import { callout, card, grid, initPage, runButton, table, tiles, toolbarNumber, toolbarSelect } from '../ui.js';
+import { modelButton, runModels } from '../engine/run.js';
+import { callout, card, grid, initPage, table, tiles, toolbarNumber, toolbarSelect } from '../ui.js';
 
 const page = initPage({
   id: 'assessment',
   title: 'Assessing learning',
-  context: 'syn/assessment: scoreActivities · simulateSignals · simulateAssessedSession · simulateAssessmentCycle · simulateRubric · simulateSelfAssessment',
+  context: 'models: assessmentActivities · assessmentSession · rubric · fused kernels in the space Cl(4, 1)',
   description: 'Chapter 9: <b>assessment</b> measures progress toward the outcomes to improve teaching and learning; it is not grading (attendance, ' +
     'effort, conduct) and not evaluation (satisfaction). Activities are <b>formative</b> or <b>summative</b>, <b>direct</b> or <b>indirect</b>, formal or ' +
     'informal, traditional or authentic, and are chosen first for alignment with the outcome, then for the audience and the time. The ' +
     '<b>assessment cycle</b> turns the data into better teaching, offering after offering. <b>Rubrics</b> make "good" explicit, so raters agree and ' +
-    'learners know what to aim for. Self-assessments flatter the least skilled; feedback on them calibrates learners and helps them learn.',
+    'learners know what to aim for. Self-assessments flatter the least skilled; feedback on them calibrates learners and helps them learn.' +
+    ' <i>In the space:</i> chunks mastered through the ZPD dilation, checks and evidence as noisy readings, raters\' judgements as dilated levels, self-assessments as mixtures towards a flattering point.',
 });
 
 const AUDIENCES = ['undergraduates', 'high school students', 'older adults (public library)', 'English-language learners'];
 const minutes = toolbarNumber(page, 'session (min)', 45, { step: 5, width: 60 });
 const audience = toolbarSelect(page, 'audience', AUDIENCES, AUDIENCES[0]);
 
-runButton(page, 'Run', async (spec) => {
-  const r = await run('assessment', { ...spec, assessment: { minutes: minutes() } });
+modelButton(page, 'Run', async (spec) => {
+  const { results: [activities, sessions, rubrics], note } = await runModels([
+    ['assessmentActivities', { ...spec, assessment: { minutes: minutes() } }],
+    ['assessmentSession', { ...spec, assessment: { minutes: minutes() } }],
+    ['rubric', spec],
+  ], page);
+  const r = { ...activities, ...sessions, ...rubrics };
   const au = r.audiences[Math.max(0, AUDIENCES.indexOf(audience()))];
   const [none, , informal, , formal] = r.sessions;
   const direct = r.cycle[3];
@@ -92,4 +98,5 @@ runButton(page, 'Run', async (spec) => {
       a.authentic ? 'yes' : 'no', a.measures, fmt.num(a.noise, 2), fmt.pct(a.reach, 0)]));
   callout(page.content, 'Learners master each chunk through the ZPD of the <a href="social.html">social constructivism page</a> (pure elliptic CGA); the evidence ' +
     'levels are those of the <a href="outcomes.html">outcomes page</a>.');
+  return note;
 });

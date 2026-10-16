@@ -1,23 +1,24 @@
-import { run } from '../syn-client.js';
 import { fmt, lineChart } from '../charts.js';
-import { callout, card, grid, initPage, runButton, table, tiles, toolbarNumber } from '../ui.js';
+import { modelButton, runModels } from '../engine/run.js';
+import { callout, card, grid, initPage, table, tiles, toolbarNumber } from '../ui.js';
 
 const page = initPage({
   id: 'constructivism',
   title: 'Constructivism: assimilation, disequilibrium, accommodation',
-  context: 'syn/constructivism: SchemaLearner · simulateEquilibration',
+  context: 'models: equilibration · fused kernels in the space Cl(4, 1)',
   description: "Piaget's example: a child who knows dogs calls every four-legged animal a dog (<b>assimilation</b>). When the world contradicts " +
     'the schema ("that\'s a cat"), conflict builds up as <b>disequilibrium</b> until the child <b>accommodates</b> by building a new schema. ' +
     'Only accommodation changes the structure of knowledge, so it is where learning happens. Disequilibrium is uncomfortable, and a learner ' +
     'who avoids the discomfort also avoids the learning. Geometry is pure elliptic CGA: experiences are lifted onto the sphere S³ as null vectors, ' +
-    'a schema is a cap (assimilation iff X·S ≥ 0), assimilation rotates the prototype by a rotor, and accommodation centres a new cap on the conflicting experiences.',
+    'a schema is a cap (assimilation iff X·S ≥ 0), assimilation rotates the prototype by a rotor, and accommodation centres a new cap on the conflicting experiences.' +
+    ' <i>In the space:</i> experiences are lifted onto S³ conformally; schemas are prototype points with assimilation caps, assimilation is a rotor towards the experience, accommodation the centre of the conflicting points.',
 });
 
 const feedback = toolbarNumber(page, 'P(an adult names the animal)', 0.3, { step: 0.05 });
 const avoidance = toolbarNumber(page, 'avoidance of discomfort', 0.7, { step: 0.05 });
 
-runButton(page, 'Run', async (spec) => {
-  const r = await run('equilibration', { ...spec, equilibration: { feedback: feedback(), avoidance: avoidance() } });
+modelButton(page, 'Run', async (spec) => {
+  const { results: [r], note } = await runModels([['equilibration', { ...spec, equilibration: { feedback: feedback(), avoidance: avoidance() } }]], page);
   const [silent, some, always, avoid] = r.runs;
   tiles(page.content, [
     { label: 'Accuracy, nobody names animals', value: fmt.pct(silent.finalAccuracy, 0), hint: 'cats are assimilated as dogs' },
@@ -40,4 +41,5 @@ runButton(page, 'Run', async (spec) => {
     r.runs.map((x) => [x.label, fmt.num(x.assimilations, 1), fmt.num(x.conflicts, 1), fmt.num(x.accommodations, 2), fmt.num(x.avoidances, 1), fmt.pct(x.finalAccuracy, 1)]));
   callout(page.content, 'In the classroom engine the <i>problem first</i> lever creates productive disequilibrium: it deepens encoding and helps learners with a growth ' +
     'mindset in an empathetic class, but raises anxiety without support.');
+  return note;
 });

@@ -1,106 +1,106 @@
 import { run } from '../syn-client.js';
-import { barChart, fmt, lineChart } from '../charts.js';
-import { gpuEngine, runOnCpuKernels, runOnGpu } from '../gpu/backend.js';
-import { probeAdapters } from '../gpu/engine.js';
+import { barChart, fmt } from '../charts.js';
+import { gpuEngine, runOnCpuKernels, runOnGpu, runOnWasm } from '../engine/run.js';
+import { probeAdapters } from '../engine/gpu.js';
 import { card, el, grid, initPage, passFail, runButton, specEditor, table, tiles, toolbarNumber } from '../ui.js';
 
 const page = initPage({
   id: 'gpu',
   title: 'WebGPU fused kernels',
-  context: 'syn/gpu: compile · classroomFusedKernel · reducePartialsKernel · scoreQuantilesKernel · summarise',
-  description: 'The whole classroom simulation as one fused compute kernel: one invocation per learner samples the learner, runs every session ' +
-    '(needs, affect, motivation, the ZPD in pure elliptic CGA, encoding and the spaced/retrieval review slots, mindset) and evaluates the test ' +
-    'score on every reporting day; the 64 learners of a workgroup reduce their statistics together. The second grid dimension is the job, ' +
-    'so a whole Shapley allocation or sensitivity analysis is one dispatch. C++ compiles the buffers and owns the WGSL; this page checks the GPU ' +
-    'against the WebAssembly engine (same model, different random numbers: they must agree within Monte Carlo error) and times both.',
+  context: 'syn/kernel: agentKernel · reduceKernel · quantileKernel · runTiles · analyseOutputs — every model of the library',
+  description: 'Every model of the library is one fused compute kernel: one invocation per agent (a learner, a class, an instructor, a rater, a ' +
+    'grid point) runs the model\'s agent program in the space Cl(4, 1) and adds its statistics; the 64 agents of a workgroup reduce them ' +
+    'together, and the second grid dimension is the job (designs, conditions, seeds), so a whole analysis is one dispatch. The agent program ' +
+    'is written once and compiled both as WGSL and as C++, so the same kernel also runs on the CPU (32-bit floats, across Web Workers) and in ' +
+    'WebAssembly (64-bit floats). The engines draw the same random numbers, so they must agree to rounding, not merely within Monte Carlo ' +
+    'error: this page runs every model on all three and checks it.',
 });
 specEditor(page, ['population', 'course', 'design', 'simulation']);
-const learners = toolbarNumber(page, 'learners', 4000, { step: 500, width: 80 });
+const learners = toolbarNumber(page, 'classroom learners', 4000, { step: 500, width: 80 });
 
-runButton(page, 'Validate and benchmark', async (spec) => {
-  const n = Math.max(64, Math.round(learners()));
-  const vspec = { ...spec, sim: { ...spec.sim, learners: n } };
+// Every value of two results, in order (timings and engine names left out).
+function leaves(v, acc = []) {
+  if (typeof v === 'number') acc.push(v);
+  else if (ArrayBuffer.isView(v) || Array.isArray(v)) for (const x of v) leaves(x, acc);
+  else if (v && typeof v === 'object') for (const k of Object.keys(v)) if (!['engineMs', 'adapter', 'kernelPlans', 'kernelJobs', 'workers'].includes(k)) leaves(v[k], acc);
+  return acc;
+}
+// Models whose agents take threshold decisions, where 32-bit rounding can flip one agent's path;
+// and sensitivity, whose variance reduction is a ratio of small variances that amplifies rounding.
+const ALLOW = { equilibration: { flips: 0.02 }, sensitivity: { relative: 0.03 } };
+function worst(a, b, { flips = 0, relative = 2e-3 } = {}) {
+  const x = leaves(a), y = leaves(b);
+  if (x.length !== y.length) return Infinity;
+  let w = 0;
+  x.forEach((v, i) => { if (Number.isFinite(v) && Number.isFinite(y[i])) w = Math.max(w, Math.abs(v - y[i]) / (2e-3 + flips + relative * Math.abs(y[i]))); });
+  return w;
+}
+
+runButton(page, 'Validate every kernel', async (spec) => {
   const probe = await probeAdapters();
   window.__synWebGpuProbe = probe;
-
-  let label = 'WebGPU', fusedRun;
-  try {
-    const gpu = await gpuEngine();
-    fusedRun = await runOnGpu('classroom', vspec, { warmUp: true });
-    label = `WebGPU (${gpu.name})`;
-  } catch (e) {
-    // No adapter: validate the same kernels on the CPU instead.
-    fusedRun = await runOnCpuKernels('classroom', vspec);
-    label = `CPU fused kernels (${fusedRun.result.adapter}); WebGPU: ${e.message}`;
+  let adapter = null;
+  try { adapter = (await gpuEngine()).name; } catch (e) { adapter = null; window.__synGpuError = e.message; }
+  const models = await run('models', {});
+  const small = { ...spec, sim: { ...spec.sim, learners: Math.min(300, spec.sim.learners) } };
+  const rows = [];
+  for (const m of models) {
+    const row = { name: m.name, title: m.title };
+    try {
+      const w = await runOnWasm(m.name, small);
+      const c = await runOnCpuKernels(m.name, small);
+      row.wasmMs = w.engineMs;
+      row.cpuMs = c.engineMs;
+      row.values = leaves(w).length;
+      row.cpu = worst(c, w, ALLOW[m.name]);
+      if (adapter) {
+        const g = await runOnGpu(m.name, small);
+        row.gpuMs = g.engineMs;
+        row.gpu = worst(g, w, ALLOW[m.name]);
+      }
+    } catch (e) {
+      row.error = e.message;
+    }
+    rows.push(row);
   }
-  const g = fusedRun.result;
-  const t0 = performance.now();
-  const w = await run('classroom', vspec);
-  const wasmMs = performance.now() - t0;
+  const passed = rows.filter((r) => !r.error && r.cpu <= 1 && (!adapter || r.gpu <= 1)).length;
+  window.__synKernelCheck = { adapter, models: rows.length, passed, rows };
 
-  // Agreement within Monte Carlo error: 4 standard errors of the mean score.
-  const scoreSd = Math.max(0.02, (w.score.q90[w.score.q90.length - 1] - w.score.q10[w.score.q10.length - 1]) / 2.56);
-  const tol = 4 * scoreSd / Math.sqrt(n) + 0.003;
-  const checks = {
-    delayed: Math.abs(g.delayedScore - w.delayedScore),
-    end: Math.abs(g.endScore - w.endScore),
-    median: Math.abs(g.score.q50[g.score.q50.length - 1] - w.score.q50[w.score.q50.length - 1]),
-    effort: Math.abs(g.sessions.effort[g.sessions.effort.length - 1] - w.sessions.effort[w.sessions.effort.length - 1]),
-    tol,
-  };
-  window.__synLastRun = { checks, engine: label };
+  // A large classroom: the GPU against WebAssembly.
+  const big = { ...spec, sim: { ...spec.sim, learners: Math.max(64, Math.round(learners())) } };
+  const tw = await runOnWasm('classroom', big);
+  const tg = adapter ? await runOnGpu('classroom', big) : await runOnCpuKernels('classroom', big);
   tiles(page.content, [
-    { label: 'Delayed score: fused vs WASM', value: `${fmt.num(g.delayedScore, 4)} / ${fmt.num(w.delayedScore, 4)}`, hint: `difference ${fmt.num(checks.delayed, 4)}, tolerance ${fmt.num(tol, 4)}` },
-    { label: 'Fused kernels', value: `${fmt.num(g.gpuMs, 1)} ms`, hint: label },
-    { label: 'WebAssembly', value: `${fmt.num(wasmMs, 1)} ms`, hint: 'ClassroomEngine in a worker' },
-    { label: 'Speed-up', value: `×${fmt.num(wasmMs / Math.max(0.01, g.gpuMs), 1)}`, hint: `${fmt.num(n)} learners × ${spec.course.sessions} sessions` },
+    { label: 'Kernels agreeing on every engine', value: `${passed} / ${rows.length}`, hint: adapter ? `WebGPU: ${adapter}` : 'no WebGPU adapter: CPU kernels and WebAssembly only' },
+    { label: 'Values compared', value: fmt.num(rows.reduce((s, r) => s + (r.values || 0), 0)), hint: 'every number of every result' },
+    { label: `Classroom, ${fmt.num(big.sim.learners)} learners`, value: `${fmt.num(tg.engineMs, 0)} ms`, hint: `${adapter ? 'WebGPU' : 'CPU kernels'} vs ${fmt.num(tw.engineMs, 0)} ms in WebAssembly` },
+    { label: 'Delayed score', value: `${fmt.num(tg.delayedScore, 4)} / ${fmt.num(tw.delayedScore, 4)}`, hint: '32-bit kernel / 64-bit WebAssembly' },
   ]);
-  const gr = grid(page.content);
-  const days = Array.from(w.score.days);
-  lineChart(card(gr, 'Score profile: fused kernels vs WebAssembly', 'Different random numbers, same model: the curves agree within Monte Carlo error.'), {
-    x: days, xLabel: 'day', yLabel: 'score',
-    series: [{ name: 'WebAssembly mean', y: Array.from(w.score.mean), band: { lower: Array.from(w.score.q10), upper: Array.from(w.score.q90) } },
-      { name: 'fused mean', y: Array.from(g.score.mean), colorIndex: 1, dash: true },
-      { name: 'fused 10% / 90%', y: Array.from(g.score.q10), colorIndex: 2, dash: true }, { name: '', y: Array.from(g.score.q90), colorIndex: 2, dash: true, hideLegend: true }],
+  const g = grid(page.content, true);
+  const fmtExcess = (x) => (x === undefined ? '—' : x === Infinity ? 'shape differs' : `${(100 * x).toFixed(1)}% of tolerance`);
+  table(card(g, 'Every model on every engine', 'Largest difference from WebAssembly over every value of the result, as a share of the tolerance (2·10⁻³ relative + 2·10⁻³).'),
+    ['model', 'values', 'WebGPU', 'CPU kernels', 'ms (GPU / CPU / WASM)', 'result'],
+    rows.map((r) => [r.name, fmt.num(r.values || 0), fmtExcess(r.gpu), fmtExcess(r.cpu),
+      `${r.gpuMs ? fmt.num(r.gpuMs, 0) : '—'} / ${fmt.num(r.cpuMs || 0, 0)} / ${fmt.num(r.wasmMs || 0, 0)}`,
+      r.error ? passFail(false, r.error) : passFail(r.cpu <= 1 && (!adapter || r.gpu <= 1))]));
+  const g2 = grid(page.content);
+  barChart(card(g2, 'Time per model', `${fmt.num(small.sim.learners)} agents per population; milliseconds per run.`), {
+    labels: rows.map((r) => r.name),
+    series: [...(adapter ? [{ name: 'WebGPU', values: rows.map((r) => r.gpuMs || 0) }] : []),
+      { name: 'CPU kernels', values: rows.map((r) => r.cpuMs || 0), colorIndex: 1 }, { name: 'WebAssembly', values: rows.map((r) => r.wasmMs || 0), colorIndex: 2 }],
+    yFormat: (v) => `${v.toFixed(0)} ms`,
   });
-  table(card(gr, 'Validation', ''), ['check', 'difference', 'result'], [
-    ['delayed test score', fmt.num(checks.delayed, 5), passFail(checks.delayed < tol)],
-    ['end-of-course score', fmt.num(checks.end, 5), passFail(checks.end < 1.5 * tol)],
-    ['median delayed score (histogram)', fmt.num(checks.median, 5), passFail(checks.median < 2 * tol + 0.002)],
-    ['effort in the last session', fmt.num(checks.effort, 5), passFail(checks.effort < 0.02)],
-  ]);
-
-  // Benchmark: a batch of 64 courses (an allocation-sized job list) on both engines.
-  const bspec = { ...spec, sim: { ...spec.sim, learners: Math.min(n, 1000) }, allocation: { permutations: 4 } };
-  const tb = performance.now();
-  const wa = await run('allocation', bspec);
-  const wasmBatchMs = performance.now() - tb;
-  let fusedBatch;
-  try {
-    fusedBatch = (await runOnGpu('allocation', bspec)).result;
-  } catch (_) {
-    fusedBatch = (await runOnCpuKernels('allocation', bspec)).result;
-  }
-  barChart(card(gr, `Batch of ${wa.evaluations} courses (a Shapley allocation)`, `${fmt.num(bspec.sim.learners)} learners each; the fused kernels run them as one dispatch.`), {
-    labels: ['WebAssembly', 'fused kernels'], series: [{ name: 'milliseconds', values: [wasmBatchMs, fusedBatch.gpuMs] }], yFormat: (v) => `${v.toFixed(0)} ms`,
-  });
-  table(card(gr, 'Batch agreement', 'Shapley contributions add up exactly on both engines.'), ['quantity', 'WebAssembly', 'fused'], [
-    ['total gain', fmt.num(wa.totalGain, 4), fmt.num(fusedBatch.totalGain, 4)],
-    ['Σ Shapley', fmt.num(wa.shapleySum, 4), fmt.num(fusedBatch.shapleySum, 4)],
-    ['courses', fmt.num(wa.evaluations), fmt.num(fusedBatch.evaluations)],
-  ]);
-
-  const diag = card(gr, 'WebGPU diagnostics', 'Every adapter request and its answer.');
+  const diag = card(g2, 'WebGPU diagnostics', 'Every adapter request and its answer.');
   diag.append(el('dl', { class: 'diagnostics' },
     el('dt', { text: 'navigator.gpu' }), el('dd', { text: probe.api ? 'available' : 'not available' }),
     el('dt', { text: 'secure context' }), el('dd', { text: String(probe.secureContext) }),
     ...probe.adapters.flatMap((a) => [el('dt', { text: `requestAdapter(${a.request})` }),
-      el('dd', { text: a.error ? `error: ${a.error}` : a.adapter ? `${a.adapter} · storage buffers/stage ${a.maxStorageBuffersPerShaderStage} · max binding ${fmt.num(a.maxStorageBufferBindingSize / 2 ** 20)} MiB` : 'null' })])));
-  const kernels = await run('gpuKernels', {});
-  table(card(gr, 'Kernels', 'WGSL sources owned by the C++ library.'), ['kernel', 'lines', 'workgroup'], [
-    ['classroom-fused', fmt.num(kernels.classroomFused.split('\n').length), '64 learners × 1 job'],
-    ['reduce-partials', fmt.num(kernels.reducePartials.split('\n').length), '64 statistics'],
-    ['score-quantiles', fmt.num(kernels.scoreQuantiles.split('\n').length), '128, one (day, job) each'],
+      el('dd', { text: a.error ? `error: ${a.error}` : a.adapter ? `${a.adapter} · storage buffers/stage ${a.maxStorageBuffersPerShaderStage} · max binding ${fmt.num(a.maxStorageBufferBindingSize / 2 ** 20)} MiB` : 'no adapter' })])));
+  const sources = await run('kernelSources', { model: 'classroom' });
+  table(card(g2, 'Kernels', 'WGSL generated by the C++ library: the space, the counter-based random numbers, the model\'s agent and the driver.'), ['kernel', 'lines', 'workgroup'], [
+    ['agent (classroom)', fmt.num(sources.agent.split('\n').length), '64 agents × 1 job'],
+    ['reduce', fmt.num(sources.reduce.split('\n').length), '64 (job, statistic) sums'],
+    ['quantiles', fmt.num(sources.quantile.split('\n').length), '128, one (value, job) each'],
   ]);
-  return `Done · ${label}`;
+  return `Done · ${passed}/${rows.length} kernels agree · ${adapter ? `WebGPU (${adapter})` : 'no WebGPU adapter'}`;
 });

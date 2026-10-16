@@ -136,6 +136,8 @@ jobs:
           path: dist
       - name: Install Playwright
         run: npm install --no-save --no-audit --no-fund playwright@${{ env.PLAYWRIGHT_VERSION }}
+      - name: Every model's kernel on WebGPU, CPU kernels and WebAssembly
+        run: node web/tests/kernels.mjs
       - name: Development site over HTTP
         run: mkdir -p screenshots/dev && SCREENSHOTS="$GITHUB_WORKSPACE/screenshots/dev" node web/tests/e2e.mjs
       - name: Standalone build from file:// (no server, no network)

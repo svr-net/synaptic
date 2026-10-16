@@ -1,24 +1,30 @@
-import { run } from '../syn-client.js';
 import { barChart, fmt, lineChart } from '../charts.js';
-import { callout, card, grid, initPage, runButton, table, tiles, toolbarNumber } from '../ui.js';
+import { modelButton, runModels } from '../engine/run.js';
+import { callout, card, grid, initPage, table, tiles, toolbarNumber } from '../ui.js';
 
 const page = initPage({
   id: 'audience',
   title: 'Identifying audience needs',
-  context: 'syn/audience: simulateOneShot · PriorSource · PreAssessment · simulateCommunity · IspParams (zones of intervention)',
+  context: 'models: audience · community · isp · fused kernels in the space Cl(4, 1)',
   description: 'Chapter 7: before a one-shot session the instructor knows the class only through <b>audience research</b> (Project Information ' +
     'Literacy, Pew), <b>community data</b> (census, campus and community offices, the curriculum) and, if there is time, a <b>pre-assessment</b>. ' +
     'Each source is a belief about the class, and each pre-assessment instrument is a measurement with a cost in class time and analysis time and ' +
     'its own biases (recall is not understanding; public answers flatter). The instructor combines them by precision weighting, pitches the ' +
     'session at the class\'s ZPD and may group learners by score. Demographics describe groups, not individuals, and must be reported in aggregate. ' +
-    'Kuhlthau\'s zones of intervention ask when in the research process a session helps.',
+    'Kuhlthau\'s zones of intervention ask when in the research process a session helps.' +
+    ' <i>In the space:</i> learners are levels around the class mean, instruments read them with noise, the session is pitched at the ZPD (dilation and caps), demographic attributes are cap tests.',
 });
 
 const classSize = toolbarNumber(page, 'class size', 25, { step: 1, width: 60 });
 const minutes = toolbarNumber(page, 'session (min)', 50, { step: 5, width: 60 });
 
-runButton(page, 'Run', async (spec) => {
-  const r = await run('audience', { ...spec, audience: { classSize: classSize(), sessionMinutes: minutes() } });
+modelButton(page, 'Run', async (spec) => {
+  const { results: [one, community, isp], note } = await runModels([
+    ['audience', { ...spec, audience: { classSize: classSize(), sessionMinutes: minutes() } }],
+    ['community', spec],
+    ['isp', { ...spec, isp: { zones: true, students: 300 } }],
+  ], page);
+  const r = { ...one, community, ...isp };
   const P = r.priors.length;
   const assumption = 0, research = 1;
   const best = r.instruments.reduce((a, b) => (b.gain[research] > a.gain[research] ? b : a));
@@ -66,4 +72,5 @@ runButton(page, 'Run', async (spec) => {
       fmt.pct(x.participation, 0), x.individual ? 'yes' : 'no', ...Array.from({ length: P }, (_, k) => fmt.num(x.gain[k], 4))]));
   callout(page.content, 'The pitch uses the ZPD of the <a href="social.html">social constructivism page</a> (pure elliptic CGA); the stages are those of the ' +
     '<a href="humanism.html">humanism page</a>, now with Kuhlthau\'s seventh stage, assessment.');
+  return note;
 });

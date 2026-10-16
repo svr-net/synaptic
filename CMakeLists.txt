@@ -20,44 +20,12 @@ option(SYN_BUILD_EXAMPLES "Build the example programs" ON)
 file(GLOB SYN_MODEL_SOURCES CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/src/models/*.cpp)
 
 add_library(syn
-  src/core/session_grid.cpp
   src/core/multivector.cpp
   src/core/elliptic_cga.cpp
   src/core/value.cpp
   src/space/space_wgsl.cpp
   src/kernel/kernel.cpp
   ${SYN_MODEL_SOURCES}
-  src/behaviorism/classical_conditioning.cpp
-  src/behaviorism/operant_conditioning.cpp
-  src/behaviorism/token_economy.cpp
-  src/humanism/maslow.cpp
-  src/humanism/information_search.cpp
-  src/cognitivism/memory.cpp
-  src/cognitivism/interleaving.cpp
-  src/cognitivism/schema.cpp
-  src/constructivism/equilibration.cpp
-  src/social/zpd.cpp
-  src/social/dialogue.cpp
-  src/development/piaget.cpp
-  src/development/perry.cpp
-  src/andragogy/andragogy.cpp
-  src/motivation/expectancy_value.cpp
-  src/motivation/mindset.cpp
-  src/audience/pre_assessment.cpp
-  src/audience/community.cpp
-  src/outcomes/bloom.cpp
-  src/outcomes/backward_design.cpp
-  src/assessment/activities.cpp
-  src/assessment/session.cpp
-  src/assessment/rubric.cpp
-  src/classroom/learner.cpp
-  src/classroom/instructional_design.cpp
-  src/classroom/classroom_engine.cpp
-  src/classroom/allocation.cpp
-  src/classroom/sensitivities.cpp
-  src/gpu/fused_classroom.cpp
-  src/gpu/fused_kernels.cpp
-  src/gpu/fused_reference.cpp
 )
 add_library(syn::syn ALIAS syn)
 
@@ -77,13 +45,13 @@ if(EMSCRIPTEN)
   # produces web/wasm/syn.js + syn.wasm.
   set(SYN_WASM_FLAGS -fwasm-exceptions -msimd128)
   target_compile_options(syn PRIVATE ${SYN_WASM_FLAGS})
-  add_executable(syn_wasm wasm/bindings.cpp wasm/bindings_kernel.cpp)
+  add_executable(syn_wasm wasm/bindings.cpp)
   target_compile_options(syn_wasm PRIVATE ${SYN_WASM_FLAGS})
   # The wrapper is glue only. When functions are inlined into the try/catch guards, LLVM places
   # wasm exception-handling try/delegate blocks non-deterministically, so the committed syn.wasm
   # could not be checked against a rebuild. -O2 without inlining is byte-reproducible; the
   # library itself stays at -O3.
-  set_source_files_properties(wasm/bindings.cpp wasm/bindings_kernel.cpp PROPERTIES COMPILE_OPTIONS "-O2;-fno-inline-functions")
+  set_source_files_properties(wasm/bindings.cpp PROPERTIES COMPILE_OPTIONS "-O2;-fno-inline-functions")
   target_compile_definitions(syn_wasm PRIVATE SYN_VERSION="${PROJECT_VERSION}")
   target_link_libraries(syn_wasm PRIVATE syn)
   target_link_options(syn_wasm PRIVATE
@@ -101,22 +69,9 @@ if(SYN_BUILD_TESTS)
   enable_testing()
   add_executable(syn_tests
     tests/test_main.cpp
-    tests/test_core.cpp
     tests/test_cga.cpp
     tests/test_space.cpp
-    tests/test_behaviorism.cpp
-    tests/test_humanism.cpp
-    tests/test_cognitivism.cpp
-    tests/test_constructivism.cpp
-    tests/test_social.cpp
-    tests/test_development.cpp
-    tests/test_andragogy.cpp
-    tests/test_motivation.cpp
-    tests/test_classroom.cpp
-    tests/test_audience.cpp
-    tests/test_outcomes.cpp
-    tests/test_assessment.cpp
-    tests/test_gpu.cpp
+    tests/test_models.cpp
   )
   target_link_libraries(syn_tests PRIVATE syn)
   add_test(NAME syn_tests COMMAND syn_tests)

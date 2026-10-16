@@ -87,8 +87,10 @@ COPY --from=standalone /dist/standalone /standalone
 RUN --mount=type=secret,id=ca,required=false \
     if [ -f /run/secrets/ca ]; then export NODE_EXTRA_CA_CERTS=/run/secrets/ca; fi \
  && npm init -y >/dev/null && npm install --no-audit --no-fund playwright@${PLAYWRIGHT_VERSION}
-# Development site over HTTP, then the standalone build opened from disk and served over HTTP.
-RUN node tests/e2e.mjs \
+# Every model's kernel on every engine; the development site over HTTP; then the standalone build
+# opened from disk and served over HTTP.
+RUN node tests/kernels.mjs \
+ && node tests/e2e.mjs \
  && node tests/e2e.mjs --root /standalone --file \
  && node tests/e2e.mjs --root /standalone
 

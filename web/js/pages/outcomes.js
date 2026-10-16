@@ -1,16 +1,17 @@
-import { run } from '../syn-client.js';
 import { barChart, fmt, lineChart } from '../charts.js';
-import { callout, card, el, grid, initPage, runButton, table, tiles, toolbarNumber } from '../ui.js';
+import { modelButton, runModels } from '../engine/run.js';
+import { callout, card, el, grid, initPage, table, tiles, toolbarNumber } from '../ui.js';
 
 const page = initPage({
   id: 'outcomes',
   title: 'Learning goals and outcomes',
-  context: 'syn/outcomes: analyseOutcome · BloomLevel · checkEvidence · simulateSession · backwardDesignPlan · fitOutcomeLevel',
+  context: 'models: outcomes · fused kernels in the space Cl(4, 1)',
   description: 'Chapter 8: <b>Backward Design</b> plans a session from its results: stage 1 writes the learning outcomes, stage 2 chooses the ' +
     'evidence that they were met, stage 3 the activities. It avoids the <b>twin sins</b> of coverage-based instruction (everything, by lecture) and ' +
     'activity-based instruction (practice without the when and why). Outcomes start with an observable action verb from <b>Bloom\'s taxonomy</b>; ' +
     '"understand" and "know" cannot be measured. Content is prioritised into big ideas, the basic ideas they rest on, and what is only worth ' +
-    'being familiar with; about three to four outcomes fit an hour. Shared outcomes, essential questions and affective framing make the relevance explicit.',
+    'being familiar with; about three to four outcomes fit an hour. Shared outcomes, essential questions and affective framing make the relevance explicit.' +
+    ' <i>In the space:</i> Bloom\'s levels are points; mastery climbs the hierarchy by mixtures; content mastery is a point raised by the minutes; the outcome level fits the audience\'s ZPD.',
 });
 
 const minutes = toolbarNumber(page, 'session (min)', 50, { step: 5, width: 60 });
@@ -22,9 +23,9 @@ page.main.insertBefore(el('section', { class: 'card' }, el('h2', { text: 'Your o
 
 const verdict = (a) => (a.strong ? '✓ strong' : a.measurable ? '~ measurable, too broad' : '✗ not measurable');
 
-runButton(page, 'Run', async (spec) => {
+modelButton(page, 'Run', async (spec) => {
   const texts = box.value.split('\n').map((s) => s.trim()).filter(Boolean);
-  const r = await run('outcomes', { ...spec, outcomes: { minutes: minutes(), outcomes: count(), texts } });
+  const { results: [r], note } = await runModels([['outcomes', { ...spec, outcomes: { minutes: minutes(), outcomes: count(), texts } }]], page);
   const [coverage, activity, backward] = r.plans;
   const hour = r.sweep.find((s) => s.minutes === 60);
   const bestK = r.outcomeCounts[hour.enduring.indexOf(Math.max(...hour.enduring))];
@@ -76,4 +77,5 @@ runButton(page, 'Run', async (spec) => {
     r.levels.map((l, k) => [l, r.verbs[k]]));
   callout(page.content, 'The audience fit uses the ZPD of the <a href="social.html">social constructivism page</a> (pure elliptic CGA); knowing the audience is the ' +
     '<a href="audience.html">previous chapter</a>.');
+  return note;
 });

@@ -1,16 +1,17 @@
 import { barChart, fmt } from '../charts.js';
-import { engineNote, engineSelector, runAnalysis } from '../gpu/backend.js';
+import { engineNote, engineSelector, runModel } from '../engine/run.js';
 import { THEORY_PRESETS } from '../spec.js';
 import { card, grid, initPage, passFail, runButton, specEditor, table, tiles, toolbarNumber, toolbarSelect } from '../ui.js';
 
 const page = initPage({
   id: 'allocation',
   title: 'Allocating the learning gain to teaching practices',
-  context: 'syn/classroom: allocateLearningGain (Shapley · incremental · standalone)',
+  context: 'models: allocation · fused kernels in the space Cl(4, 1)',
   description: 'A design improves the delayed test score over a baseline lesson. Teaching practices interact (spacing needs retrieval, retrieval needs ' +
     'feedback, everything needs a learner who is not too anxious to think), so the gain has to be split. The <b>Shapley</b> contribution averages ' +
     "each practice's marginal effect over random orders of adding them, and adds up exactly to the total. The <b>incremental</b> effect is " +
-    'what removing the practice from the design would cost; the <b>standalone</b> effect is what it does alone. Neither adds up.',
+    'what removing the practice from the design would cost; the <b>standalone</b> effect is what it does alone. Neither adds up.' +
+    ' <i>In the space:</i> the same classroom agent for every subset of levers; Shapley, incremental and standalone shares.',
 });
 specEditor(page, ['population', 'course', 'design', 'simulation']);
 
@@ -19,7 +20,7 @@ const permutations = toolbarNumber(page, 'orders', 12, { step: 1, width: 60 });
 
 const button = runButton(page, 'Allocate', async (spec) => {
   const t0 = performance.now();
-  const runResult = await runAnalysis('allocation', { ...spec, allocation: { baseline: THEORY_PRESETS[baseline()], permutations: permutations() } });
+  const runResult = await runModel('allocation', { ...spec, allocation: { baseline: THEORY_PRESETS[baseline()], permutations: permutations() } });
   const r = runResult.result;
   window.__synEngineRun = { page: 'allocation', engine: runResult.engine, totalGain: r.totalGain, shapleySum: r.shapleySum };
   const sum = (k) => r.levers.reduce((s, l) => s + l[k], 0);
@@ -28,7 +29,7 @@ const button = runButton(page, 'Allocate', async (spec) => {
     { label: 'Gain to allocate', value: fmt.num(r.totalGain, 3) },
     { label: 'Σ Shapley', value: fmt.num(r.shapleySum, 3), hint: 'adds up exactly' },
     { label: 'Σ standalone / Σ incremental', value: `${fmt.num(sum('standalone'), 3)} / ${fmt.num(sum('incremental'), 3)}`, hint: 'interactions: do not add up' },
-    { label: 'Courses run', value: fmt.num(r.evaluations), hint: runResult.fused ? `one batch, ${fmt.num(r.gpuMs)} ms on the ${runResult.label}` : `${r.permutations} orders, ${fmt.num(r.elapsedMs)} ms in WebAssembly` },
+    { label: 'Courses run', value: fmt.num(r.evaluations), hint: `${r.permutations} orders, one batch, ${fmt.num(r.engineMs)} ms on ${runResult.label}` },
   ]);
   const g = grid(page.content, true);
   const sorted = [...r.levers].sort((a, b) => b.shapley - a.shapley);

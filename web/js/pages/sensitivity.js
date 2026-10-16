@@ -1,15 +1,16 @@
 import { barChart, fmt } from '../charts.js';
-import { engineNote, engineSelector, runAnalysis } from '../gpu/backend.js';
+import { engineNote, engineSelector, runModel } from '../engine/run.js';
 import { card, grid, initPage, runButton, specEditor, table, tiles, toolbarNumber } from '../ui.js';
 
 const page = initPage({
   id: 'sensitivity',
   title: 'Lever sensitivities: where would more help most?',
-  context: 'syn/classroom: leverSensitivities (bump-and-rerun, CRN vs independent seeds)',
+  context: 'models: sensitivity · fused kernels in the space Cl(4, 1)',
   description: 'The slope of the delayed test score in each teaching practice, estimated by nudging the lever up and down and rerunning the course. ' +
     'With <b>common random numbers</b> both runs use the same learners and the same luck, so the difference measures the practice. With ' +
     '<b>independent seeds</b> the Monte Carlo noise of each run is divided by the small bump and swamps the effect. Repeating the estimate ' +
-    'over several seeds shows the standard error of each method.',
+    'over several seeds shows the standard error of each method.' +
+    ' <i>In the space:</i> the classroom agent with each lever bumped up and down, on common random numbers and on independent seeds.',
 });
 specEditor(page, ['population', 'course', 'design', 'simulation']);
 
@@ -18,8 +19,8 @@ const reps = toolbarNumber(page, 'replications', 6, { step: 1, width: 60 });
 
 const button = runButton(page, 'Compute sensitivities', async (spec) => {
   const t0 = performance.now();
-  // The fused kernels batch every course into one dispatch, so they afford more learners.
-  const runResult = await runAnalysis('sensitivity', { ...spec, sensitivity: { bump: bump(), replications: reps(), maxLearners: 300 } });
+  // Every course of the analysis is one job of a single dispatch.
+  const runResult = await runModel('sensitivity', { ...spec, sensitivity: { bump: bump(), replications: reps(), maxLearners: 300 } });
   const r = runResult.result;
   window.__synEngineRun = { page: 'sensitivity', engine: runResult.engine, varianceReduction: r.varianceReduction, score: r.score };
   const sorted = [...r.levers].sort((a, b) => b.crn - a.crn);
@@ -28,7 +29,7 @@ const button = runButton(page, 'Compute sensitivities', async (spec) => {
     { label: 'Most valuable next step', value: sorted[0].lever, hint: `+${fmt.num(sorted[0].crn * 0.1, 4)} per +0.1` },
     { label: 'Least valuable', value: sorted[sorted.length - 1].lever },
     { label: 'Variance reduction (CRN)', value: `×${fmt.num(r.varianceReduction, 0)}`, hint: 'mean (se independent / se CRN)²' },
-    { label: 'Courses run', value: fmt.num(1 + 3 * r.replications * r.levers.length), hint: `${r.learners} learners each, ` + (runResult.fused ? `one batch, ${fmt.num(r.gpuMs)} ms on the ${runResult.label}` : `${fmt.num(r.elapsedMs)} ms in WebAssembly`) },
+    { label: 'Courses run', value: fmt.num(1 + 3 * r.replications * r.levers.length), hint: `${r.learners} learners each, ` + `one batch, ${fmt.num(r.engineMs)} ms on ${runResult.label}` },
   ]);
   const g = grid(page.content, true);
   barChart(card(g, '∂ score / ∂ lever', 'Common random numbers against independent seeds, at the current design.'), {

@@ -1,19 +1,20 @@
-import { run } from '../syn-client.js';
 import { barChart, fmt, lineChart } from '../charts.js';
-import { card, grid, initPage, runButton, table, tiles } from '../ui.js';
+import { modelButton, runModels } from '../engine/run.js';
+import { card, grid, initPage, table, tiles } from '../ui.js';
 
 const page = initPage({
   id: 'motivation',
   title: 'Motivation and mindset',
-  context: 'syn/motivation: simulateTerm (expectancy × value) · simulateMindset',
+  context: 'models: motivation · fused kernels in the space Cl(4, 1)',
   description: "<b>Svinicki</b>: motivation balances the value of the learning against the expectation of success (self-efficacy), M = V·E. " +
     'Five levers raise them: relevance, appropriate challenge, choice and control, setting learners up for success, and guided self-assessment. ' +
     "<b>Dweck</b>: learners with a growth mindset meet failure with more effort and new strategies; those with a fixed mindset withdraw. " +
-    'Praising process and saying "not yet" moves learners towards a growth mindset; praising ability moves them away.',
+    'Praising process and saying "not yet" moves learners towards a growth mindset; praising ability moves them away.' +
+    ' <i>In the space:</i> value, self-efficacy and mindset are points; success is a cap test of a dilated attempt; efficacy follows experience by a mixture.',
 });
 
-runButton(page, 'Run', async (spec) => {
-  const r = await run('motivation', spec);
+modelButton(page, 'Run', async (spec) => {
+  const { results: [r], note } = await runModels([['motivation', spec]], page);
   const none = r.terms[0], all = r.terms[r.terms.length - 1];
   const [ability, , process] = r.mindset;
   tiles(page.content, [
@@ -43,4 +44,5 @@ runButton(page, 'Run', async (spec) => {
   });
   table(card(g, 'Feedback styles', ''), ['feedback', 'skill gain', 'persisting', 'final mindset'],
     r.mindset.map((m) => [m.feedback, fmt.num(m.gain, 2), fmt.pct(m.persist, 0), fmt.num(m.mindset[m.mindset.length - 1], 2)]));
+  return note;
 });

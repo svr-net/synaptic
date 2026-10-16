@@ -280,7 +280,9 @@ Value designValue(const Design& d) {
   return v;
 }
 
+// A specification without a design gets the blended one, as on the web pages.
 Design designOf(const Value& v) {
+  if (!v.isObject() || v.asObject().empty()) return kTheoryDesigns[7];
   Design d{};
   for (int k = 0; k < kLevers; ++k) d[k] = std::min(1.0, std::max(0.0, v.num(kLeverKeys[k], 0.0)));
   return d;

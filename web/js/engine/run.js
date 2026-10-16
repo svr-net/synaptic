@@ -5,7 +5,7 @@
 // Auto tries them in that order. All three use the same random numbers and end in the same C++
 // summary, so they agree to rounding. This file only routes calls.
 import { callOn, run, workerCount } from '../syn-client.js';
-import { el } from '../ui.js';
+import { el, runButton } from '../ui.js';
 import { GpuEngine } from './gpu.js';
 
 const STORAGE_KEY = 'syn-engine';
@@ -50,7 +50,7 @@ export async function runOnGpu(model, spec) {
     gpuMs += out.gpuMs;
   }
   const result = await checked(run('modelAnalyse', { ...spec, model, outputs }));
-  return { ...result, engineMs: gpuMs, adapter: gpu.name, plans: plans.length, jobs: plans.reduce((s, p) => s + p.jobs, 0) };
+  return { ...result, engineMs: gpuMs, adapter: gpu.name, kernelPlans: plans.length, kernelJobs: plans.reduce((s, p) => s + p.jobs, 0) };
 }
 
 /** The kernel on the CPU: every worker runs its share of the tiles of every plan. */
@@ -115,4 +115,21 @@ export function engineSelector(page, onChange) {
 /** One-line note for the status bar: which engine ran and why. */
 export function engineNote(r, ms) {
   return `Done in ${Math.round(ms).toLocaleString('en-US')} ms · ${r.label} (${r.result.adapter}) · ${r.reason}`;
+}
+
+/** Runs several models in turn on the selected engine. Resolves to { results, outcomes, note }. */
+export async function runModels(calls, page) {
+  const t0 = performance.now();
+  const outcomes = [];
+  for (const [model, spec] of calls) outcomes.push(await runModel(model, spec));
+  // Which engine ran, for the end-to-end tests.
+  globalThis.__synEngineRun = { page: page && page.id, engines: outcomes.map((o) => o.engine), models: calls.map((c) => c[0]), reasons: outcomes.map((o) => o.reason) };
+  return { results: outcomes.map((o) => o.result), outcomes, note: engineNote(outcomes[0], performance.now() - t0) };
+}
+
+/** The Run button and the engine selector of a page; the handler returns the status line. */
+export function modelButton(page, label, handler) {
+  const button = runButton(page, label, handler);
+  engineSelector(page, () => button.click());
+  return button;
 }
