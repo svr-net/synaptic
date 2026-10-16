@@ -161,10 +161,11 @@ ClassroomResult ClassroomEngine::simulate(const InstructionalDesign& raw, std::u
       const double level = c.difficulty + c.difficultyStep * s;
       const double b = (1.0 - scaffolding) * level + scaffolding * (theta + 0.75);
       const double support = 1.5 * scaffolding + 0.4 * direction + 0.8 * dialogue * logistic(-theta + 0.5);
-      const double pAlone = successAlone(theta, b), pAssisted = successAssisted(theta, b, support);
       ZpdParams here = zpd;
       here.scaffold = support;
-      const bool inZpd = zoneOf(theta, b, here) == Zone::Proximal;
+      const ZpdAssessment task = assessTask(theta, b, here);  // one pass through the elliptic CGA
+      const double pAlone = task.alone, pAssisted = task.assisted;
+      const bool inZpd = task.zone == Zone::Proximal;
 
       // 5–7. Learning: ability grows in the ZPD; productive struggle helps when it is supported.
       const double struggle = 1.0 + problemFirst * (0.5 * (st.l.growth + empathy) - 0.35);

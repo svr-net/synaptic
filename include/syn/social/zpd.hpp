@@ -12,6 +12,17 @@
 // Learning from an attempt needs both success (with help) and novelty (not yet mastered
 // alone): Δθ = η·P_assisted·(1 − P_alone), which peaks inside the ZPD and vanishes in the
 // other two zones (boredom and frustration).
+//
+// Geometry (pure elliptic CGA, see core/elliptic_cga.hpp). The learner is the point L at a pole
+// of the circle of tasks, and a task of relative difficulty Δ = b − θ is the point T at angle
+// φ = 2·atan(e^{Δ/2}) from L. Then
+//   P_alone    = 1 + ½·T·L                       (= cos²(φ/2) = σ(θ − b), exactly)
+//   P_assisted = 1 + ½·T'·L,  T' = D T D̃,  D = exp(−s/4 · n e)
+// The scaffold is a dilation versor: it pulls every task towards the learner by scaling
+// tan(φ/2) by e^{−s/2}, i.e. Δ ↦ Δ − s. The zones are concentric caps around L:
+//   independent  T inside the cap of radius ρ_hi,  cos ρ_hi = 2·p_hi − 1
+//   proximal     not independent, and T' inside the cap of radius ρ_lo, cos ρ_lo = 2·p_lo − 1
+// which is the chapter's Figure 3.2 (three concentric circles) on the sphere.
 
 #include <cstdint>
 #include <string>
@@ -35,6 +46,31 @@ Zone zoneOf(double theta, double b, const ZpdParams& p);
 double expectedGain(double theta, double b, const ZpdParams& p);
 /** The band of difficulties [lo, hi] that form the ZPD of a learner of ability θ. */
 std::pair<double, double> zpdBand(double theta, const ZpdParams& p);
+
+/** One task assessed once in the geometry: both success probabilities and the zone. */
+struct ZpdAssessment {
+  double alone = 0.0, assisted = 0.0;
+  Zone zone = Zone::Independent;
+};
+ZpdAssessment assessTask(double theta, double b, const ZpdParams& p);
+
+/** Angle φ of a task of relative difficulty Δ = b − θ from the learner: 2·atan(e^{Δ/2}). */
+double taskAngle(double relativeDifficulty);
+
+/**
+ * Figure 3.2: tasks on the 2-sphere around the learner (at the pole), classified by the zone
+ * caps and drawn by stereographic projection from the antipode, where the caps become three
+ * concentric circles. Each task is a relative difficulty and an azimuth; the rings are evenly
+ * spaced in the plane between the easiest and the hardest task.
+ */
+struct ZpdMapPoint {
+  double x = 0.0, y = 0.0;  // stereographic coordinates (radius = tan(φ/2) = e^{Δ/2})
+  double difficulty = 0.0;  // Δ = b − θ
+  Zone zone = Zone::Independent;
+};
+std::vector<ZpdMapPoint> zpdMap(const ZpdParams& p, int rings, int perRing, double minDifficulty, double maxDifficulty);
+/** Radii of the two zone boundaries on the stereographic map: tan(ρ_hi/2) and tan(ρ_lo'/2). */
+std::pair<double, double> zpdMapRadii(const ZpdParams& p);
 
 enum class TaskPolicy { TooEasy, ClassAverage, TooHard, Zpd };
 const char* taskPolicyName(TaskPolicy p);

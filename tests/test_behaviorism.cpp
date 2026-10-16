@@ -35,7 +35,10 @@ TEST(fear_generalises_to_similar_stimuli) {
   CHECK(r.probes.front().stimulus == "white rat");
   CHECK(r.probes.front().fear > 0.9);
   for (std::size_t i = 1; i < r.probes.size(); ++i) CHECK(r.probes[i].fear < r.probes[i - 1].fear);
-  CHECK(r.probes.back().fear < 0.05);  // wooden blocks do not frighten
+  CHECK(r.probes.back().fear < 0.06);  // wooden blocks do not frighten
+  // Distances are geodesic angles read from the CGA inner product of the stimulus points.
+  const double expected[] = {0.0, 0.4, 0.8, 1.0, 1.4, 3.0};
+  for (std::size_t i = 0; i < r.probes.size(); ++i) CHECK_NEAR(r.probes[i].distance, expected[i], 1e-9);
 }
 
 TEST(operant_reinforcement_and_punishment) {

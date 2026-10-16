@@ -1,5 +1,5 @@
 import { run } from '../syn-client.js';
-import { fmt, lineChart } from '../charts.js';
+import { fmt, lineChart, scatterChart } from '../charts.js';
 import { callout, card, grid, initPage, runButton, table, tiles, toolbarNumber } from '../ui.js';
 
 const page = initPage({
@@ -9,7 +9,9 @@ const page = initPage({
   description: "<b>Vygotsky's Zone of Proximal Development</b>: tasks a learner can do only with help from a more knowledgeable other. Learning " +
     'needs success (with help) and novelty (not yet mastered alone), so it peaks in the ZPD. <b>Dialogue</b> with peers moves learners towards ' +
     'more knowledgeable classmates, and explaining deepens the explainer\'s own understanding. <b>Bourdieu</b>: schools reflect the culture of ' +
-    'wealthier families, so a mismatch between home and school culture taxes learning unless teaching is inclusive.',
+    'wealthier families, so a mismatch between home and school culture taxes learning unless teaching is inclusive. ' +
+    'The zones are computed in pure elliptic CGA: a task at angle φ = 2·atan(e^{(b−θ)/2}) from the learner L succeeds alone with ' +
+    'probability 1 + ½·T·L, which is exactly σ(θ − b).',
 });
 
 const scaffold = toolbarNumber(page, 'scaffolding s (logits)', 1.5, { step: 0.1 });
@@ -31,6 +33,11 @@ runButton(page, 'Run', async (spec) => {
     x: b, xLabel: 'task difficulty b', yLabel: 'probability',
     series: [{ name: 'P(success alone)', y: Array.from(z.alone) }, { name: 'P(success with help)', y: Array.from(z.assisted), colorIndex: 1 },
       { name: 'learning gain ×4', y: Array.from(z.gain, (v) => 4 * v), colorIndex: 2, dash: true }],
+  });
+  scatterChart(card(g, 'Figure 3.2 from the geometry', 'Tasks around the learner on a sphere (pure elliptic CGA). Each zone is a cap tested by an inner product; the scaffold is a dilation versor. ' +
+    `Stereographic projection turns the caps into concentric circles of radii ${fmt.num(z.mapInner, 2)} and ${fmt.num(z.mapOuter, 2)}.`), {
+    square: true, xLabel: 'x', yLabel: 'y', tooltipFormat: (v) => v.toFixed(2),
+    series: ['can do alone', 'zone of proximal development', 'cannot do yet'].map((name, k) => ({ name, x: Array.from(z.mapX[k]), y: Array.from(z.mapY[k]), colorIndex: [2, 0, 7][k] })),
   });
   const s = Array.from(z.tutoring[0].mean, (_, i) => i);
   lineChart(card(g, 'Tutoring policies', 'Mean ability over sessions; band: 10–90% of learners for the ZPD policy.'), {

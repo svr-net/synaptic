@@ -8,7 +8,8 @@ TEST(assimilation_keeps_the_structure) {
   l.addSchema({1.0, 0.0, 0.0}, 0);
   CHECK(l.observe({{1.1, 0.1, 0.0}, 0}, 0.5) == Adaptation::Assimilation);
   CHECK(l.schemas().size() == 1);
-  CHECK(l.schemas()[0].prototype[0] > 1.0);  // drifted towards the observation
+  CHECK(l.prototypeFeatures(0)[0] > 1.0);  // rotated towards the observation
+  CHECK(l.geometry().isPoint(l.schemas()[0].prototype));
   CHECK_NEAR(l.disequilibrium(), 0.0, 1e-12);
   // An unlabelled cat close enough to the dog prototype is called a dog.
   CHECK(l.observe({{0.3, 1.0, 1.0}, -1}, 0.5) == Adaptation::Assimilation);

@@ -13,10 +13,24 @@
 //
 // Disequilibrium is uncomfortable. A learner who avoids discomfort ignores a conflicting
 // observation with probability `avoidance`; a supportive, low-stakes environment lowers it.
+//
+// Geometry (pure elliptic CGA, see core/elliptic_cga.hpp). Feature vectors are lifted onto the
+// sphere S³ by inverse stereographic projection (conformal: it keeps the shape of small
+// neighbourhoods), and from then on everything is a CGA operation:
+//   an experience   a null vector X (a point of S³)
+//   a schema        a prototype point P and its assimilation cap S = p + cos ρ·e
+//   fits?           X·S ≥ 0 (inside the cap); nearest schema = largest X·P
+//   assimilation    the prototype is rotated towards X by the rotor R = exp(−η θ/2 · B̂),
+//                   P ← R P R̃, a fraction η of the geodesic between them
+//   accommodation   a new prototype at the centre of the conflicting experiences: the direction
+//                   of the sum of their null vectors
 
 #include <cstdint>
 #include <string>
 #include <vector>
+
+#include "syn/core/elliptic_cga.hpp"
+#include "syn/core/multivector.hpp"
 
 namespace syn {
 
@@ -26,7 +40,7 @@ struct Observation {
 };
 
 struct Schema {
-  std::vector<double> prototype;
+  Multivector prototype;  // a normalised point of S³
   int label = 0;
   int assimilated = 0;
 };
@@ -36,7 +50,8 @@ enum class Adaptation { Assimilation, Disequilibrium, Accommodation, Avoidance }
 const char* adaptationName(Adaptation a);
 
 struct EquilibrationParams {
-  double assimilationRadius = 1.6;  // distance within which an observation can be assimilated
+  double assimilationRadius = 1.25; // angular radius ρ (radians) of each schema's assimilation cap
+  double featureScale = 2.0;        // scale of the stereographic lift of feature space onto S³
   double learningRate = 0.08;       // prototype drift on assimilation
   double persistence = 0.7;         // ρ
   double accommodationThreshold = 0.45;
@@ -45,13 +60,21 @@ struct EquilibrationParams {
 
 class SchemaLearner {
  public:
-  explicit SchemaLearner(EquilibrationParams params);
+  /** dimensions: number of features (the learner works on the sphere S^dimensions). */
+  explicit SchemaLearner(EquilibrationParams params, int dimensions = 3);
 
-  /** Starts with an initial schema (e.g. the child already knows dogs). */
-  void addSchema(std::vector<double> prototype, int label);
+  /** Starts with an initial schema (e.g. the child already knows dogs), given in feature space. */
+  void addSchema(const std::vector<double>& prototype, int label);
 
   /** Label the learner would give (nearest schema), or -1 when it has none. */
   int classify(const std::vector<double>& x) const;
+  /** The same for an experience already lifted onto the sphere. */
+  int classify(const Multivector& x) const;
+  /** A schema's prototype projected back to feature space. */
+  std::vector<double> prototypeFeatures(std::size_t schema) const;
+  /** The lift of a feature vector onto S³. */
+  Multivector lift(const std::vector<double>& features) const;
+  const EllipticCGA& geometry() const { return g_; }
 
   /** Processes one observation; `u` is a uniform draw used for avoidance. */
   Adaptation observe(const Observation& obs, double u);
@@ -60,10 +83,13 @@ class SchemaLearner {
   const std::vector<Schema>& schemas() const { return schemas_; }
 
  private:
-  int nearest(const std::vector<double>& x, double* distance) const;
+  int nearest(const Multivector& x) const;
+  bool fits(const Multivector& x, const Schema& s) const;
   EquilibrationParams p_;
+  EllipticCGA g_;
+  double capShift_;  // 1 − cos ρ: the cap is P − (1 − cos ρ)·e
   std::vector<Schema> schemas_;
-  std::vector<Observation> conflicts_;
+  std::vector<std::pair<Multivector, int>> conflicts_;  // lifted experience and its label
   double d_ = 0.0;
 };
 

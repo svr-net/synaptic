@@ -8,6 +8,7 @@
 #include <emscripten/bind.h>
 #include <emscripten/val.h>
 
+#include <algorithm>
 #include <chrono>
 #include <cmath>
 #include <string>
@@ -203,6 +204,34 @@ val coreDemo(val spec) {
       differ = differ && x != other.next();
     }
     o.set("streamsReproducible", same);
+    // Pure elliptic CGA: the axioms the models rely on, checked on random configurations.
+    {
+      const EllipticCGA g(3);
+      Rng r(seedOf(spec) + 7);
+      auto rnd = [&] { return std::vector<double>{r.normal(), r.normal(), r.normal(), r.normal()}; };
+      double nullErr = 0, angleErr = 0, capErr = 0, rotorErr = 0, dilationErr = 0;
+      for (int k = 0; k < 200; ++k) {
+        const auto x = g.point(rnd()), y = g.point(rnd()), z = g.point(rnd());
+        nullErr = std::max(nullErr, std::fabs(g.dot(x, x)));
+        const double th = g.angle(x, y);
+        angleErr = std::max(angleErr, std::fabs(g.dot(x, y) - (std::cos(th) - 1.0)));
+        const double rho = 0.2 + 2.5 * r.uniform();
+        capErr = std::max(capErr, std::fabs(g.capSide(y, g.cap(x, rho)) - (std::cos(th) - std::cos(rho))));
+        const auto rot = g.rotorTowards(x, y, r.uniform());
+        rotorErr = std::max(rotorErr, std::fabs(g.angle(g.move(rot, y), g.move(rot, z)) - g.angle(y, z)));
+        const double beta = r.normal(), phi = g.angle(x, z);
+        const auto moved = g.move(g.dilation(g.direction(x), beta), z);
+        dilationErr = std::max(dilationErr, std::fabs(std::tan(g.angle(x, moved) / 2) - std::exp(beta) * std::tan(phi / 2)) /
+                                                 std::max(1.0, std::exp(beta) * std::tan(phi / 2)));
+      }
+      val cga = val::object();
+      cga.set("nullPoints", nullErr);
+      cga.set("innerProductIsAngle", angleErr);
+      cga.set("capMembership", capErr);
+      cga.set("rotorIsometry", rotorErr);
+      cga.set("dilationTangent", dilationErr);
+      o.set("cga", cga);
+    }
     o.set("seedsIndependent", differ);
     const auto uniform = SessionGrid::uniform(0, num(c, "gap", 7), integer(c, "sessions", 8));
     const auto expanding = SessionGrid::expanding(0, num(c, "firstGap", 1), num(c, "ratio", 2), integer(c, "sessions", 8));
@@ -532,6 +561,18 @@ val zpd(val spec) {
     const auto band = zpdBand(theta, z);
     o.set("bandLow", band.first);
     o.set("bandHigh", band.second);
+    // Figure 3.2: tasks on the sphere around the learner, zones from the CGA caps, drawn by
+    // stereographic projection (concentric circles).
+    std::vector<std::vector<double>> mx(3), my(3);
+    for (const auto& m : zpdMap(z, integer(c, "rings", 22), integer(c, "perRing", 24), -4.0, 3.5)) {
+      mx[static_cast<int>(m.zone)].push_back(m.x);
+      my[static_cast<int>(m.zone)].push_back(m.y);
+    }
+    o.set("mapX", arrOfArr(mx));
+    o.set("mapY", arrOfArr(my));
+    const auto radii = zpdMapRadii(z);
+    o.set("mapInner", radii.first);
+    o.set("mapOuter", radii.second);
     TutoringParams tp;
     tp.sessions = integer(c, "sessions", tp.sessions);
     tp.learners = integer(c, "learners", tp.learners);

@@ -18,6 +18,8 @@ option(SYN_BUILD_EXAMPLES "Build the example programs" ON)
 
 add_library(syn
   src/core/session_grid.cpp
+  src/core/multivector.cpp
+  src/core/elliptic_cga.cpp
   src/behaviorism/classical_conditioning.cpp
   src/behaviorism/operant_conditioning.cpp
   src/behaviorism/token_economy.cpp
@@ -82,6 +84,7 @@ if(SYN_BUILD_TESTS)
   add_executable(syn_tests
     tests/test_main.cpp
     tests/test_core.cpp
+    tests/test_cga.cpp
     tests/test_behaviorism.cpp
     tests/test_humanism.cpp
     tests/test_cognitivism.cpp

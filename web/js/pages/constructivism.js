@@ -9,7 +9,8 @@ const page = initPage({
   description: "Piaget's example: a child who knows dogs calls every four-legged animal a dog (<b>assimilation</b>). When the world contradicts " +
     'the schema ("that\'s a cat"), conflict builds up as <b>disequilibrium</b> until the child <b>accommodates</b> by building a new schema. ' +
     'Only accommodation changes the structure of knowledge, so it is where learning happens. Disequilibrium is uncomfortable, and a learner ' +
-    'who avoids the discomfort also avoids the learning.',
+    'who avoids the discomfort also avoids the learning. Geometry is pure elliptic CGA: experiences are lifted onto the sphere S³ as null vectors, ' +
+    'a schema is a cap (assimilation iff X·S ≥ 0), assimilation rotates the prototype by a rotor, and accommodation centres a new cap on the conflicting experiences.',
 });
 
 const feedback = toolbarNumber(page, 'P(an adult names the animal)', 0.3, { step: 0.05 });

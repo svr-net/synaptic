@@ -1,7 +1,10 @@
 #include "syn/behaviorism/classical_conditioning.hpp"
 
 #include <cmath>
+#include <tuple>
 #include <stdexcept>
+
+#include "syn/core/elliptic_cga.hpp"
 
 namespace syn {
 
@@ -40,6 +43,10 @@ double generalisedResponse(double v, double distance, double width) {
   return v * std::exp(-std::fabs(distance) / width);
 }
 
+double generalisedResponse(const EllipticCGA& g, double v, const Multivector& conditioned, const Multivector& probe, double width) {
+  return generalisedResponse(v, g.angle(conditioned, probe), width);
+}
+
 ConditioningRun runConditioning(RescorlaWagner model, const std::vector<ConditioningPhase>& phases) {
   ConditioningRun run;
   for (const auto& s : model.stimuli()) run.stimuli.push_back(s.name);
@@ -74,10 +81,18 @@ FearConditioningResult fearConditioningExperiment(int pairings, double width) {
   FearConditioningResult r;
   r.run = runConditioning(RescorlaWagner({{"white rat", 0.4}}, 0.8), {{"rat + loud noise", {0}, true, pairings}});
   const double fear = r.run.strengths.back()[0];
-  // Psychological distance from the white rat (furry, white, animate...).
-  const std::vector<std::pair<std::string, double>> probes = {
-      {"white rat", 0.0}, {"white rabbit", 0.4}, {"dog", 0.8}, {"fur coat", 1.0}, {"cotton wool", 1.4}, {"wooden blocks", 3.5}};
-  for (const auto& [name, d] : probes) r.probes.push_back({name, d, generalisedResponse(fear, d, width)});
+  // Stimuli as points of the sphere S² of stimuli, placed at their psychological distance from
+  // the white rat (furry, white, animate...) in different directions; the response reads the
+  // distance back from the CGA inner product.
+  const EllipticCGA g(2);
+  const std::vector<double> rat = {0.0, 0.0, 1.0};
+  const Multivector conditioned = g.point(rat);
+  const std::vector<std::tuple<std::string, double, double>> probes = {
+      {"white rat", 0.0, 0.0}, {"white rabbit", 0.4, 0.3}, {"dog", 0.8, 1.9}, {"fur coat", 1.0, 3.1}, {"cotton wool", 1.4, 4.4}, {"wooden blocks", 3.0, 5.5}};
+  for (const auto& [name, d, azimuth] : probes) {
+    const Multivector probe = d == 0.0 ? conditioned : g.pointAt(rat, {std::cos(azimuth), std::sin(azimuth), 0.0}, d);
+    r.probes.push_back({name, g.angle(conditioned, probe), generalisedResponse(g, fear, conditioned, probe, width)});
+  }
   return r;
 }
 

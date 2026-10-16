@@ -48,6 +48,14 @@ double acquisitionCurve(double alpha, double beta, double lambda, int n);
  */
 double generalisedResponse(double v, double distance, double width);
 
+/**
+ * The same on the sphere of stimuli (pure elliptic CGA): stimuli are null vectors, and the
+ * psychological distance is the geodesic angle between them, read off their inner product.
+ */
+class Multivector;
+class EllipticCGA;
+double generalisedResponse(const EllipticCGA& g, double v, const Multivector& conditioned, const Multivector& probe, double width);
+
 struct ConditioningPhase {
   std::string label;
   std::vector<std::size_t> present;
@@ -85,7 +93,7 @@ BlockingResult blockingExperiment(int pretraining = 20, int compound = 20);
  */
 struct GeneralisationProbe {
   std::string stimulus;
-  double distance = 0.0;
+  double distance = 0.0;  // geodesic angle from the conditioned stimulus (radians)
   double fear = 0.0;
 };
 struct FearConditioningResult {

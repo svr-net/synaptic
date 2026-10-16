@@ -20,60 +20,65 @@ const char* adaptationName(Adaptation a) {
   return "?";
 }
 
-namespace {
-double distance(const std::vector<double>& a, const std::vector<double>& b) {
-  if (a.size() != b.size()) throw std::invalid_argument("equilibration: feature dimension mismatch");
-  double s = 0.0;
-  for (std::size_t i = 0; i < a.size(); ++i) s += (a[i] - b[i]) * (a[i] - b[i]);
-  return std::sqrt(s);
-}
-}  // namespace
-
-SchemaLearner::SchemaLearner(EquilibrationParams params) : p_(params) {
-  if (p_.assimilationRadius <= 0.0 || p_.persistence < 0.0 || p_.persistence >= 1.0)
-    throw std::invalid_argument("EquilibrationParams: need radius > 0 and persistence in [0, 1)");
+SchemaLearner::SchemaLearner(EquilibrationParams params, int dimensions)
+    : p_(params), g_(dimensions), capShift_(1.0 - std::cos(params.assimilationRadius)) {
+  if (!(p_.assimilationRadius > 0.0 && p_.assimilationRadius < M_PI) || p_.persistence < 0.0 || p_.persistence >= 1.0)
+    throw std::invalid_argument("EquilibrationParams: need radius in (0, π) and persistence in [0, 1)");
 }
 
-void SchemaLearner::addSchema(std::vector<double> prototype, int label) { schemas_.push_back({std::move(prototype), label, 0}); }
+Multivector SchemaLearner::lift(const std::vector<double>& features) const { return g_.liftStereographic(features, p_.featureScale); }
 
-int SchemaLearner::nearest(const std::vector<double>& x, double* dist) const {
+void SchemaLearner::addSchema(const std::vector<double>& prototype, int label) { schemas_.push_back({lift(prototype), label, 0}); }
+
+std::vector<double> SchemaLearner::prototypeFeatures(std::size_t schema) const {
+  return g_.projectStereographic(schemas_.at(schema).prototype, p_.featureScale);
+}
+
+int SchemaLearner::nearest(const Multivector& x) const {
+  // X·P = cos θ − 1 grows as the geodesic angle shrinks.
   int best = -1;
-  double bestD = std::numeric_limits<double>::infinity();
+  double bestDot = -std::numeric_limits<double>::infinity();
   for (std::size_t i = 0; i < schemas_.size(); ++i) {
-    const double d = distance(x, schemas_[i].prototype);
-    if (d < bestD) {
-      bestD = d;
+    const double d = g_.dot(x, schemas_[i].prototype);
+    if (d > bestDot) {
+      bestDot = d;
       best = static_cast<int>(i);
     }
   }
-  if (dist) *dist = bestD;
   return best;
 }
 
-int SchemaLearner::classify(const std::vector<double>& x) const {
-  const int i = nearest(x, nullptr);
+bool SchemaLearner::fits(const Multivector& x, const Schema& s) const {
+  // Inside the cap P − (1 − cos ρ)·e: X·S = X·P + (1 − cos ρ) ≥ 0 (X·e = −1 for a normalised point).
+  return g_.inside(x, s.prototype - g_.e() * capShift_);
+}
+
+int SchemaLearner::classify(const Multivector& x) const {
+  const int i = nearest(x);
   return i < 0 ? -1 : schemas_[i].label;
 }
 
+int SchemaLearner::classify(const std::vector<double>& x) const { return classify(lift(x)); }
+
 Adaptation SchemaLearner::observe(const Observation& obs, double u) {
-  double dist = 0.0;
-  int target = nearest(obs.features, &dist);
-  bool fits = target >= 0 && dist <= p_.assimilationRadius && (obs.label < 0 || schemas_[target].label == obs.label);
-  if (!fits && obs.label >= 0) {
-    // A schema with the right label nearby: the knowledge structure already fits.
-    double best = p_.assimilationRadius;
+  const Multivector x = lift(obs.features);
+  int target = nearest(x);
+  bool ok = target >= 0 && fits(x, schemas_[target]) && (obs.label < 0 || schemas_[target].label == obs.label);
+  if (!ok && obs.label >= 0) {
+    // A schema with the right label whose cap holds the experience: the structure already fits.
+    double best = -std::numeric_limits<double>::infinity();
     for (std::size_t i = 0; i < schemas_.size(); ++i) {
-      const double d = distance(obs.features, schemas_[i].prototype);
-      if (schemas_[i].label == obs.label && d <= best) {
+      const double d = g_.dot(x, schemas_[i].prototype);
+      if (schemas_[i].label == obs.label && fits(x, schemas_[i]) && d > best) {
         best = d;
         target = static_cast<int>(i);
-        fits = true;
+        ok = true;
       }
     }
   }
-  if (fits) {
+  if (ok) {
     Schema& s = schemas_[target];
-    for (std::size_t k = 0; k < s.prototype.size(); ++k) s.prototype[k] += p_.learningRate * (obs.features[k] - s.prototype[k]);
+    s.prototype = g_.move(g_.rotorTowards(s.prototype, x, p_.learningRate), s.prototype);
     ++s.assimilated;
     d_ *= p_.persistence;
     return Adaptation::Assimilation;
@@ -83,32 +88,26 @@ Adaptation SchemaLearner::observe(const Observation& obs, double u) {
     return Adaptation::Avoidance;
   }
   d_ = p_.persistence * d_ + (1.0 - p_.persistence);
-  conflicts_.push_back(obs);
+  conflicts_.emplace_back(x, obs.label);
   if (d_ < p_.accommodationThreshold) return Adaptation::Disequilibrium;
 
-  // Accommodate: a new schema from the conflicting experiences, named by the feedback received.
+  // Accommodate: a new schema centred on the conflicting experiences, named by the feedback.
   std::map<int, int> votes;
-  // Without feedback the new category has no name yet: give it a label no real category uses.
-  int nextLabel = 1000;
-  for (const auto& s : schemas_) nextLabel = std::max(nextLabel, s.label + 1);
   for (const auto& c : conflicts_)
-    if (c.label >= 0) ++votes[c.label];
-  int label = nextLabel;
+    if (c.second >= 0) ++votes[c.second];
+  // Without feedback the new category has no name yet: give it a label no real category uses.
+  int label = 1000;
+  for (const auto& s : schemas_) label = std::max(label, s.label + 1);
   int bestVotes = 0;
   for (const auto& [l, v] : votes)
     if (v > bestVotes) {
       bestVotes = v;
       label = l;
     }
-  std::vector<double> proto(obs.features.size(), 0.0);
-  int used = 0;
+  std::vector<Multivector> members;
   for (const auto& c : conflicts_)
-    if (c.label < 0 || c.label == label) {
-      for (std::size_t k = 0; k < proto.size(); ++k) proto[k] += c.features[k];
-      ++used;
-    }
-  for (double& x : proto) x /= used;
-  schemas_.push_back({proto, label, used});
+    if (c.second < 0 || c.second == label) members.push_back(c.first);
+  schemas_.push_back({g_.centre(members), label, static_cast<int>(members.size())});
   conflicts_.clear();
   d_ *= 0.3;
   return Adaptation::Accommodation;
@@ -129,6 +128,7 @@ EquilibrationRun simulateEquilibration(const EquilibrationParams& params, const 
   std::vector<Observation> test;
   for (int i = 0; i < 100; ++i) test.push_back({draw(testRng, i % 2), i % 2});
 
+  std::vector<Multivector> lifted;  // the test set on the sphere
   EquilibrationRun run;
   const auto n = static_cast<std::size_t>(w.observations);
   run.disequilibrium.assign(n, 0.0);
@@ -139,6 +139,8 @@ EquilibrationRun simulateEquilibration(const EquilibrationParams& params, const 
     Rng rng = Rng::stream(seed, static_cast<std::uint64_t>(l));
     SchemaLearner learner(params);
     learner.addSchema(dog, kDog);
+    if (lifted.empty())
+      for (const auto& o : test) lifted.push_back(learner.lift(o.features));
     for (std::size_t t = 0; t < n; ++t) {
       const double uKind = rng.uniform(), uFeedback = rng.uniform(), uAvoid = rng.uniform();
       const int kind = static_cast<int>(t) >= w.catsFrom && uKind < w.catShare ? kCat : kDog;
@@ -150,7 +152,7 @@ EquilibrationRun simulateEquilibration(const EquilibrationParams& params, const 
         case Adaptation::Avoidance: run.avoidances += 1; break;
       }
       int correct = 0;
-      for (const auto& o : test) correct += learner.classify(o.features) == o.label ? 1 : 0;
+      for (std::size_t k = 0; k < test.size(); ++k) correct += learner.classify(lifted[k]) == test[k].label ? 1 : 0;
       run.accuracy[t] += correct / static_cast<double>(test.size()) / w.learners;
       run.disequilibrium[t] += learner.disequilibrium() / w.learners;
       run.schemaCount[t] += static_cast<double>(learner.schemas().size()) / w.learners;

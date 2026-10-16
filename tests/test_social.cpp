@@ -1,3 +1,5 @@
+#include <cmath>
+
 #include "syn/core/math.hpp"
 #include "syn/social/dialogue.hpp"
 #include "syn/social/zpd.hpp"
@@ -73,4 +75,36 @@ TEST(peer_dialogue_and_inclusive_teaching) {
   CHECK(a.finalGap > a.highCapital.front() - a.lowCapital.front());  // ...and the gap widens
   CHECK(d.finalGap < 0.5 * a.finalGap);     // inclusive teaching removes most of it
   for (std::size_t s = 1; s < b.meanUnderstanding.size(); ++s) CHECK(b.meanUnderstanding[s] >= b.meanUnderstanding[s - 1] - 1e-12);
+}
+
+TEST(zpd_geometry_is_the_logistic_model) {
+  // P_alone = 1 + ½ T·L and the scaffold dilation reproduce σ(θ − b) and σ(θ + s − b) exactly.
+  for (double theta = -3.0; theta <= 3.0; theta += 0.5)
+    for (double b = -5.0; b <= 7.0; b += 0.25) {
+      CHECK_NEAR(successAlone(theta, b), logistic(theta - b), 1e-13);
+      CHECK_NEAR(successAssisted(theta, b, 1.5), logistic(theta + 1.5 - b), 1e-13);
+    }
+  CHECK_NEAR(taskAngle(0.0), M_PI / 2, 1e-15);  // even odds: a quarter turn from the learner
+  ZpdParams p;
+  const auto band = zpdBand(0.0, p);
+  CHECK_NEAR(band.first, -logit(p.independentThreshold), 1e-12);
+  CHECK_NEAR(band.second, p.scaffold - logit(p.assistedThreshold), 1e-12);
+}
+
+TEST(zpd_map_draws_three_concentric_circles) {
+  ZpdParams p;
+  const auto radii = zpdMapRadii(p);
+  CHECK(radii.first < radii.second);
+  const auto map = zpdMap(p, 25, 12, -4.0, 5.0);
+  CHECK(map.size() == 25u * 12u);
+  int counts[3] = {0, 0, 0};
+  for (const auto& m : map) {
+    const double r = std::hypot(m.x, m.y);
+    CHECK_NEAR(r, std::exp(m.difficulty / 2.0), 1e-9);  // stereographic radius tan(φ/2)
+    const Zone expected = r <= radii.first + 1e-9 ? Zone::Independent : r <= radii.second + 1e-9 ? Zone::Proximal : Zone::Beyond;
+    CHECK(m.zone == expected);
+    CHECK(m.zone == zoneOf(0.0, m.difficulty, p));
+    ++counts[static_cast<int>(m.zone)];
+  }
+  for (int c : counts) CHECK(c > 0);
 }

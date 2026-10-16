@@ -5,11 +5,13 @@ import { card, grid, initPage, passFail, runButton, table, tiles } from '../ui.j
 const page = initPage({
   id: 'core',
   title: 'Core numerics',
-  context: 'syn/core: Rng · summarise · quantile · logistic · SessionGrid',
+  context: 'syn/core: EllipticCGA · Multivector · Rng · summarise · quantile · logistic · SessionGrid',
   description: 'Every model in the library is a Monte Carlo simulation of learners. Each learner draws from its own reproducible random stream ' +
     '(xoshiro256** seeded through splitmix64), so two teaching designs can be run on the same learners and the same luck ' +
     '(common random numbers). Abilities and difficulties live on a logit scale and are turned into probabilities by the logistic function. ' +
-    'Course calendars are session grids: uniform for weekly lessons, expanding for spaced review.',
+    'Course calendars are session grids: uniform for weekly lessons, expanding for spaced review. ' +
+    'All geometry is <b>pure elliptic conformal geometric algebra</b>: Cl(n+1, 1) with e² = −1, where points of the sphere are null vectors ' +
+    'x + e, X·Y = cos θ − 1, caps are vectors c + cos ρ·e tested by the sign of an inner product, and motions are rotor and dilation versors.',
 });
 
 runButton(page, 'Run', async (spec) => {
@@ -35,6 +37,11 @@ runButton(page, 'Run', async (spec) => {
     ['different seeds give different numbers', passFail(r.seedsIndependent)],
     ['normal mean within 0.02', passFail(Math.abs(r.summary.mean) < 0.02)],
     ['normal sd within 0.02', passFail(Math.abs(r.summary.sd - 1) < 0.02)],
+    ['CGA: points are null, max |X·X|', passFail(r.cga.nullPoints < 1e-12, r.cga.nullPoints.toExponential(1))],
+    ['CGA: X·Y = cos θ − 1', passFail(r.cga.innerProductIsAngle < 1e-12, r.cga.innerProductIsAngle.toExponential(1))],
+    ['CGA: X·S = cos θ − cos ρ for a cap', passFail(r.cga.capMembership < 1e-12, r.cga.capMembership.toExponential(1))],
+    ['CGA: rotors preserve angles', passFail(r.cga.rotorIsometry < 1e-9, r.cga.rotorIsometry.toExponential(1))],
+    ['CGA: dilation scales tan(φ/2) by e^β', passFail(r.cga.dilationTangent < 1e-9, r.cga.dilationTangent.toExponential(1))],
     ['time (ms)', fmt.num(r.elapsedMs, 1)],
   ]);
 });

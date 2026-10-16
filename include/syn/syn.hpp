@@ -2,7 +2,9 @@
 
 // Umbrella header for the synaptic learning-theory library.
 
+#include "syn/core/elliptic_cga.hpp"
 #include "syn/core/math.hpp"
+#include "syn/core/multivector.hpp"
 #include "syn/core/random.hpp"
 #include "syn/core/session_grid.hpp"
 

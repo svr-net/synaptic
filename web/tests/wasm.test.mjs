@@ -34,6 +34,7 @@ if (presets) {
 const core = run('coreDemo', () => syn.coreDemo(spec));
 if (core) {
   check(core.streamsReproducible && core.seedsIndependent, 'random streams');
+  for (const [k, v] of Object.entries(core.cga)) check(v < 1e-9, `elliptic CGA identity ${k}: ${v}`);
   near(core.summary.mean, 0, 0.03, 'normal mean');
   near(core.summary.sd, 1, 0.03, 'normal sd');
 }
@@ -60,7 +61,16 @@ if (gag) check(gag.full > gag.presentOnly, 'nine events beat presentation alone'
 const eq = run('equilibration', () => syn.equilibration({ ...spec, equilibration: { learners: 80 } }));
 if (eq) check(eq.runs[1].finalAccuracy > eq.runs[0].finalAccuracy + 0.3, 'feedback enables accommodation');
 const z = run('zpd', () => syn.zpd(spec));
-if (z) check(z.tutoring[3].gain > z.tutoring[0].gain && z.tutoring[3].gain > z.tutoring[2].gain, 'ZPD tutoring wins');
+if (z) {
+  check(z.tutoring[3].gain > z.tutoring[0].gain && z.tutoring[3].gain > z.tutoring[2].gain, 'ZPD tutoring wins');
+  // Figure 3.2: each zone lies between its concentric circles.
+  const radius = (k, i) => Math.hypot(z.mapX[k][i], z.mapY[k][i]);
+  check(z.mapX.every((xs) => xs.length > 0), 'all three zones on the map');
+  check(Array.from(z.mapX[0], (_, i) => radius(0, i)).every((r) => r <= z.mapInner + 1e-9), 'independent tasks inside the inner circle');
+  check(Array.from(z.mapX[1], (_, i) => radius(1, i)).every((r) => r > z.mapInner && r <= z.mapOuter + 1e-9), 'ZPD between the circles');
+  check(Array.from(z.mapX[2], (_, i) => radius(2, i)).every((r) => r > z.mapOuter), 'beyond outside the outer circle');
+  for (let i = 0; i < z.difficulty.length; i += 10) near(z.alone[i], 1 / (1 + Math.exp(z.difficulty[i])), 1e-12, 'CGA success = logistic');
+}
 const dia = run('dialogue', () => syn.dialogue(spec));
 if (dia) check(dia.runs[5].finalMean > dia.runs[0].finalMean, 'dialogue raises understanding');
 const dev = run('development', () => syn.development(spec));

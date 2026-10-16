@@ -17,6 +17,9 @@ strengthen next.
 It is an independent implementation. It does not reproduce the text of the chapter. The models are illustrative: their parameters
 are chosen so that the effects the chapter describes appear with plausible sizes. They are not fitted to data.
 
+All geometry is **pure elliptic conformal geometric algebra** (see below): the conformal model of the sphere, Cl(n+1, 1) with
+e² = −1, with no Euclidean origin and no point at infinity.
+
 It has no dependencies beyond the C++17 standard library. The structure follows [svr-net/zlatko](https://github.com/svr-net/zlatko):
 a native library with unit tests and a demo, an Embind WebAssembly module, a web front end with one page per library context, a
 copy-deployable standalone build, Docker images and CI.
@@ -118,12 +121,12 @@ python3 -m http.server -d web 8000      # any static server; file:// will not lo
 
 | Page | Context | Entry point |
 |---|---|---|
-| `core.html` | Random streams, logistic link, quantiles, session calendars | `coreDemo` |
+| `core.html` | Random streams, logistic link, quantiles, session calendars, elliptic CGA identities | `coreDemo` |
 | `behaviorism.html` | Pavlov (Rescorla–Wagner), Kamin blocking, Watson's generalised fear, Skinner's schedules, a classroom point system | `conditioning` · `operant` · `tokenEconomy` |
 | `humanism.html` | Maslow's prepotent needs, library anxiety and Kuhlthau's Information Search Process | `humanism` |
 | `cognitivism.html` | Forgetting curves, retrieval and spaced practice, cramming, interleaving, schemas, Gagné's nine events | `memory` · `gagne` |
 | `constructivism.html` | Assimilation, disequilibrium and accommodation (dogs and cats), avoidance of discomfort | `equilibration` |
-| `social.html` | The ZPD, tutoring policies, peer dialogue, cultural capital | `zpd` · `dialogue` |
+| `social.html` | The ZPD (with Figure 3.2 from the CGA caps), tutoring policies, peer dialogue, cultural capital | `zpd` · `dialogue` |
 | `development.html` | Piaget's stages by age, activity fit, Perry's scheme and source judgement | `development` |
 | `andragogy.html` | Knowles' assumptions × design, Bartle's needs cycle | `andragogy` |
 | `motivation.html` | Svinicki's value × expectancy with five levers, Dweck's mindsets and feedback | `motivation` |
@@ -147,11 +150,41 @@ node web/tests/wasm.test.mjs             # every entry point plus invariant chec
 node web/tests/e2e.mjs                   # every page in headless Chromium (Playwright)
 ```
 
+## Geometry: pure elliptic CGA
+
+`core/multivector.hpp` is a small Clifford algebra Cl(p, q) (geometric, outer and inner products, reverse, grades, versor
+sandwich). `core/elliptic_cga.hpp` builds the conformal model of the n-sphere on it, Cl(n+1, 1), where the extra vector e
+squares to −1:
+
+| Object | Representation | Use |
+|---|---|---|
+| point of Sⁿ | null vector X = x + e | an experience, a task, a stimulus |
+| geodesic distance | X·Y = cos θ − 1 | nearest schema, generalisation gradient |
+| cap (spherical circle) | S = c + cos ρ·e, S² = sin²ρ | schema assimilation regions, ZPD zones |
+| inside a cap | X·S = cos θ − cos ρ ≥ 0 | assimilation test, zone test |
+| rotation | rotor exp(−θ/2·B̂), X ↦ R X R̃ | prototypes drifting towards experiences |
+| conformal dilation | exp(β/2·n e), tan(φ/2) ↦ e^β tan(φ/2) | scaffolding |
+| centre of points | direction of Σ Xᵢ | a new schema built by accommodation |
+
+Where the models use it:
+- **ZPD** (`social/zpd.hpp`): a task of relative difficulty Δ = b − θ is the point at angle φ = 2·atan(e^{Δ/2}) from the
+  learner L. Then P(success alone) = 1 + ½·T·L, which equals σ(θ − b) exactly, and scaffolding is the dilation versor that maps
+  Δ to Δ − s. The three zones are concentric caps around the learner; stereographic projection turns them into Figure 3.2.
+  The classroom engine evaluates every task this way.
+- **Equilibration** (`constructivism/equilibration.hpp`): features are lifted onto S³ by inverse stereographic projection.
+  Schemas are caps, assimilation is a cap test plus a rotor, and accommodation centres a new cap on the conflicting points.
+- **Generalisation** (`behaviorism/classical_conditioning.hpp`): stimuli are points of S², and the fear response decays with
+  the geodesic angle read from their inner product.
+
+The core page of the web front end checks the algebra's identities on random configurations, and the tests check that the
+ZPD geometry reproduces the logistic model to 1e-13.
+
 ## How the library maps onto the chapter
 
 | Topic | Module | What is implemented |
 |---|---|---|
-| Behaviourism: classical conditioning | `behaviorism/classical_conditioning.hpp` | Rescorla–Wagner learning (closed-form acquisition), Pavlov's acquisition and extinction, Kamin blocking, Watson's fear conditioning with a Shepard generalisation gradient |
+| Geometry | `core/multivector.hpp`, `core/elliptic_cga.hpp` | Clifford algebra Cl(p, q); pure elliptic CGA of Sⁿ: null points, caps, rotors, dilations, stereographic lift |
+| Behaviourism: classical conditioning | `behaviorism/classical_conditioning.hpp` | Rescorla–Wagner learning (closed-form acquisition), Pavlov's acquisition and extinction, Kamin blocking, Watson's fear conditioning with a Shepard generalisation gradient over geodesic angles between stimulus points |
 | Behaviourism: operant conditioning | `behaviorism/operant_conditioning.hpp` | Bush–Mosteller response strength under reinforcement, punishment and extinction; continuous, fixed/variable ratio and interval schedules; cumulative records; the partial-reinforcement extinction effect from the surprise of unrewarded runs |
 | Behaviourism in the classroom | `behaviorism/token_economy.hpp` | Point system and gamification: external incentive, habit, extinction after withdrawal, optional overjustification |
 | Humanism: needs | `humanism/maslow.hpp` | Five prepotent levels with smooth gates, dominant need, readiness for learning, the effect of an empathetic classroom climate |
@@ -160,8 +193,8 @@ node web/tests/e2e.mjs                   # every page in headless Chromium (Play
 | Cognitivism: interleaving | `cognitivism/interleaving.hpp` | Execution skill vs discrimination: blocked practice looks better in practice and does worse on a mixed test |
 | Cognitivism: schemas | `cognitivism/schema.hpp` | Concept network with spreading activation; encoding links new knowledge to what is active, so stimulating prior recall adds retrieval routes |
 | Cognitivism: Gagné | `classroom/instructional_design.hpp` | The nine events of instruction mapped onto the design levers (`designFromGagne`) |
-| Constructivism | `constructivism/equilibration.hpp` | Schemas as labelled prototypes; assimilation, disequilibrium, accommodation; avoidance of discomfort; the dog/cat example |
-| Social constructivism | `social/zpd.hpp`, `social/dialogue.hpp` | Vygotsky's three zones, learning gain peaking in the ZPD, tutoring policies with fading scaffolds; peer dialogue with more knowledgeable others and articulation; Bourdieu's cultural capital and inclusive teaching |
+| Constructivism | `constructivism/equilibration.hpp` | Schemas as labelled caps on S³; assimilation (cap test + rotor), disequilibrium, accommodation; avoidance of discomfort; the dog/cat example |
+| Social constructivism | `social/zpd.hpp`, `social/dialogue.hpp` | Vygotsky's three zones as concentric CGA caps with scaffolding as a dilation versor, learning gain peaking in the ZPD, tutoring policies with fading scaffolds; peer dialogue with more knowledgeable others and articulation; Bourdieu's cultural capital and inclusive teaching |
 | Developmental stages | `development/piaget.hpp`, `development/perry.hpp` | Piaget's stages and capabilities, stage probabilities by age, activity fit (the climate-change lesson); Perry's positions as a Markov chain, source judgement by position |
 | Andragogy | `andragogy/andragogy.hpp` | Knowles' six assumptions paired with design features, engagement for children, adolescents and adults; Bartle's seven steps and the needs-diagnosis cycle |
 | Motivation | `motivation/expectancy_value.hpp` | Svinicki's M = V·E with the chapter's five levers; self-efficacy from mastery experience; calibration by self-assessment |
@@ -180,6 +213,7 @@ node web/tests/e2e.mjs                   # every page in headless Chromium (Play
   two designs run on the same learners with the same luck (common random numbers). The tests check this property: the
   CRN sensitivities have far smaller standard errors than independent-seed ones.
 - A memory trace's stability S is the interval after which recall falls to 90%.
+- Geometric quantities are angles on spheres, computed only through the elliptic CGA (inner products, caps and versors).
 
 ## Example
 
