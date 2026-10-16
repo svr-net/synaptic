@@ -1,3 +1,4 @@
+#include <cctype>
 #include <cmath>
 #include <string>
 
@@ -121,4 +122,38 @@ TEST(kernel_wgsl_is_assembled) {
   CHECK(src.find("fn shift(") != std::string::npos);
   CHECK(src.find("ARR(") == std::string::npos);
   CHECK(src.find("@compute") != std::string::npos);
+}
+
+TEST(kernel_agents_use_no_wgsl_reserved_words) {
+  // Reserved words and keywords of WGSL that are ordinary identifiers in C++.
+  static const char* reserved[] = {
+      "NULL", "Self", "abstract", "active", "alignas", "alignof", "as", "asm", "asm_fragment", "async", "attribute", "await",
+      "become", "binding_array", "cast", "catch", "class", "co_await", "co_return", "co_yield", "coherent", "column_major",
+      "common", "compile", "compile_fragment", "concept", "const_cast", "consteval", "constexpr", "constinit", "crate",
+      "debugger", "decltype", "delete", "demote", "demote_to_helper", "do", "dynamic_cast", "enum", "explicit", "export",
+      "extends", "extern", "external", "fallthrough", "filter", "final", "finally", "friend", "from", "fxgroup", "get", "goto",
+      "groupshared", "highp", "impl", "implements", "import", "inline", "instanceof", "interface", "layout", "lowp", "macro",
+      "macro_rules", "match", "mediump", "meta", "mod", "module", "move", "mut", "mutable", "namespace", "new", "nil",
+      "noexcept", "noinline", "nointerpolation", "non_coherent", "noncoherent", "noperspective", "null", "nullptr", "of",
+      "operator", "package", "packoffset", "partition", "pass", "patch", "pixelfragment", "precise", "precision", "premerge",
+      "priv", "protected", "pub", "public", "readonly", "ref", "regardless", "register", "reinterpret_cast", "require",
+      "resource", "restrict", "self", "set", "shared", "sizeof", "smooth", "snorm", "static", "static_assert", "static_cast",
+      "std", "subroutine", "super", "target", "template", "this", "thread_local", "throw", "trait", "try", "type", "typedef",
+      "typeid", "typename", "typeof", "union", "unless", "unorm", "unsafe", "unsized", "use", "using", "varying", "virtual",
+      "volatile", "wgsl", "where", "with", "writeonly", "yield", "alias", "case", "const", "const_assert", "continuing",
+      "default", "diagnostic", "discard", "enable", "loop", "override", "requires", "struct", "switch", "fn"};
+  for (const auto* m : kernel::models()) {
+    const std::string src = m->agentSource;
+    std::string word;
+    for (std::size_t i = 0; i <= src.size(); ++i) {
+      const char ch = i < src.size() ? src[i] : ' ';
+      if (std::isalnum(static_cast<unsigned char>(ch)) || ch == '_') {
+        word += ch;
+        continue;
+      }
+      for (const char* r : reserved)
+        if (word == r) syntest::fail(m->name + ": the agent uses the WGSL reserved word '" + word + "'", __FILE__, __LINE__);
+      word.clear();
+    }
+  }
 }

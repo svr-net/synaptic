@@ -230,6 +230,25 @@ inline bool inside(const V5<T>& p, const V5<T>& s) {
   return side(p, s) >= T(0);
 }
 
+/**
+ * Inverse stereographic projection of a point u of R³ (scaled by 1/scale) onto S³, from the
+ * antipode: u = 0 is the pole, and small neighbourhoods keep their shape (it is conformal).
+ */
+template <class T>
+inline V5<T> lift(T u1, T u2, T u3, T scale) {
+  const T a = u1 / scale, b = u2 / scale, c = u3 / scale;
+  const T r2 = a * a + b * b + c * c;
+  const T k = T(1) / (T(1) + r2);
+  return v5<T>((T(1) - r2) * k, T(2) * a * k, T(2) * b * k, T(2) * c * k, 1);
+}
+
+/** The point in the direction of the Euclidean part of a vector (e.g. a sum of points: their centre). */
+template <class T>
+inline V5<T> pointOf(const V5<T>& p) {
+  const T n = std::sqrt(p.x[0] * p.x[0] + p.x[1] * p.x[1] + p.x[2] * p.x[2] + p.x[3] * p.x[3]);
+  return v5<T>(p.x[0] / n, p.x[1] / n, p.x[2] / n, p.x[3] / n, 1);
+}
+
 // ---------------------------------------------------------------- random points
 
 /** ln(u / (1 − u)): the logistic variate of a uniform u. */
@@ -239,7 +258,7 @@ inline T logisticOf(T u) {
 }
 
 /** sd of the standard logistic is π/√3; this scales a logistic variate to sd 1. */
-constexpr double kLogisticUnit = 0.5513288954217921;
+constexpr float kLogisticUnit = 0.5513288954217921f;
 
 /** A random level: the point of logit mean + sd·(logistic of u, scaled to sd 1). */
 template <class T>

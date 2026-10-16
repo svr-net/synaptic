@@ -12,6 +12,8 @@
 
 #include "syn/core/value.hpp"
 #include "syn/kernel/kernel.hpp"
+#include "syn/kernel/random.hpp"
+#include "syn/space/space.hpp"
 
 namespace syn::models {
 
@@ -47,6 +49,12 @@ inline Plan makePlan(const std::string& model, std::uint32_t agents, std::uint32
   }
   p.seeds.assign(p.jobs, seed);
   return p;
+}
+
+/** A logistic variate of sd 1 from the kernels' counter-based random numbers (for fixed test sets). */
+inline double logisticDraw(std::uint32_t seed, std::uint32_t a, std::uint32_t k) {
+  const double u = kernel::uniform<double>(seed, a, k);
+  return space::kLogisticUnit * std::log(u / (1.0 - u));
 }
 
 /** Evenly spaced values. */

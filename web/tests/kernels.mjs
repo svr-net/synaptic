@@ -39,9 +39,11 @@ const logs = [];
 page.on('console', (m) => { if (m.type() === 'error' || m.type() === 'warning') logs.push(m.text()); });
 await page.goto(`${base}/kernels.html`);
 
-// Small specifications keep the run fast.
+// Small specifications keep the run fast. `flips`: an absolute allowance for models whose agents
+// take threshold decisions, where 32-bit rounding can flip one agent's path (1/agents per flip).
 const SPECS = {
-  default: { sim: { learners: 300, seed: 11 } },
+  default: { spec: { sim: { learners: 300, seed: 11 } } },
+  equilibration: { spec: { sim: { seed: 11 } }, flips: 0.02 },
 };
 
 const report = await page.evaluate(async ({ specs, filter }) => {
@@ -57,7 +59,7 @@ const report = await page.evaluate(async ({ specs, filter }) => {
   };
   for (const { name } of models) {
     if (filter && !name.includes(filter)) continue;
-    const spec = specs[name] || specs.default;
+    const { spec, flips = 0 } = specs[name] || specs.default;
     const row = { name };
     try {
       const t0 = performance.now();
@@ -75,7 +77,7 @@ const report = await page.evaluate(async ({ specs, filter }) => {
         L[e].forEach(([p, x], i) => {
           const y = L.wasm[i][1];
           if (!Number.isFinite(x) || !Number.isFinite(y)) { if (Number.isFinite(x) !== Number.isFinite(y)) worst = { excess: Infinity, path: p, x, y }; return; }
-          const excess = Math.abs(x - y) / (2e-3 + 2e-3 * Math.abs(y));
+          const excess = Math.abs(x - y) / (2e-3 + flips + 2e-3 * Math.abs(y));
           if (excess > worst.excess) worst = { excess, path: p, x, y };
         });
         row.worst[e] = worst;

@@ -81,6 +81,13 @@ fn cap(centre : V5, rho : f32) -> V5 { let c = unit5(centre); return V5(c.x, cos
 fn chanceCap(p : f32) -> V5 { return v5(1.0, 0.0, 0.0, 0.0, 2.0 * p - 1.0); }
 fn side(p : V5, s : V5) -> f32 { return dot5(unit5(p), s); }
 fn inside(p : V5, s : V5) -> bool { return side(p, s) >= 0.0; }
+fn lift(u1 : f32, u2 : f32, u3 : f32, scale : f32) -> V5 {
+  let u = vec3<f32>(u1, u2, u3) / scale;
+  let r2 = dot(u, u);
+  let k = 1.0 / (1.0 + r2);
+  return v5((1.0 - r2) * k, 2.0 * u.x * k, 2.0 * u.y * k, 2.0 * u.z * k, 1.0);
+}
+fn pointOf(p : V5) -> V5 { return V5(normalize(p.x), 1.0); }
 fn logisticOf(u : f32) -> f32 { return log(u / (1.0 - u)); }
 fn sampleLevel(u : f32, mean : f32, sd : f32, channel : i32) -> V5 {
   return atLogit(mean + sd * kLogisticUnit * logisticOf(u), channel);
