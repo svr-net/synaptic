@@ -77,7 +77,7 @@ const kernel::Model* communityModel() {
       std::vector<double> share, groupMean, single;
       double best = 0;
       for (std::uint32_t a = 0; a < 5; ++a) {
-        const double s1 = S(8 + 2 * a), n1 = S(9 + 2 * a), s0 = st - s1, n0 = n - n1;
+        const double s1 = S(8 + 2 * a), n1 = std::round(S(9 + 2 * a)), s0 = st - s1, n0 = n - n1;
         const double m1 = n1 > 0 ? s1 / n1 : 0, m0 = n0 > 0 ? s0 / n0 : 0;
         const double r2 = sst > 0 ? (n1 * (m1 - mean) * (m1 - mean) + n0 * (m0 - mean) * (m0 - mean)) / sst : 0;
         names.push_back(kAttributes[a].name);
@@ -94,7 +94,7 @@ const kernel::Model* communityModel() {
       int cells = 0;
       std::vector<double> counts;
       for (std::uint32_t mask = 0; mask < 32; ++mask) {
-        const double cn = S(32 + 3 * mask), ct = S(33 + 3 * mask), cm = S(34 + 3 * mask);
+        const double cn = std::round(S(32 + 3 * mask)), ct = S(33 + 3 * mask), cm = S(34 + 3 * mask);
         if (cn < 0.5) continue;
         ++cells;
         counts.push_back(cn);

@@ -65,7 +65,7 @@ SYN_AGENT(audience_agent,
   }
   var analysis = f32(0);
   if (readTime > f32(0) && nRead > 0u) {
-    let canRead = u32(floor(budget / readTime));
+    let canRead = u32(floor(budget / readTime + f32(1e-4)));
     nRead = min(nRead, canRead);
     analysis = readTime * f32(nRead);
   }

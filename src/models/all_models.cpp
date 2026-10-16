@@ -25,13 +25,16 @@ const kernel::Model* gagneModel();
 const kernel::Model* audienceModel();
 const kernel::Model* communityModel();
 const kernel::Model* outcomesModel();
+const kernel::Model* assessmentActivitiesModel();
+const kernel::Model* assessmentSessionModel();
+const kernel::Model* rubricModel();
 }  // namespace syn::models
 
 namespace syn::kernel {
 
 std::vector<const Model*> allModels() {
   using namespace syn::models;
-  return {spaceModel(), conditioningModel(), operantModel(), tokenEconomyModel(), maslowModel(), ispModel(), memoryModel(), interleavingModel(), schemaModel(), equilibrationModel(), zpdModel(), dialogueModel(), developmentModel(), andragogyModel(), motivationModel(), classroomModel(), theoriesModel(), allocationModel(), sensitivityModel(), gagneModel(), audienceModel(), communityModel(), outcomesModel()};
+  return {spaceModel(), conditioningModel(), operantModel(), tokenEconomyModel(), maslowModel(), ispModel(), memoryModel(), interleavingModel(), schemaModel(), equilibrationModel(), zpdModel(), dialogueModel(), developmentModel(), andragogyModel(), motivationModel(), classroomModel(), theoriesModel(), allocationModel(), sensitivityModel(), gagneModel(), audienceModel(), communityModel(), outcomesModel(), assessmentActivitiesModel(), assessmentSessionModel(), rubricModel()};
 }
 
 }  // namespace syn::kernel

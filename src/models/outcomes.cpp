@@ -39,15 +39,15 @@ SYN_AGENT(outcomes_agent,
     let items = 15u;
     let efficiency = f32(0.45) + f32(0.55) * clamp(J(16u), f32(0), f32(1));
     let alignment = clamp(J(17u), f32(0), f32(1));
-    let shared = J(18u) > f32(0.5);
+    let sharedOutcomes = J(18u) > f32(0.5);
     let questions = J(19u);
     let affective = J(20u);
     var touched = f32(0);
     for (var i = 0u; i < items; i = i + 1u) { if (J(1u + i) > f32(0)) { touched = touched + f32(1); } }
     let crowding = f32(1) / (f32(1) + P(1u) * max(f32(0), touched - P(0u)));
-    let relevance = f32(0.5) * alignment + f32(0.3) * questions + f32(0.2) * affective + select(f32(0), f32(0.1), shared);
-    let judgeBias = select(f32(0.2), f32(0), shared);
-    let judgeNoise = select(f32(0.3), f32(0.12), shared);
+    let relevance = f32(0.5) * alignment + f32(0.3) * questions + f32(0.2) * affective + select(f32(0), f32(0.1), sharedOutcomes);
+    let judgeBias = select(f32(0.2), f32(0), sharedOutcomes);
+    let judgeNoise = select(f32(0.3), f32(0.12), sharedOutcomes);
     let aptitude = exp(P(2u) * kLogisticUnit * logisticOf(U(0u)));
     ARR(mastery, V5, 15);
     for (var i = 0u; i < items; i = i + 1u) {
