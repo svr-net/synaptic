@@ -1038,6 +1038,157 @@ val outcomes(val spec) {
   });
 }
 
+val assessment(val spec) {
+  return guarded([&] {
+    const double t0 = nowMs();
+    const val c = sub(spec, "assessment");
+    const auto seed = seedOf(spec);
+    const double minutes = num(c, "minutes", 45.0);
+    val o = val::object();
+    // Selecting assessment activities.
+    const auto catalogue = AssessmentActivity::catalogue();
+    val acts = val::array();
+    for (const auto& a : catalogue) {
+      val x = val::object();
+      x.set("name", a.name);
+      x.set("minutes", a.minutes);
+      x.set("direct", a.direct);
+      x.set("formal", a.formal);
+      x.set("authentic", a.authentic);
+      x.set("measures", std::string(bloomName(a.measures)));
+      x.set("noise", a.noise);
+      x.set("reach", a.reach);
+      x.set("afterSession", a.afterSession);
+      acts.call<void>("push", x);
+    }
+    o.set("activities", acts);
+    std::vector<std::string> levels;
+    for (int k = 0; k < kBloomLevels; ++k) levels.push_back(bloomName(static_cast<BloomLevel>(k)));
+    o.set("levels", strings(levels));
+    val audiences = val::array();
+    for (const auto& au : AssessmentAudience::all()) {
+      val x = val::object();
+      x.set("name", au.name);
+      val byLevel = val::array();
+      for (int k = 0; k < kBloomLevels; ++k) {
+        std::vector<double> v;
+        for (const auto& sc : scoreActivities(static_cast<BloomLevel>(k), au, minutes)) v.push_back(sc.value);
+        byLevel.call<void>("push", arr(v));
+      }
+      x.set("value", byLevel);
+      audiences.call<void>("push", x);
+    }
+    o.set("audiences", audiences);
+    const auto sig = simulateSignals(integer(c, "learners", 2000), seed);
+    val signals = val::object();
+    signals.set("direct", sig.direct);
+    signals.set("grade", sig.grade);
+    signals.set("selfReport", sig.selfReport);
+    signals.set("satisfaction", sig.satisfaction);
+    o.set("signals", signals);
+    // Formative and summative assessment in a session.
+    AssessedSessionParams sp;
+    sp.minutes = minutes;
+    sp.classes = integer(c, "classes", sp.classes);
+    sp.classSize = integer(c, "classSize", sp.classSize);
+    val sessions = val::array();
+    for (auto f : {FormativeCheck::None, FormativeCheck::Informal, FormativeCheck::Formal})
+      for (bool summative : {false, true}) {
+        AssessedSessionParams q = sp;
+        q.formative = f;
+        q.summative = summative;
+        const auto r = simulateAssessedSession(q, seed);
+        val x = val::object();
+        x.set("name", r.name);
+        x.set("chunkMastery", arr(r.chunkMastery));
+        x.set("finalMastery", r.finalMastery);
+        x.set("outcomeMet", r.outcomeMet);
+        x.set("reteaches", r.reteaches);
+        x.set("missedGaps", r.missedGaps);
+        x.set("assessmentMinutes", r.assessmentMinutes);
+        x.set("estimateError", r.estimateError);
+        sessions.call<void>("push", x);
+      }
+    o.set("sessions", sessions);
+    // The assessment cycle.
+    AssessmentCycleParams cp;
+    cp.session = sp;
+    cp.session.classes = std::min(sp.classes, 200);
+    cp.session.chunkClarity = {0.4, -1.2, 0.3, -0.5};
+    cp.offerings = integer(c, "offerings", cp.offerings);
+    val cycle = val::array();
+    for (auto e : {CycleEvidence::None, CycleEvidence::Grades, CycleEvidence::SelfReport, CycleEvidence::Direct}) {
+      cp.evidence = e;
+      const auto r = simulateAssessmentCycle(cp, seed);
+      val x = val::object();
+      x.set("evidence", r.evidence);
+      x.set("met", arr(r.met));
+      x.set("mastery", arr(r.mastery));
+      x.set("difficulty", arr(r.difficulty));
+      x.set("clarity", arr(r.clarity));
+      x.set("estimatedMet", arr(r.estimatedMet));
+      cycle.call<void>("push", x);
+    }
+    o.set("cycle", cycle);
+    // Rubrics.
+    val rubrics = val::array();
+    for (auto k : {RubricKind::None, RubricKind::Vague, RubricKind::Quantified, RubricKind::Precise}) {
+      val x = val::object();
+      for (bool shared : {false, true}) {
+        RubricParams rp;
+        rp.kind = k;
+        rp.shared = shared;
+        const auto r = simulateRubric(rp, seed);
+        val y = val::object();
+        y.set("exactAgreement", r.exactAgreement);
+        y.set("kappa", r.kappa);
+        y.set("validity", r.validity);
+        y.set("meanQuality", r.meanQuality);
+        y.set("meanCount", r.meanCount);
+        x.set("kind", r.kind);
+        x.set(shared ? "shared" : "private", y);
+      }
+      rubrics.call<void>("push", x);
+    }
+    o.set("rubrics", rubrics);
+    std::vector<double> levelCounts, agree, kappa, validity;
+    for (int L = 2; L <= 6; ++L) {
+      RubricParams rp;
+      rp.levels = L;
+      const auto r = simulateRubric(rp, seed);
+      levelCounts.push_back(L);
+      agree.push_back(r.exactAgreement);
+      kappa.push_back(r.kappa);
+      validity.push_back(r.validity);
+    }
+    val levelSweep = val::object();
+    levelSweep.set("levels", arr(levelCounts));
+    levelSweep.set("exactAgreement", arr(agree));
+    levelSweep.set("kappa", arr(kappa));
+    levelSweep.set("validity", arr(validity));
+    o.set("rubricLevels", levelSweep);
+    // Self-assessment.
+    val self = val::array();
+    for (bool feedback : {false, true}) {
+      SelfAssessmentParams ap;
+      ap.feedback = feedback;
+      const auto r = simulateSelfAssessment(ap, seed);
+      val x = val::object();
+      x.set("feedback", feedback);
+      x.set("actualFirst", arr(r.actual.front()));
+      x.set("perceivedFirst", arr(r.perceived.front()));
+      x.set("actualLast", arr(r.actual.back()));
+      x.set("perceivedLast", arr(r.perceived.back()));
+      x.set("calibrationError", arr(r.calibrationError));
+      x.set("meanSkill", arr(r.meanSkill));
+      self.call<void>("push", x);
+    }
+    o.set("selfAssessment", self);
+    o.set("elapsedMs", nowMs() - t0);
+    return o;
+  });
+}
+
 val motivation(val spec) {
   return guarded([&] {
     const val c = sub(spec, "motivation");
@@ -1525,6 +1676,7 @@ EMSCRIPTEN_BINDINGS(syn) {
   emscripten::function("motivation", &motivation);
   emscripten::function("audience", &audience);
   emscripten::function("outcomes", &outcomes);
+  emscripten::function("assessment", &assessment);
   emscripten::function("classroom", &classroom);
   emscripten::function("theories", &theories);
   emscripten::function("gagne", &gagne);

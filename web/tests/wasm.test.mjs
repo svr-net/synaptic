@@ -105,6 +105,15 @@ if (out) {
   check(k >= 3 && k <= 4, 'three to four outcomes per hour');
   check(out.evidenceBias[0] > 0 && out.evidenceBias[5] < 0, 'evidence must match the outcome level');
 }
+const asm = run('assessment', () => syn.assessment({ ...spec, assessment: { classes: 80, learners: 500 } }));
+if (asm) {
+  check(asm.signals.direct > asm.signals.grade && asm.signals.grade > asm.signals.satisfaction, 'assessment beats grades beats satisfaction');
+  check(asm.sessions[2].outcomeMet > asm.sessions[0].outcomeMet, 'formative checks help');
+  const d = asm.cycle[3].met;
+  check(d[d.length - 1] > d[0], 'the assessment cycle improves teaching');
+  check(asm.rubrics[3].private.kappa > asm.rubrics[0].private.kappa, 'a precise rubric raises agreement');
+  check(asm.selfAssessment[0].perceivedFirst[0] > asm.selfAssessment[0].actualFirst[0], 'the least skilled overestimate');
+}
 const cls = run('classroom', () => syn.classroom(spec));
 if (cls) {
   const n = cls.score.days.length;

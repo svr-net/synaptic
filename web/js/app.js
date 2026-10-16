@@ -13,6 +13,7 @@ const pages = {
   motivation: () => import('./pages/motivation.js'),
   audience: () => import('./pages/audience.js'),
   outcomes: () => import('./pages/outcomes.js'),
+  assessment: () => import('./pages/assessment.js'),
   classroom: () => import('./pages/classroom.js'),
   theories: () => import('./pages/theories.js'),
   allocation: () => import('./pages/allocation.js'),

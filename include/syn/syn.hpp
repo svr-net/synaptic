@@ -38,6 +38,10 @@
 #include "syn/outcomes/backward_design.hpp"
 #include "syn/outcomes/bloom.hpp"
 
+#include "syn/assessment/activities.hpp"
+#include "syn/assessment/rubric.hpp"
+#include "syn/assessment/session.hpp"
+
 #include "syn/classroom/allocation.hpp"
 #include "syn/classroom/classroom_engine.hpp"
 #include "syn/classroom/instructional_design.hpp"

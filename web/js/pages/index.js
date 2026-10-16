@@ -26,6 +26,7 @@ const DESCRIPTIONS = {
   motivation: "Svinicki's value × expectancy with five levers; Dweck's fixed and growth mindsets.",
   audience: 'Audience research, community data and pre-assessments before a one-shot session; zones of intervention.',
   outcomes: "Backward Design, Bloom's taxonomy and the twin sins of coverage and activity; three to four outcomes per hour.",
+  assessment: 'Formative and summative assessment, the assessment cycle, choosing activities, rubrics and self-assessment.',
   classroom: 'Every theory acting on the same learners over a course, with a delayed test.',
   theories: 'Activity 3.3 designed by each theory, on children, teenagers and adults.',
   allocation: 'Shapley, incremental and standalone allocation of a design\'s gain to its practices.',
@@ -84,7 +85,7 @@ pages (js/pages/*.js): render the results as charts and tables` }));
     ['Behaviorism', 'Behaviourism', 'syn/behaviorism'], ['Humanism', 'Humanism', 'syn/humanism'], ['Cognitivism (incl. Gagné)', 'Cognitivism', 'syn/cognitivism, syn/classroom'],
     ['Constructivism', 'Constructivism', 'syn/constructivism'], ['Social constructivism', 'Social constructivism', 'syn/social'],
     ['Developmental stages (Piaget, Perry, ZPD)', 'Developmental stages, Social', 'syn/development, syn/social'], ['Andragogy', 'Andragogy', 'syn/andragogy'],
-    ['Motivation, growth mindset', 'Motivation & mindset', 'syn/motivation'], ['Ch. 7: Identifying audience needs', 'Identifying audience needs', 'syn/audience, syn/humanism'], ['Ch. 8: Establishing learning goals and outcomes', 'Learning goals and outcomes', 'syn/outcomes'], ['Activity 3.3, conclusion', 'Theories compared, Gain allocation', 'syn/classroom'],
+    ['Motivation, growth mindset', 'Motivation & mindset', 'syn/motivation'], ['Ch. 7: Identifying audience needs', 'Identifying audience needs', 'syn/audience, syn/humanism'], ['Ch. 8: Establishing learning goals and outcomes', 'Learning goals and outcomes', 'syn/outcomes'], ['Ch. 9: Assessing learning', 'Assessing learning', 'syn/assessment'], ['Activity 3.3, conclusion', 'Theories compared, Gain allocation', 'syn/classroom'],
   ]);
   return engineNote(runResult, performance.now() - t0);
 });

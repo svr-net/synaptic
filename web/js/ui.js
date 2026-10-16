@@ -24,6 +24,7 @@ export const PAGES = [
       { id: 'motivation', href: 'motivation.html', title: 'Motivation & mindset' },
       { id: 'audience', href: 'audience.html', title: 'Identifying audience needs' },
       { id: 'outcomes', href: 'outcomes.html', title: 'Learning goals and outcomes' },
+      { id: 'assessment', href: 'assessment.html', title: 'Assessing learning' },
     ],
   },
   {

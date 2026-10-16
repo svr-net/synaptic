@@ -2,7 +2,7 @@
 
 [![CI](https://github.com/svr-net/synaptic/actions/workflows/ci.yml/badge.svg)](https://github.com/svr-net/synaptic/actions/workflows/ci.yml)
 
-A C++17 library that models three chapters of *Instruction in Libraries and Information Centers*
+A C++17 library that models four chapters of *Instruction in Libraries and Information Centers*
 (Illinois Open Publishing Network):
 
 > chapter 3, *Learning Theories: Understanding How People Learn*
@@ -10,7 +10,9 @@ A C++17 library that models three chapters of *Instruction in Libraries and Info
 > chapter 7, *Identifying Audience Needs*
 > (<https://iopn.library.illinois.edu/pressbooks/instructioninlibraries/chapter/identifying-audience-needs/>), and
 > chapter 8, *Establishing Learning Goals and Outcomes*
-> (<https://iopn.library.illinois.edu/pressbooks/instructioninlibraries/chapter/establishing-learning-goals-and-outcomes/>).
+> (<https://iopn.library.illinois.edu/pressbooks/instructioninlibraries/chapter/establishing-learning-goals-and-outcomes/>), and
+> chapter 9, *Assessing Learning*
+> (<https://iopn.library.illinois.edu/pressbooks/instructioninlibraries/chapter/assessing-learning/>).
 
 The chapter surveys how people learn: behaviourism, humanism, cognitivism, constructivism and social constructivism; the developmental
 stages of Piaget, Perry and Vygotsky's Zone of Proximal Development; andragogy; and motivation and the growth mindset. It ends by
@@ -23,7 +25,11 @@ shows what the knowledge is worth, when grouping learners pays, why demographics
 in the research process a session helps (Kuhlthau's zones of intervention). Chapter 8 plans the session backwards from its outcomes: the library analyses written outcomes
 against Bloom's revised taxonomy (vague verbs such as "understand" cannot be measured), shows why evidence must match the
 outcome's level, simulates the twin sins of coverage-based and activity-based instruction against Backward Design over big ideas,
-basic ideas and what is only nice to know, finds that three to four outcomes fit an hour, and fits the outcome level to the audience's ZPD.
+basic ideas and what is only nice to know, finds that three to four outcomes fit an hour, and fits the outcome level to the audience's ZPD. Chapter 9 assesses the learning: the library chooses assessment activities by
+alignment, audience and time; shows that formative checks fix unclear chunks during a session while only a summative assessment
+tells the instructor whether the outcome was met; runs the assessment cycle over repeated offerings with direct evidence, self-report
+or grades; measures rater agreement and validity for no rubric, vague, quantified and precise rubrics; and models self-assessment,
+where the least skilled overestimate most and feedback calibrates.
 It is an independent implementation. It does not reproduce the text of the chapter. The models are illustrative: their parameters
 are chosen so that the effects the chapter describes appear with plausible sizes. They are not fitted to data.
 
@@ -82,7 +88,7 @@ npm --prefix tools/standalone ci && node tools/standalone/build.mjs
 
 ```
 dist/standalone/
-  index.html, core.html, ... gpu.html           17 pages
+  index.html, core.html, ... gpu.html           18 pages
   assets/app.<hash>.js                          all pages (classic script, ~90 KiB)
   assets/syn-runtime.<hash>.js                  WASM worker with embedded library (~530 KiB)
   assets/style.<hash>.css
@@ -145,6 +151,7 @@ python3 -m http.server -d web 8000      # any static server; file:// will not lo
 | `motivation.html` | Svinicki's value × expectancy with five levers, Dweck's mindsets and feedback | `motivation` |
 | `audience.html` | Chapter 7: priors from research and community data, pre-assessment instruments, grouping, intersectionality and privacy, zones of intervention | `audience` |
 | `outcomes.html` | Chapter 8: outcome analyser (your own outcomes and Table 8.3), the twin sins, outcomes per hour, evidence vs outcome level, shared outcomes and essential questions, outcome level for the audience | `outcomes` |
+| `assessment.html` | Chapter 9: choosing assessment activities, assessment vs grades and satisfaction, formative and summative, the assessment cycle, rubrics, self-assessment | `assessment` |
 | `classroom.html` | The classroom engine: score profile, learner states, equity | `classroom` |
 | `theories.html` | Activity 3.3 designed by every theory, on three populations | `theories` |
 | `allocation.html` | Shapley, incremental and standalone allocation of a design's gain | `allocation` |
@@ -248,6 +255,9 @@ ZPD geometry reproduces the logistic model to 1e-13.
 | Ch. 7: Kuhlthau's seven stages | `humanism/information_search.hpp` | The assessment stage and zones of intervention: a one-shot session's day and target stage, helping only students who have not passed it |
 | Ch. 8: Bloom's taxonomy | `outcomes/bloom.hpp` | The six levels and their action verbs; an analyser for written outcomes (stem, verb, level, vague verbs, compound and too-broad outcomes); hierarchical mastery by level; evidence at one level for an outcome at another (bias and met / not met accuracy) |
 | Ch. 8: Backward Design | `outcomes/backward_design.hpp` | Big ideas, basic ideas and nice-to-know content for a one-shot session; coverage-based, activity-based and backward-design plans; mastery with crowding beyond ~4 items, understanding of big ideas from their basics, transfer, behaviour change, self-assessment with shared outcomes, essential questions and affective framing; outcome level fitted to the audience's ZPD (elliptic CGA) |
+| Ch. 9: assessment activities | `assessment/activities.hpp` | The chapter's activities (worksheet, task, pre/post test, graphic organizer, pro/con chart, annotated bibliography, exit ticket, directed paraphrasing, one-sentence summary, application card, polls, self-assessment) with time, direct/indirect, formal/informal, authentic, Bloom level, noise and reach; selection by alignment, audience and time; assessment vs grades, self-report and satisfaction as signals of learning |
+| Ch. 9: formative and summative, the assessment cycle | `assessment/session.hpp` | A lesson in chunks mastered through the ZPD (elliptic CGA); informal and formal formative checks with reteaching; summative assessment and the instructor's knowledge of the outcome; the five-step cycle over offerings with direct evidence, self-report or grades |
+| Ch. 9: rubrics and self-assessment | `assessment/rubric.hpp` | Rater agreement (exact, Cohen's κ) and validity with no rubric, vague, quantified and precise rubrics; sharing the rubric with learners; number of levels; self-assessment by quartile (the least skilled overestimate) and feedback |
 | Learners | `classroom/learner.hpp` | Populations (children, secondary, adults) with prior knowledge, anxiety, mindset, efficacy, interest, cultural capital and age |
 | Combining the theories | `classroom/classroom_engine.hpp` | Every theory acting on the same learners over a course; score, recall and risk profiles; equity gap; learner states per session |
 | Activity 3.3 | `classroom/instructional_design.hpp` | The lesson each theory would design (16 levers), including the blended design of the conclusion |
