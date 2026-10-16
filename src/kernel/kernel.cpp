@@ -143,6 +143,18 @@ Output finish(const Plan& p, const std::vector<Slice>& slices) {
       }
       out.means[job * p.stats + i] = acc / p.agents;
     }
+  if (p.keepAgents > 0 && p.quantiles > 0) {
+    const std::uint32_t keep = std::min(p.keepAgents, p.agents);
+    out.agentValues.assign(static_cast<std::size_t>(p.jobs) * keep * p.quantiles, 0.0);
+    for (std::uint32_t job = 0; job < p.jobs; ++job)
+      for (std::uint32_t a = 0; a < keep; ++a) {
+        const std::size_t tile = static_cast<std::size_t>(job) * p.workgroups() + a / kWorkgroup;
+        const Slice& s = slice(tile);
+        for (std::uint32_t q = 0; q < p.quantiles; ++q)
+          out.agentValues[(static_cast<std::size_t>(job) * keep + a) * p.quantiles + q] =
+              s.scratch[((tile - s.tileBegin) * kWorkgroup + a % kWorkgroup) * p.quantiles + q];
+      }
+  }
   if (p.quantiles > 0) {
     out.quantiles.assign(p.quantileFloats(), 0.0);
     std::vector<std::uint32_t> hist(kHistogramBins);
@@ -225,12 +237,24 @@ Value analyseSlices(const std::string& name, const Value& spec, const std::vecto
   return m.summarise(spec, plans, outputs);
 }
 
-Value analyseOutputs(const std::string& name, const Value& spec, const std::vector<Output>& outputs) {
+Value analyseOutputs(const std::string& name, const Value& spec, std::vector<Output> outputs, const std::vector<std::vector<double>>& scratch) {
   const Model& m = model(name);
   const auto plans = m.compile(spec);
   if (outputs.size() != plans.size()) throw std::invalid_argument(name + ": one GPU output per plan");
-  for (std::size_t i = 0; i < plans.size(); ++i)
-    if (outputs[i].means.size() != plans[i].sumFloats()) throw std::invalid_argument(name + ": GPU read-back has the wrong size");
+  for (std::size_t i = 0; i < plans.size(); ++i) {
+    const Plan& p = plans[i];
+    if (outputs[i].means.size() != p.sumFloats()) throw std::invalid_argument(name + ": GPU read-back has the wrong size");
+    if (p.keepAgents > 0 && p.quantiles > 0) {
+      if (i >= scratch.size() || scratch[i].size() < p.scratchFloats()) throw std::invalid_argument(name + ": the agent values were not read back");
+      const std::uint32_t keep = std::min(p.keepAgents, p.agents);
+      auto& v = outputs[i].agentValues;
+      v.assign(static_cast<std::size_t>(p.jobs) * keep * p.quantiles, 0.0);
+      for (std::uint32_t job = 0; job < p.jobs; ++job)
+        for (std::uint32_t a = 0; a < keep; ++a)
+          for (std::uint32_t q = 0; q < p.quantiles; ++q)
+            v[(static_cast<std::size_t>(job) * keep + a) * p.quantiles + q] = scratch[i][(static_cast<std::size_t>(job) * p.agents + a) * p.quantiles + q];
+    }
+  }
   return m.summarise(spec, plans, outputs);
 }
 

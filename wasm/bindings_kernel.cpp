@@ -144,6 +144,7 @@ val planToJs(const syn::kernel::Plan& p) {
   bytes.set("partials", static_cast<double>(p.partialFloats() * 4));
   bytes.set("sums", static_cast<double>(p.sumFloats() * 4));
   bytes.set("quantiles", static_cast<double>(p.quantileFloats() * 4));
+  bytes.set("keep", static_cast<double>(p.keepAgents > 0 && p.quantiles > 0 ? p.scratchFloats() * 4 : 0));
   x.set("bytes", bytes);
   x.set("agents", p.agents);
   x.set("jobs", p.jobs);
@@ -166,13 +167,15 @@ val modelAnalyse(val spec) {
   try {
     const Value s = fromJs(spec);
     std::vector<syn::kernel::Output> outputs;
+    std::vector<std::vector<double>> scratch;
     for (const auto& o : s.at("outputs").asArray()) {
       syn::kernel::Output out;
       out.means = o.nums("means", {});
       out.quantiles = o.nums("quantiles", {});
       outputs.push_back(std::move(out));
+      scratch.push_back(o.nums("scratch", {}));
     }
-    return toJs(syn::kernel::analyseOutputs(modelName(s), s, outputs));
+    return toJs(syn::kernel::analyseOutputs(modelName(s), s, std::move(outputs), scratch));
   } catch (const std::exception& e) {
     return errorOf(e.what());
   }

@@ -46,7 +46,7 @@ export async function runOnGpu(model, spec) {
   let gpuMs = 0;
   for (const plan of plans) {
     const out = await gpu.run(pipes, plan);
-    outputs.push({ means: out.means, quantiles: out.quantiles });
+    outputs.push({ means: out.means, quantiles: out.quantiles, scratch: out.scratch });
     gpuMs += out.gpuMs;
   }
   const result = await checked(run('modelAnalyse', { ...spec, model, outputs }));

@@ -40,6 +40,7 @@ struct Plan {
   std::uint32_t agents = 0, jobs = 0;
   std::uint32_t stats = 0;      ///< statistics per agent (summed over agents)
   std::uint32_t quantiles = 0;  ///< values per agent kept for the 10/50/90% quantiles (in [0, 1])
+  std::uint32_t keepAgents = 0; ///< agents (from 0) whose kept values are also returned one by one
   std::vector<float> params;    ///< model constants P(i)
   std::uint32_t jobStride = 0;  ///< floats per job row J(i)
   std::vector<float> jobRows;   ///< [job][jobStride]
@@ -61,6 +62,7 @@ struct Plan {
 struct Output {
   std::vector<double> means;      ///< [job][stat], divided by the number of agents
   std::vector<double> quantiles;  ///< [job][value][q10, q50, q90]
+  std::vector<double> agentValues;  ///< [job][kept agent][value] when the plan keeps agents
 
   double mean(const Plan& p, std::uint32_t job, std::uint32_t stat) const { return means[job * p.stats + stat]; }
   /** stats [first, first + n) of a job. */
@@ -123,8 +125,12 @@ Value run(const std::string& name, const Value& spec, Precision precision = Prec
 Value runSlices(const std::string& name, const Value& spec, std::size_t part, std::size_t parts);
 /** Summarises slices from runSlices (one array per worker, in worker order). */
 Value analyseSlices(const std::string& name, const Value& spec, const std::vector<Value>& parts);
-/** Summarises GPU read-backs: one { means, quantiles } per plan. */
-Value analyseOutputs(const std::string& name, const Value& spec, const std::vector<Output>& outputs);
+/**
+ * Summarises GPU read-backs: one Output per plan (means and quantiles); when a plan keeps agents,
+ * `scratch` holds its whole agent-values buffer, [job][agent][value].
+ */
+Value analyseOutputs(const std::string& name, const Value& spec, std::vector<Output> outputs,
+                     const std::vector<std::vector<double>>& scratch = {});
 
 // ---------------------------------------------------------------- WGSL
 

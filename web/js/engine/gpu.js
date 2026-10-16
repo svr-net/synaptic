@@ -119,12 +119,13 @@ export class GpuEngine {
       header: this.upload(plan.header, GPUBufferUsage.UNIFORM, 'header'),
       constants: this.upload(plan.constants, S, 'constants'),
       seeds: this.upload(plan.seeds, S, 'seeds'),
-      scratch: scratch(bytes.scratch, S, 'agent-values'),
+      scratch: scratch(bytes.scratch, S | GPUBufferUsage.COPY_SRC, 'agent-values'),
       partials: scratch(bytes.partials, S, 'partials'),
       sums: scratch(bytes.sums, S | GPUBufferUsage.COPY_SRC, 'sums'),
       quantiles: scratch(bytes.quantiles, S | GPUBufferUsage.COPY_SRC, 'quantiles'),
       readSums: scratch(bytes.sums, GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST, 'read-sums'),
       readQuantiles: scratch(bytes.quantiles, GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST, 'read-quantiles'),
+      readKeep: bytes.keep > 0 ? scratch(bytes.keep, GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST, 'read-agent-values') : null,
     };
     const group = (pipeline, entries) => d.createBindGroup({
       layout: pipeline.getBindGroupLayout(0),
@@ -150,18 +151,21 @@ export class GpuEngine {
     pass.end();
     enc.copyBufferToBuffer(bufs.sums, 0, bufs.readSums, 0, Math.max(16, bytes.sums));
     enc.copyBufferToBuffer(bufs.quantiles, 0, bufs.readQuantiles, 0, Math.max(16, bytes.quantiles));
+    if (bufs.readKeep) enc.copyBufferToBuffer(bufs.scratch, 0, bufs.readKeep, 0, bytes.keep);
     d.queue.submit([enc.finish()]);
     globalThis.__synGpuRuns = (globalThis.__synGpuRuns || 0) + 1; // dispatches submitted (checked by the e2e test)
-    await Promise.all([bufs.readSums.mapAsync(GPUMapMode.READ), bufs.readQuantiles.mapAsync(GPUMapMode.READ)]);
+    await Promise.all([bufs.readSums.mapAsync(GPUMapMode.READ), bufs.readQuantiles.mapAsync(GPUMapMode.READ),
+      bufs.readKeep ? bufs.readKeep.mapAsync(GPUMapMode.READ) : null]);
     const gpuMs = performance.now() - t0;
     const oom = await d.popErrorScope();
     const validation = await d.popErrorScope();
     const out = validation || oom ? null : {
       means: new Float32Array(bufs.readSums.getMappedRange().slice(0, bytes.sums)),
       quantiles: dispatch.quantiles > 0 ? new Float32Array(bufs.readQuantiles.getMappedRange().slice(0, bytes.quantiles)) : new Float32Array(0),
+      scratch: bufs.readKeep ? new Float32Array(bufs.readKeep.getMappedRange().slice(0, bytes.keep)) : new Float32Array(0),
       gpuMs,
     };
-    for (const b of Object.values(bufs)) b.destroy();
+    for (const b of Object.values(bufs)) if (b) b.destroy();
     if (!out) throw new Error((validation || oom).message);
     if (this.lost) throw new Error('GPU device lost: ' + this.lost.message);
     return out;
