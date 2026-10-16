@@ -38,6 +38,8 @@ add_library(syn
   src/motivation/mindset.cpp
   src/audience/pre_assessment.cpp
   src/audience/community.cpp
+  src/outcomes/bloom.cpp
+  src/outcomes/backward_design.cpp
   src/classroom/learner.cpp
   src/classroom/instructional_design.cpp
   src/classroom/classroom_engine.cpp
@@ -100,6 +102,7 @@ if(SYN_BUILD_TESTS)
     tests/test_motivation.cpp
     tests/test_classroom.cpp
     tests/test_audience.cpp
+    tests/test_outcomes.cpp
     tests/test_gpu.cpp
   )
   target_link_libraries(syn_tests PRIVATE syn)

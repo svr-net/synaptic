@@ -23,6 +23,7 @@ export const PAGES = [
       { id: 'andragogy', href: 'andragogy.html', title: 'Andragogy' },
       { id: 'motivation', href: 'motivation.html', title: 'Motivation & mindset' },
       { id: 'audience', href: 'audience.html', title: 'Identifying audience needs' },
+      { id: 'outcomes', href: 'outcomes.html', title: 'Learning goals and outcomes' },
     ],
   },
   {

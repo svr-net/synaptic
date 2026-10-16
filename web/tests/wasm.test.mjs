@@ -94,6 +94,17 @@ if (aud) {
   const zone = (s) => Math.max(...aud.zones.find((z) => z.stage === s).onTime);
   check(zone('exploration') > zone('collection'), 'a session on exploration beats one on collection');
 }
+const out = run('outcomes', () => syn.outcomes({ ...spec, outcomes: { learners: 200, texts: ['Understand Boolean operators', 'Apply Boolean operators to narrow a search'] } }));
+if (out) {
+  check(out.table83.every((x) => !x.poor.strong && x.strong.strong), 'Table 8.3 classified');
+  check(!out.analysed[0].measurable && out.analysed[1].strong, 'own outcomes analysed');
+  const [cov, act, bd] = out.plans;
+  check(bd.behaviourChange > cov.behaviourChange && bd.behaviourChange > act.behaviourChange, 'backward design avoids the twin sins');
+  const hour = out.sweep.find((s) => s.minutes === 60).enduring;
+  const k = out.outcomeCounts[hour.indexOf(Math.max(...hour))];
+  check(k >= 3 && k <= 4, 'three to four outcomes per hour');
+  check(out.evidenceBias[0] > 0 && out.evidenceBias[5] < 0, 'evidence must match the outcome level');
+}
 const cls = run('classroom', () => syn.classroom(spec));
 if (cls) {
   const n = cls.score.days.length;

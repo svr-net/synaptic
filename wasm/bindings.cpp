@@ -877,6 +877,167 @@ val audience(val spec) {
   });
 }
 
+val outcomeAnalysis(const OutcomeAnalysis& a) {
+  val x = val::object();
+  x.set("text", a.text);
+  x.set("verb", a.verb);
+  x.set("level", a.level);
+  x.set("levelName", std::string(a.level >= 0 ? bloomName(static_cast<BloomLevel>(a.level)) : "none"));
+  x.set("vague", a.vague);
+  x.set("measurable", a.measurable);
+  x.set("specific", a.specific);
+  x.set("strong", a.strong);
+  x.set("actions", a.actions);
+  x.set("issues", strings(a.issues));
+  return x;
+}
+
+val sessionResult(const SessionResult& r) {
+  val x = val::object();
+  x.set("plan", r.plan);
+  x.set("mastery", arr(r.mastery));
+  x.set("itemsTouched", r.itemsTouched);
+  x.set("coverage", r.coverage);
+  x.set("basics", r.basics);
+  x.set("bigIdeas", r.bigIdeas);
+  x.set("niceToKnow", r.niceToKnow);
+  x.set("enduring", r.enduring);
+  x.set("outcomesMet", r.outcomesMet);
+  x.set("transfer", r.transfer);
+  x.set("behaviourChange", r.behaviourChange);
+  x.set("selfAssessment", r.selfAssessment);
+  return x;
+}
+
+val outcomes(val spec) {
+  return guarded([&] {
+    const double t0 = nowMs();
+    const val c = sub(spec, "outcomes");
+    const auto seed = seedOf(spec);
+    const double minutes = num(c, "minutes", 50.0);
+    const int count = integer(c, "outcomes", 4);
+    val o = val::object();
+    // Stage 1: written outcomes (Table 8.3 and the learner's own).
+    const std::vector<std::string> poor = {"Be able to search databases", "Evaluate a website", "Understand how databases work", "Understand primary sources"};
+    const std::vector<std::string> strong = {"Apply Boolean search strategies effectively to broaden and narrow searches.",
+                                             "Evaluate websites for authority, reliability, and accuracy; identify trustworthy sites.",
+                                             "Describe how information is parsed and stored in a database.",
+                                             "Define primary, secondary, and tertiary sources; identify examples of each."};
+    val table = val::array();
+    for (std::size_t i = 0; i < poor.size(); ++i) {
+      val row = val::object();
+      row.set("poor", outcomeAnalysis(analyseOutcome(poor[i])));
+      row.set("strong", outcomeAnalysis(analyseOutcome(strong[i])));
+      table.call<void>("push", row);
+    }
+    o.set("table83", table);
+    val own = val::array();
+    if (has(c, "texts")) {
+      const val texts = c["texts"];
+      const int n = texts["length"].as<int>();
+      for (int i = 0; i < n && i < 50; ++i) own.call<void>("push", outcomeAnalysis(analyseOutcome(texts[i].as<std::string>())));
+    }
+    o.set("analysed", own);
+    std::vector<std::string> levels, verbs;
+    for (int k = 0; k < kBloomLevels; ++k) {
+      levels.push_back(bloomName(static_cast<BloomLevel>(k)));
+      std::string v;
+      for (const auto& w : bloomVerbs(static_cast<BloomLevel>(k))) v += (v.empty() ? "" : ", ") + w;
+      verbs.push_back(v);
+    }
+    o.set("levels", strings(levels));
+    o.set("verbs", strings(verbs));
+    // Stage 3 vs the twin sins.
+    const auto items = librarySessionContent();
+    val content = val::array();
+    for (const auto& it : items) {
+      val x = val::object();
+      x.set("name", it.name);
+      x.set("kind", std::string(contentKindName(it.kind)));
+      x.set("bigIdea", it.bigIdea >= 0 ? items[it.bigIdea].name : std::string());
+      x.set("level", std::string(bloomName(it.level)));
+      x.set("minutes", it.minutesToMaster);
+      content.call<void>("push", x);
+    }
+    o.set("content", content);
+    SessionParams sp;
+    sp.learners = integer(c, "learners", sp.learners);
+    val plans = val::array();
+    for (const auto& plan : {coveragePlan(items, minutes), activityPlan(items, minutes), backwardDesignPlan(items, minutes, count)}) {
+      val x = sessionResult(simulateSession(items, plan, sp, seed));
+      x.set("minutes", arr(plan.minutes));
+      plans.call<void>("push", x);
+    }
+    o.set("plans", plans);
+    // How many outcomes fit a session.
+    const std::vector<double> lengths = {30, 60, 90};
+    std::vector<double> ks;
+    for (int k = 1; k <= 12; ++k) ks.push_back(k);
+    o.set("outcomeCounts", arr(ks));
+    val sweep = val::array();
+    for (double len : lengths) {
+      std::vector<double> enduring, met;
+      for (double k : ks) {
+        const auto r = simulateSession(items, backwardDesignPlan(items, len, static_cast<int>(k)), sp, seed);
+        enduring.push_back(r.enduring);
+        met.push_back(r.outcomesMet);
+      }
+      val x = val::object();
+      x.set("minutes", len);
+      x.set("enduring", arr(enduring));
+      x.set("met", arr(met));
+      sweep.call<void>("push", x);
+    }
+    o.set("sweep", sweep);
+    // Sharing outcomes, essential questions and affective framing.
+    val framing = val::array();
+    for (int f = 0; f < 4; ++f) {
+      auto plan = backwardDesignPlan(items, minutes, count);
+      plan.outcomesShared = f >= 1;
+      plan.essentialQuestions = f >= 2 ? 0.7 : 0.0;
+      plan.affective = f >= 3 ? 0.5 : 0.0;
+      const auto r = simulateSession(items, plan, sp, seed);
+      val x = val::object();
+      x.set("name", std::string(f == 0 ? "outcomes not shared" : f == 1 ? "+ shared outcomes" : f == 2 ? "+ essential questions" : "+ affective framing"));
+      x.set("behaviourChange", r.behaviourChange);
+      x.set("selfAssessment", r.selfAssessment);
+      framing.call<void>("push", x);
+    }
+    o.set("framing", framing);
+    // Stage 2: evidence at each Bloom level for an "apply" outcome.
+    const auto mastery = simulateLevelMastery(sp.learners, num(c, "depth", 1.5), seed);
+    std::vector<double> levelMean(kBloomLevels, 0.0), bias, accuracy;
+    for (const auto& x : mastery.learners)
+      for (int k = 0; k < kBloomLevels; ++k) levelMean[k] += x[k] / static_cast<double>(mastery.learners.size());
+    for (int e = 0; e < kBloomLevels; ++e) {
+      const auto ev = checkEvidence(mastery, BloomLevel::Apply, static_cast<BloomLevel>(e), 0.1, seed + 1);
+      bias.push_back(ev.bias);
+      accuracy.push_back(ev.accuracy);
+    }
+    o.set("levelMastery", arr(levelMean));
+    o.set("evidenceBias", arr(bias));
+    o.set("evidenceAccuracy", arr(accuracy));
+    // Outcome level appropriate to the audience (ZPD, pure elliptic CGA).
+    const std::vector<double> audiences = {-2.0, -1.0, 0.0, 1.0, 2.0};
+    val fit = val::array();
+    for (double th : audiences) {
+      const auto f = fitOutcomeLevel(th, num(c, "scaffold", 1.5));
+      val x = val::object();
+      x.set("audience", th);
+      x.set("alone", arr(f.alone));
+      x.set("assisted", arr(f.assisted));
+      x.set("gain", arr(f.gain));
+      std::vector<double> zones(f.zone.begin(), f.zone.end());
+      x.set("zone", arr(zones));
+      x.set("recommended", f.recommended);
+      fit.call<void>("push", x);
+    }
+    o.set("levelFit", fit);
+    o.set("elapsedMs", nowMs() - t0);
+    return o;
+  });
+}
+
 val motivation(val spec) {
   return guarded([&] {
     const val c = sub(spec, "motivation");
@@ -1363,6 +1524,7 @@ EMSCRIPTEN_BINDINGS(syn) {
   emscripten::function("andragogy", &andragogy);
   emscripten::function("motivation", &motivation);
   emscripten::function("audience", &audience);
+  emscripten::function("outcomes", &outcomes);
   emscripten::function("classroom", &classroom);
   emscripten::function("theories", &theories);
   emscripten::function("gagne", &gagne);

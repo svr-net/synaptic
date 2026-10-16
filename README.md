@@ -2,13 +2,15 @@
 
 [![CI](https://github.com/svr-net/synaptic/actions/workflows/ci.yml/badge.svg)](https://github.com/svr-net/synaptic/actions/workflows/ci.yml)
 
-A C++17 library that models two chapters of *Instruction in Libraries and Information Centers*
+A C++17 library that models three chapters of *Instruction in Libraries and Information Centers*
 (Illinois Open Publishing Network):
 
 > chapter 3, *Learning Theories: Understanding How People Learn*
 > (<https://iopn.library.illinois.edu/pressbooks/instructioninlibraries/chapter/learning-theories-understanding-how-people-learn/>), and
 > chapter 7, *Identifying Audience Needs*
-> (<https://iopn.library.illinois.edu/pressbooks/instructioninlibraries/chapter/identifying-audience-needs/>).
+> (<https://iopn.library.illinois.edu/pressbooks/instructioninlibraries/chapter/identifying-audience-needs/>), and
+> chapter 8, *Establishing Learning Goals and Outcomes*
+> (<https://iopn.library.illinois.edu/pressbooks/instructioninlibraries/chapter/establishing-learning-goals-and-outcomes/>).
 
 The chapter surveys how people learn: behaviourism, humanism, cognitivism, constructivism and social constructivism; the developmental
 stages of Piaget, Perry and Vygotsky's Zone of Proximal Development; andragogy; and motivation and the growth mindset. It ends by
@@ -18,7 +20,10 @@ would design (the chapter's Activity 3.3), allocate a design's learning gain to 
 strengthen next. Chapter 7 asks what an instructor knows about a class before a one-shot session: the library models audience
 research and community data as prior beliefs, each pre-assessment instrument as a measurement with a cost in class time, and
 shows what the knowledge is worth, when grouping learners pays, why demographics describe groups and not individuals, and when
-in the research process a session helps (Kuhlthau's zones of intervention).
+in the research process a session helps (Kuhlthau's zones of intervention). Chapter 8 plans the session backwards from its outcomes: the library analyses written outcomes
+against Bloom's revised taxonomy (vague verbs such as "understand" cannot be measured), shows why evidence must match the
+outcome's level, simulates the twin sins of coverage-based and activity-based instruction against Backward Design over big ideas,
+basic ideas and what is only nice to know, finds that three to four outcomes fit an hour, and fits the outcome level to the audience's ZPD.
 It is an independent implementation. It does not reproduce the text of the chapter. The models are illustrative: their parameters
 are chosen so that the effects the chapter describes appear with plausible sizes. They are not fitted to data.
 
@@ -77,7 +82,7 @@ npm --prefix tools/standalone ci && node tools/standalone/build.mjs
 
 ```
 dist/standalone/
-  index.html, core.html, ... gpu.html           16 pages
+  index.html, core.html, ... gpu.html           17 pages
   assets/app.<hash>.js                          all pages (classic script, ~90 KiB)
   assets/syn-runtime.<hash>.js                  WASM worker with embedded library (~530 KiB)
   assets/style.<hash>.css
@@ -139,6 +144,7 @@ python3 -m http.server -d web 8000      # any static server; file:// will not lo
 | `andragogy.html` | Knowles' assumptions × design, Bartle's needs cycle | `andragogy` |
 | `motivation.html` | Svinicki's value × expectancy with five levers, Dweck's mindsets and feedback | `motivation` |
 | `audience.html` | Chapter 7: priors from research and community data, pre-assessment instruments, grouping, intersectionality and privacy, zones of intervention | `audience` |
+| `outcomes.html` | Chapter 8: outcome analyser (your own outcomes and Table 8.3), the twin sins, outcomes per hour, evidence vs outcome level, shared outcomes and essential questions, outcome level for the audience | `outcomes` |
 | `classroom.html` | The classroom engine: score profile, learner states, equity | `classroom` |
 | `theories.html` | Activity 3.3 designed by every theory, on three populations | `theories` |
 | `allocation.html` | Shapley, incremental and standalone allocation of a design's gain | `allocation` |
@@ -240,6 +246,8 @@ ZPD geometry reproduces the logistic model to 1e-13.
 | Ch. 7: audience research and pre-assessment | `audience/pre_assessment.hpp` | Priors from assumption, research literature, demographics and the curriculum; nine pre-assessment instruments (show of hands, anonymous poll, worksheet, K-W-L, concept map, brainstorm, quiz, homework) with class time, analysis time, noise, recall and social biases, participation and individual results; precision-weighted estimate of the class; pitch at the ZPD (elliptic CGA); grouping by score; value of information |
 | Ch. 7: community data | `audience/community.hpp` | Intersectional attributes (nontraditional, first-generation, English learner, older adult, disability); variance of individual needs explained by labels, intersections and a pre-assessment; minimum-cell-size suppression for aggregate-only reporting |
 | Ch. 7: Kuhlthau's seven stages | `humanism/information_search.hpp` | The assessment stage and zones of intervention: a one-shot session's day and target stage, helping only students who have not passed it |
+| Ch. 8: Bloom's taxonomy | `outcomes/bloom.hpp` | The six levels and their action verbs; an analyser for written outcomes (stem, verb, level, vague verbs, compound and too-broad outcomes); hierarchical mastery by level; evidence at one level for an outcome at another (bias and met / not met accuracy) |
+| Ch. 8: Backward Design | `outcomes/backward_design.hpp` | Big ideas, basic ideas and nice-to-know content for a one-shot session; coverage-based, activity-based and backward-design plans; mastery with crowding beyond ~4 items, understanding of big ideas from their basics, transfer, behaviour change, self-assessment with shared outcomes, essential questions and affective framing; outcome level fitted to the audience's ZPD (elliptic CGA) |
 | Learners | `classroom/learner.hpp` | Populations (children, secondary, adults) with prior knowledge, anxiety, mindset, efficacy, interest, cultural capital and age |
 | Combining the theories | `classroom/classroom_engine.hpp` | Every theory acting on the same learners over a course; score, recall and risk profiles; equity gap; learner states per session |
 | Activity 3.3 | `classroom/instructional_design.hpp` | The lesson each theory would design (16 levers), including the blended design of the conclusion |
