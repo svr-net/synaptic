@@ -40,7 +40,7 @@ runButton(page, 'Run', async (spec) => {
   });
   lineChart(card(g, 'Where students are (no support)', `Share of students in each ISP stage; the deadline is day ${r.deadline}.`), {
     x: Array.from(none.days), xLabel: 'day', yLabel: 'share',
-    series: [...r.stages.map((s, k) => ({ name: s.name, y: Array.from(none.stageShare[k]), colorIndex: k })), { name: 'done', y: Array.from(none.stageShare[6]), colorIndex: 7, dash: true }],
+    series: [...r.stages.map((s, k) => ({ name: s.name, y: Array.from(none.stageShare[k]), colorIndex: k })), { name: 'done', y: Array.from(none.stageShare[r.stages.length]), colorIndex: 7, dash: true }],
   });
   table(card(g, 'Kuhlthau stages', 'Typical feelings and the days students spend in each stage.'), ['stage', 'feeling', 'uncertainty', 'days (none)', 'days (half)', 'days (full)'],
     r.stages.map((s, k) => [s.name, s.feeling, fmt.num(s.uncertainty, 2), fmt.num(none.daysInStage[k], 1), fmt.num(half.daysInStage[k], 1), fmt.num(full.daysInStage[k], 1)]));

@@ -11,6 +11,7 @@ const pages = {
   development: () => import('./pages/development.js'),
   andragogy: () => import('./pages/andragogy.js'),
   motivation: () => import('./pages/motivation.js'),
+  audience: () => import('./pages/audience.js'),
   classroom: () => import('./pages/classroom.js'),
   theories: () => import('./pages/theories.js'),
   allocation: () => import('./pages/allocation.js'),

@@ -32,6 +32,9 @@
 #include "syn/motivation/expectancy_value.hpp"
 #include "syn/motivation/mindset.hpp"
 
+#include "syn/audience/community.hpp"
+#include "syn/audience/pre_assessment.hpp"
+
 #include "syn/classroom/allocation.hpp"
 #include "syn/classroom/classroom_engine.hpp"
 #include "syn/classroom/instructional_design.hpp"

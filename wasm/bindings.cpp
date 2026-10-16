@@ -742,6 +742,141 @@ val andragogy(val spec) {
   });
 }
 
+val audience(val spec) {
+  return guarded([&] {
+    const double t0 = nowMs();
+    const val c = sub(spec, "audience");
+    OneShotParams p;
+    p.classSize = integer(c, "classSize", p.classSize);
+    p.classes = integer(c, "classes", 300);
+    p.sessionMinutes = num(c, "sessionMinutes", p.sessionMinutes);
+    p.withinClassSd = num(c, "withinClassSd", p.withinClassSd);
+    p.groups = integer(c, "groups", 1);
+    const auto seed = seedOf(spec);
+    val o = val::object();
+    // Every prior source × instrument.
+    std::vector<std::string> priors, instruments;
+    for (const auto& s : PriorSource::all()) priors.push_back(s.name);
+    val table = val::array();
+    for (const auto& inst : PreAssessment::all()) {
+      instruments.push_back(inst.name);
+      val row = val::object();
+      row.set("instrument", inst.name);
+      row.set("classMinutes", inst.classMinutes);
+      row.set("analysisPerLearner", inst.analysisPerLearner);
+      row.set("noise", inst.noise);
+      row.set("bias", inst.recallBias + inst.socialBias);
+      row.set("participation", inst.participation);
+      row.set("individual", inst.individual);
+      row.set("affective", inst.affective);
+      row.set("engagement", inst.engagement);
+      std::vector<double> gain, voi, rmse, zpd;
+      double teaching = 0.0, analysed = 0.0;
+      for (const auto& s : PriorSource::all()) {
+        const auto r = simulateOneShot(p, s, inst, seed);
+        gain.push_back(r.meanGain);
+        voi.push_back(r.valueOfInformation);
+        rmse.push_back(r.estimateRmse);
+        zpd.push_back(r.zpdShare);
+        teaching = r.teachingMinutes;
+        analysed = r.analysedShare;
+      }
+      row.set("gain", arr(gain));
+      row.set("value", arr(voi));
+      row.set("rmse", arr(rmse));
+      row.set("zpd", arr(zpd));
+      row.set("teachingMinutes", teaching);
+      row.set("analysedShare", analysed);
+      table.call<void>("push", row);
+    }
+    o.set("priors", strings(priors));
+    o.set("instruments", table);
+    // Class size: open-ended instruments cannot all be read in a large class.
+    const std::vector<double> sizes = {6, 10, 15, 20, 30, 45, 60, 90, 120};
+    val bySize = val::array();
+    for (const auto& inst : {PreAssessment::anonymousPoll(), PreAssessment::worksheet(), PreAssessment::kwl(), PreAssessment::conceptMap()}) {
+      std::vector<double> read, rmse;
+      for (double size : sizes) {
+        OneShotParams q = p;
+        q.classSize = static_cast<int>(size);
+        const auto r = simulateOneShot(q, PriorSource::research(), inst, seed);
+        read.push_back(r.analysedShare);
+        rmse.push_back(r.estimateRmse);
+      }
+      val x = val::object();
+      x.set("instrument", inst.name);
+      x.set("read", arr(read));
+      x.set("rmse", arr(rmse));
+      bySize.call<void>("push", x);
+    }
+    o.set("sizes", arr(sizes));
+    o.set("bySize", bySize);
+    // Differentiation: groups by worksheet score, for classes of different mixedness.
+    const std::vector<double> spreads = {0.5, 0.9, 1.4};
+    val grouping = val::array();
+    for (double sd : spreads) {
+      std::vector<double> g;
+      for (int groups = 1; groups <= 4; ++groups) {
+        OneShotParams q = p;
+        q.withinClassSd = sd;
+        q.groups = groups;
+        g.push_back(simulateOneShot(q, PriorSource::research(), PreAssessment::worksheet(), seed).meanGain);
+      }
+      val x = val::object();
+      x.set("spread", sd);
+      x.set("gain", arr(g));
+      grouping.call<void>("push", x);
+    }
+    o.set("grouping", grouping);
+    // Community data: groups, intersections, privacy.
+    const auto com = simulateCommunity({}, seed);
+    val community = val::object();
+    community.set("attributes", strings(com.attributes));
+    community.set("share", arr(com.groupShare));
+    community.set("mean", arr(com.groupMean));
+    community.set("singleR2", arr(com.singleR2));
+    community.set("bestSingleR2", com.bestSingleR2);
+    community.set("intersectionR2", com.intersectionR2);
+    community.set("preAssessmentR2", com.preAssessmentR2);
+    community.set("combinedR2", com.combinedR2);
+    community.set("cells", com.cells);
+    std::vector<double> ks(com.minCellSizes.begin(), com.minCellSizes.end());
+    community.set("minCellSizes", arr(ks));
+    community.set("suppressedCells", arr(com.suppressedCells));
+    community.set("suppressedLearners", arr(com.suppressedLearners));
+    o.set("community", community);
+    // Zones of intervention: a one-shot session on day d targeting each stage.
+    std::vector<std::string> stageNames;
+    for (const auto& st : ispStages()) stageNames.push_back(st.name);
+    o.set("stages", strings(stageNames));
+    std::vector<double> days = {2, 5, 8, 12, 16, 20, 25};
+    o.set("sessionDays", arr(days));
+    IspParams base;
+    base.students = 300;
+    o.set("noSession", simulateInformationSearch(base, seed).completedOnTime);
+    val zones = val::array();
+    for (int st = 1; st <= 4; ++st) {
+      std::vector<double> onTime, helped;
+      for (double d : days) {
+        IspParams q = base;
+        q.interventionDay = static_cast<int>(d);
+        q.interventionStage = static_cast<IspStage>(st);
+        const auto r = simulateInformationSearch(q, seed);
+        onTime.push_back(r.completedOnTime);
+        helped.push_back(r.helped);
+      }
+      val x = val::object();
+      x.set("stage", std::string(ispStages()[st].name));
+      x.set("onTime", arr(onTime));
+      x.set("helped", arr(helped));
+      zones.call<void>("push", x);
+    }
+    o.set("zones", zones);
+    o.set("elapsedMs", nowMs() - t0);
+    return o;
+  });
+}
+
 val motivation(val spec) {
   return guarded([&] {
     const val c = sub(spec, "motivation");
@@ -1227,6 +1362,7 @@ EMSCRIPTEN_BINDINGS(syn) {
   emscripten::function("development", &development);
   emscripten::function("andragogy", &andragogy);
   emscripten::function("motivation", &motivation);
+  emscripten::function("audience", &audience);
   emscripten::function("classroom", &classroom);
   emscripten::function("theories", &theories);
   emscripten::function("gagne", &gagne);

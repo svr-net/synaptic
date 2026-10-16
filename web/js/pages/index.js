@@ -24,6 +24,7 @@ const DESCRIPTIONS = {
   development: "Piaget's stages by age and activity fit; Perry's scheme and how students judge sources.",
   andragogy: "Knowles' assumptions about adult learners and Bartle's seven-step needs cycle.",
   motivation: "Svinicki's value × expectancy with five levers; Dweck's fixed and growth mindsets.",
+  audience: 'Audience research, community data and pre-assessments before a one-shot session; zones of intervention.',
   classroom: 'Every theory acting on the same learners over a course, with a delayed test.',
   theories: 'Activity 3.3 designed by each theory, on children, teenagers and adults.',
   allocation: 'Shapley, incremental and standalone allocation of a design\'s gain to its practices.',
@@ -82,7 +83,7 @@ pages (js/pages/*.js): render the results as charts and tables` }));
     ['Behaviorism', 'Behaviourism', 'syn/behaviorism'], ['Humanism', 'Humanism', 'syn/humanism'], ['Cognitivism (incl. Gagné)', 'Cognitivism', 'syn/cognitivism, syn/classroom'],
     ['Constructivism', 'Constructivism', 'syn/constructivism'], ['Social constructivism', 'Social constructivism', 'syn/social'],
     ['Developmental stages (Piaget, Perry, ZPD)', 'Developmental stages, Social', 'syn/development, syn/social'], ['Andragogy', 'Andragogy', 'syn/andragogy'],
-    ['Motivation, growth mindset', 'Motivation & mindset', 'syn/motivation'], ['Activity 3.3, conclusion', 'Theories compared, Gain allocation', 'syn/classroom'],
+    ['Motivation, growth mindset', 'Motivation & mindset', 'syn/motivation'], ['Ch. 7: Identifying audience needs', 'Identifying audience needs', 'syn/audience, syn/humanism'], ['Activity 3.3, conclusion', 'Theories compared, Gain allocation', 'syn/classroom'],
   ]);
   return engineNote(runResult, performance.now() - t0);
 });

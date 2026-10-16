@@ -1,6 +1,7 @@
 #include "syn/humanism/information_search.hpp"
 
 #include <algorithm>
+#include <cmath>
 #include <stdexcept>
 
 #include "syn/core/math.hpp"
@@ -16,6 +17,7 @@ const std::array<IspStageInfo, kIspStages>& ispStages() {
       {"formulation", "clarity", 0.35, 3.0},
       {"collection", "sense of direction, confidence", 0.25, 6.0},
       {"presentation", "relief; satisfaction or disappointment", 0.15, 3.0},
+      {"assessment", "sense of accomplishment (reflection)", 0.10, 1.0},
   }};
   return stages;
 }
@@ -40,24 +42,33 @@ IspResult simulateInformationSearch(const IspParams& p, std::uint64_t seed) {
     int stage = 0;
     double progress = 0.0;
     int formulationDay = -1, doneDay = -1;
+    // The one-shot session: how much it helps this student in the targeted stage.
+    double help = 0.0;
+    const int target = static_cast<int>(p.interventionStage);
     for (std::size_t d = 0; d < r.days.size(); ++d) {
+      if (static_cast<int>(d) == p.interventionDay && stage <= target) {
+        help = clamp01(p.interventionStrength) * std::pow(0.7, target - stage);
+        r.helped += 1.0;
+      }
       if (stage < kIspStages) {
         const auto& info = stages[stage];
+        const double zone = stage == target ? help : 0.0;  // zone of intervention
         // Trait anxiety amplifies the stage's typical feeling; acknowledging that the feeling
         // is normal halves it at full support.
-        const double felt = clamp01(info.uncertainty * (1.0 + p.anxietyAmplification * (2.0 * anxiety - 1.0)) * (1.0 - 0.5 * support));
+        const double felt = clamp01(info.uncertainty * (1.0 + p.anxietyAmplification * (2.0 * anxiety - 1.0)) * (1.0 - 0.5 * support) *
+                                    (1.0 - 0.4 * zone));
         r.meanUncertainty[d] += felt;
         ++working[d];
         r.stageShare[stage][d] += 1.0;
         r.meanDaysInStage[stage] += 1.0;
         const double today = std::max(0.0, effort * (1.0 + 0.25 * rng.normal()));
-        progress += today / (1.0 + p.interference * felt) / info.work;
+        progress += today / (1.0 + p.interference * felt) / (info.work * (1.0 - 0.5 * zone));
         anxiety = clamp01(anxiety - 0.03 * support * anxiety);
         if (progress >= 1.0) {
           progress = 0.0;
           ++stage;
           if (stage == static_cast<int>(IspStage::Formulation)) formulationDay = static_cast<int>(d) + 1;
-          if (stage == kIspStages) doneDay = static_cast<int>(d) + 1;
+          if (stage == static_cast<int>(IspStage::Assessment)) doneDay = static_cast<int>(d) + 1;  // presented
         }
       } else {
         r.stageShare[kIspStages][d] += 1.0;
@@ -80,6 +91,7 @@ IspResult simulateInformationSearch(const IspParams& p, std::uint64_t seed) {
   }
   for (auto& m : r.meanDaysInStage) m /= n;
   r.completedOnTime /= n;
+  r.helped /= n;
   r.satisfied /= n;
   r.meanCompletionDay = completed ? completionDays / completed : 0.0;
   return r;

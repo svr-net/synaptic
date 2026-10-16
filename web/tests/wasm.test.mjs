@@ -86,6 +86,14 @@ if (and) {
 }
 const mot = run('motivation', () => syn.motivation(spec));
 if (mot) check(mot.terms[mot.terms.length - 1].gain > mot.terms[0].gain && mot.mindset[2].persist > mot.mindset[0].persist, 'motivation levers and "not yet"');
+const aud = run('audience', () => syn.audience({ ...spec, audience: { classes: 120 } }));
+if (aud) {
+  check(aud.instruments[0].value.every((v) => Math.abs(v) < 1e-12), 'no instrument: no value of information');
+  check(aud.instruments.find((x) => x.instrument === 'K-W-L chart').value[0] > 0, 'K-W-L pays from an assumption');
+  check(aud.community.preAssessmentR2 > aud.community.intersectionR2, 'pre-assessment explains individuals better than demographics');
+  const zone = (s) => Math.max(...aud.zones.find((z) => z.stage === s).onTime);
+  check(zone('exploration') > zone('collection'), 'a session on exploration beats one on collection');
+}
 const cls = run('classroom', () => syn.classroom(spec));
 if (cls) {
   const n = cls.score.days.length;

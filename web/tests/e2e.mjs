@@ -44,7 +44,7 @@ const browser = await chromium.launch({
 // Small learner counts keep the run fast; the pages pick the spec up from localStorage.
 const testSpec = { sim: { learners: 200, seed: 11 } };
 const pairSpec = { sim: { learners: 3000, seed: 11 } };
-const pages = ['index', 'core', 'behaviorism', 'humanism', 'cognitivism', 'constructivism', 'social', 'development', 'andragogy', 'motivation',
+const pages = ['index', 'core', 'behaviorism', 'humanism', 'cognitivism', 'constructivism', 'social', 'development', 'andragogy', 'motivation', 'audience',
   'classroom', 'theories', 'allocation', 'sensitivity'];
 // Pages with the engine selector. With no stored choice they run on Auto, which must pick WebGPU.
 const enginePages = ['index', 'classroom', 'theories', 'allocation', 'sensitivity'];
