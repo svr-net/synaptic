@@ -15,6 +15,7 @@
 // cap test of a point dilated by transfer and relevance. Shared outcomes make self-assessment
 // accurate. The outcome level appropriate to the audience is the highest level whose task lies
 // in the audience's ZPD (dilation and caps).
+#include <algorithm>
 #include <array>
 #include <cctype>
 #include <sstream>
