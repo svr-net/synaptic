@@ -2,7 +2,7 @@
 
 [![CI](https://github.com/svr-net/synaptic/actions/workflows/ci.yml/badge.svg)](https://github.com/svr-net/synaptic/actions/workflows/ci.yml)
 
-A C++17 library that models five chapters of *Instruction in Libraries and Information Centers*
+A C++17 library that models six chapters of *Instruction in Libraries and Information Centers*
 (Illinois Open Publishing Network):
 
 > chapter 3, *Learning Theories: Understanding How People Learn*
@@ -14,7 +14,9 @@ A C++17 library that models five chapters of *Instruction in Libraries and Infor
 > chapter 9, *Assessing Learning*
 > (<https://iopn.library.illinois.edu/pressbooks/instructioninlibraries/chapter/assessing-learning/>), and
 > chapter 10, *Selecting Instructional Strategies and Creating Lesson Plans*
-> (<https://iopn.library.illinois.edu/pressbooks/instructioninlibraries/chapter/selecting-instructional-strategies-and-creating-lesson-plans/>).
+> (<https://iopn.library.illinois.edu/pressbooks/instructioninlibraries/chapter/selecting-instructional-strategies-and-creating-lesson-plans/>), and
+> chapter 14, *Practicing Reflective Teaching*
+> (<https://iopn.library.illinois.edu/pressbooks/instructioninlibraries/chapter/practicing-reflective-teaching/>).
 
 The chapter surveys how people learn: behaviourism, humanism, cognitivism, constructivism and social constructivism; the developmental
 stages of Piaget, Perry and Vygotsky's Zone of Proximal Development; andragogy; and motivation and the growth mindset. It ends by
@@ -37,7 +39,14 @@ and through instructional videos of different lengths; measures who speaks in a 
 (think-pair-share, small groups, fishbowl, circle of voices) and ways of managing dominant talkers; compares Ellis and Larkin's
 gradual release with its shortcuts; shows that lessons matched to the content teach more than lessons matched to "learning
 styles", while a variety of modes reaches learners who cannot use one; simulates the flipped one-shot and problem-based learning;
-and delivers the chapter's sample lesson plan with and without time stamps, a cut list and a backup activity.
+and delivers the chapter's sample lesson plan with and without time stamps, a cut list and a backup activity. Chapter 14 turns
+to the instructor: the library follows a term of teaching under informal reflection, the four-step reflective journal and the
+evidence beside it (video, peer observation, the critical incident questionnaire), showing that evidence reveals blind spots, that
+one or two changes at a time stick where seven do not, and that harsh reflection drains self-efficacy; reads student feedback for
+patterns rather than single comments, with ratings that say little about learning and are biased; asks for which learners "good"
+practices (a circle, calling on learners, an invitation to challenge, maximum choice) do not hold; and follows three years of
+professional growth with communities of practice, observing colleagues, continuing education, the literature and becoming a
+student again.
 It is an independent implementation. It does not reproduce the text of the chapter. The models are illustrative: their parameters
 are chosen so that the effects the chapter describes appear with plausible sizes. They are not fitted to data.
 
@@ -99,7 +108,7 @@ npm --prefix tools/standalone ci && node tools/standalone/build.mjs
 
 ```
 dist/standalone/
-  index.html, core.html, ... gpu.html           20 pages
+  index.html, core.html, ... gpu.html           21 pages
   assets/app.<hash>.js                          all pages (classic script, ~110 KiB)
   assets/syn-runtime.<hash>.js                  WASM worker with embedded library (~1.2 MiB)
   assets/style.<hash>.css
@@ -223,6 +232,7 @@ python3 -m http.server -d web 8000      # any static server; file:// will not lo
 | `outcomes.html` | Chapter 8: outcome analyser, the twin sins, outcomes per hour, evidence vs outcome level, outcome level for the audience | `outcomes` |
 | `assessment.html` | Chapter 9: assessment activities, assessment vs grades and satisfaction, formative and summative, the cycle, rubrics, self-assessment | `assessmentActivities` · `assessmentSession` · `rubric` |
 | `strategies.html` | Chapter 10: attention and chunked lectures, video length, discussion formats and wait time, scaffolding, learning styles vs content vs variety, flipped one-shots, problem-based learning, the sample lesson plan on time | `lecture` · `discussion` · `scaffolding` · `strategies` · `lessonPlan` |
+| `reflective.html` | Chapter 14: a term of reflective practice (informal, the four-step journal, video, peer observation, the CIQ), reading student feedback, critical reflection group by group, professional growth | `reflection` · `studentFeedback` · `criticalReflection` · `professionalGrowth` |
 | `classroom.html` | Every theory on the same learners over a course: score profile, learner scatter, equity | `classroom` |
 | `theories.html` | Activity 3.3 designed by every theory, on three populations | `theories` |
 | `allocation.html` | Shapley, incremental and standalone allocation of a design's gain | `allocation` |
@@ -279,6 +289,10 @@ Each model is one file in `src/models/`, and its tests are in `tests/test_models
 | Ch. 10: scaffolding | `scaffolding.cpp` | Ellis and Larkin's four steps and their shortcuts: support as a dilation that has to fade, the ZPD zones as caps, frustration and giving up in zone 3; projects in stages with feedback |
 | Ch. 10: selecting strategies | `strategies.cpp` | Learning styles vs content vs a variety of modes (UDL, learners who cannot use one mode); the flipped one-shot (pre-work checks, embedding in the course); problem-based learning in full or in a one-shot |
 | Ch. 10: lesson plans | `lesson_plan.cpp` | Example 10.2 delivered by new and experienced instructors: no plan, time stamps, a cut list, a backup activity; segments lost at the end of the hour |
+| Ch. 14: reflective practice | `reflection.cpp` | Seven aspects of delivery as points, some blind spots; perception with the error of the evidence (informal, journal, video, peer, CIQ) and a negativity bias; a change of habit as a cap test of its share of the effort; self-efficacy drained by harsh reflection |
+| Ch. 14: student feedback | `student_feedback.cpp` | Segments understood as cap tests; the CIQ's most puzzling moment, anonymous or named, and stray grumbles; revising every comment, patterns or ratings; ratings that follow liking and a bias |
+| Ch. 14: critical reflection | `critical_reflection.cpp` | Five groups of learners with comfort, entitlement to question and self-direction points; seating, calling, power, choice and examples as group-dependent dilations |
+| Ch. 14: professional development | `professional_growth.cpp` | Ideas from a community of practice, colleagues, courses and the literature, copied or adapted; the expert blind spot and becoming a student again; efficacy and isolation |
 | Combining the theories | `classroom.cpp` (`classroom`) | Every theory acting on the same learners over a course; score, recall and risk profiles; equity; per-learner read-back |
 | Activity 3.3 | `classroom.cpp` (`theories`) | The lesson each theory designs (16 levers), on children, teenagers and adults: 24 jobs, one dispatch |
 | Allocation | `classroom.cpp` (`allocation`) | Shapley (adds up exactly), incremental and standalone shares of the gain |

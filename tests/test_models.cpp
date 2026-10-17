@@ -48,7 +48,7 @@ bool finiteEverywhere(const Value& v) {
 }  // namespace
 
 TEST(every_model_runs_and_is_finite) {
-  CHECK(kernel::models().size() == 31);
+  CHECK(kernel::models().size() == 35);
   for (const kernel::Model* m : kernel::models()) {
     const Value r = run(m->name, spec(200));
     if (!finiteEverywhere(r)) ::syntest::fail("non-finite value in " + m->name, __FILE__, __LINE__);
@@ -347,4 +347,58 @@ TEST(lesson_plan_time_stamps_cut_lists_and_backups) {
   CHECK(num(d[2], "learning") > num(d[1], "learning"));      // cutting beats rushing
   CHECK(num(d[8], "spareMinutes") < num(d[6], "spareMinutes"));  // a backup uses spare minutes
   CHECK(num(d[5], "onTime") > num(d[0], "onTime"));          // experience
+}
+
+TEST(reflection_structured_evidence_and_one_change_at_a_time) {
+  const Value r = run("reflection", spec(1000));
+  const auto& d = r.at("designs").asArray();
+  CHECK(num(d[1], "final") > num(d[0], "final"));                        // even informal reflection helps a little
+  CHECK(num(d[2], "final") > num(d[1], "final") + 0.1);                  // the four-step process, applied
+  for (int k : {3, 4, 5}) CHECK(num(d[k], "blindSpots") > num(d[2], "blindSpots"));  // evidence sees what you cannot
+  CHECK(num(d[5], "rightTarget") > num(d[2], "rightTarget") + 0.2);      // the learners' perspective, not guesses
+  CHECK(num(d[8], "final") < num(d[2], "final") - 0.05);                 // change one or two things, not everything
+  CHECK(num(d[9], "final") < num(d[2], "final"));                        // reflect soon after the session
+  CHECK(num(d[10], "efficacy") < num(d[2], "efficacy") - 0.3);           // be kind to yourself
+  CHECK(num(d[10], "skipped") > 1);
+}
+
+TEST(student_feedback_patterns_not_single_comments_and_biased_ratings) {
+  const Value r = run("studentFeedback");
+  const auto& d = r.at("rules").asArray();
+  CHECK(num(d[0], "falseRevisions") > 5 * num(d[1], "falseRevisions"));  // one or two comments are not a pattern
+  CHECK(num(d[1], "after") > num(d[0], "after"));
+  CHECK(num(d[1], "caught") > 0.9);
+  CHECK(num(d[2], "caught") < 0.3);                                      // a rating does not say what to fix
+  CHECK(num(d[3], "caught") < num(d[1], "caught"));                      // anonymity
+  CHECK(std::abs(num(d[0], "ratingLearning")) < 0.3);                    // ratings are weak indicators of learning
+  CHECK(num(d[4], "rating") < num(d[1], "rating") - 0.15);               // bias, with the same teaching
+  CHECK_NEAR(num(d[4], "after"), num(d[1], "after"), 1e-9);
+  CHECK(num(d[5], "falseRevisions") > num(d[2], "falseRevisions"));
+}
+
+TEST(critical_reflection_assumptions_hold_for_some_learners) {
+  const Value r = run("criticalReflection", spec(4000));
+  const auto& d = r.at("designs").asArray();
+  auto group = [&](int j, int g, const char* key) { return num(d[j].at("groups").asArray()[g], key); };
+  CHECK(group(1, 0, "comfort") > group(0, 0, "comfort"));               // a circle invites the confident...
+  CHECK(group(1, 1, "comfort") < group(0, 1, "comfort"));               // ...and exposes the shy
+  CHECK(group(2, 1, "comfort") > group(1, 1, "comfort"));               // explaining the choice
+  CHECK(num(d[4], "comfort") > num(d[0], "comfort"));                   // a "pass"
+  CHECK(num(d[4], "spoke") > num(d[3], "spoke"));
+  CHECK(num(d[6], "questioned") > num(d[5], "questioned") + 0.1);       // openness shown, not just stated
+  CHECK(group(7, 0, "learned") > group(0, 0, "learned"));               // maximum choice suits the self-directed
+  CHECK(group(7, 4, "learned") < group(0, 4, "learned") - 0.1);         // and loses the novices
+  CHECK(num(d[10], "lowestGroup") > num(d[0], "lowestGroup") + 0.1);
+}
+
+TEST(professional_growth_communities_adapting_and_beginners_mind) {
+  const Value r = run("professionalGrowth");
+  const auto& d = r.at("designs").asArray();
+  CHECK(num(d[1], "efficacy") > num(d[0], "efficacy") + 0.2);           // a community of practice supports
+  CHECK(num(d[1], "drainedMonths") < num(d[0], "drainedMonths"));
+  CHECK(num(d[3], "gain") > num(d[2], "gain"));                         // adapt, do not copy
+  CHECK(num(d[2], "backfired") > 0.5);
+  for (int k : {4, 5}) CHECK(num(d[k], "gain") > num(d[0], "gain"));    // courses and the literature
+  CHECK(num(d[6], "blindSpot") < num(d[0], "blindSpot") - 0.3);          // becoming a student again
+  CHECK(num(d[7], "gain") > num(d[1], "gain"));
 }

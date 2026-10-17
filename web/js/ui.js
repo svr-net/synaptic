@@ -26,6 +26,7 @@ export const PAGES = [
       { id: 'outcomes', href: 'outcomes.html', title: 'Learning goals and outcomes' },
       { id: 'assessment', href: 'assessment.html', title: 'Assessing learning' },
       { id: 'strategies', href: 'strategies.html', title: 'Strategies and lesson plans' },
+      { id: 'reflective', href: 'reflective.html', title: 'Reflective teaching' },
     ],
   },
   {
