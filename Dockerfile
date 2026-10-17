@@ -21,19 +21,27 @@ ARG EMSDK_VERSION=4.0.10
 ARG PLAYWRIGHT_VERSION=1.56.1
 ARG NODE_VERSION=22
 
+# Layers are ordered so that each depends only on its inputs: toolchains and npm packages first,
+# then the C++ sources for the compiles, and the web pages only where they are used (an edit to a
+# page does not recompile the library). The compiles also keep ccache in BuildKit cache mounts,
+# so a change to one source file recompiles that file only.
+
 # ---------------------------------------------------------------- native C++ library
 FROM ubuntu:24.04 AS native-build
 RUN apt-get update \
- && apt-get install -y --no-install-recommends g++ cmake ninja-build \
+ && apt-get install -y --no-install-recommends g++ cmake ninja-build ccache \
  && rm -rf /var/lib/apt/lists/*
+ENV CCACHE_DIR=/ccache/native
 WORKDIR /src
 COPY CMakeLists.txt ./
 COPY include include
 COPY src src
 COPY tests tests
 COPY examples examples
-RUN cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release \
+RUN --mount=type=cache,target=/ccache/native \
+    cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
  && cmake --build build \
+ && ccache --show-stats \
  && ctest --test-dir build --output-on-failure \
  && cmake --install build --prefix /opt/syn
 
@@ -44,21 +52,35 @@ COPY --from=native-build /src/build/syn_tests /usr/local/bin/
 CMD ["learning_theories_demo"]
 
 # ---------------------------------------------------------------- WebAssembly module
-FROM emscripten/emsdk:${EMSDK_VERSION} AS wasm
+FROM emscripten/emsdk:${EMSDK_VERSION} AS wasm-build
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends ccache \
+ && rm -rf /var/lib/apt/lists/*
+# emcc runs its clang through ccache (the bytes of syn.wasm do not change).
+ENV CCACHE_DIR=/ccache/wasm EM_COMPILER_WRAPPER=ccache
 WORKDIR /src
 COPY CMakeLists.txt ./
 COPY include include
 COPY src src
 COPY wasm wasm
-COPY web web
-# Rebuild from source: never ship the committed binaries from the build context.
-RUN rm -f web/wasm/syn.js web/wasm/syn.wasm \
- && emcmake cmake -S . -B build-wasm -DCMAKE_BUILD_TYPE=Release \
+# Built from source into web/wasm: never the committed binaries.
+RUN --mount=type=cache,target=/ccache/wasm \
+    emcmake cmake -S . -B build-wasm -DCMAKE_BUILD_TYPE=Release \
  && cmake --build build-wasm -j"$(nproc)" \
- && node web/tests/wasm.test.mjs
+ && ccache --show-stats
+
+FROM wasm-build AS wasm
+COPY web/js web/js
+COPY web/tests web/tests
+RUN node web/tests/wasm.test.mjs
 
 FROM scratch AS wasm-artifacts
 COPY --from=wasm /src/web/wasm/syn.js /src/web/wasm/syn.wasm /
+
+# The development site: web/ with the module built from source in place of the committed one.
+FROM scratch AS site
+COPY web /web
+COPY --from=wasm /src/web/wasm/syn.js /src/web/wasm/syn.wasm /web/wasm/
 
 # ---------------------------------------------------------------- standalone (copy-deployable) site
 # One folder of static files with the .wasm embedded: no ES modules, no fetch, no server
@@ -71,7 +93,7 @@ RUN --mount=type=secret,id=ca,required=false \
     if [ -f /run/secrets/ca ]; then export NODE_EXTRA_CA_CERTS=/run/secrets/ca; fi \
  && cd tools/standalone && npm ci --no-audit --no-fund
 COPY tools/standalone/build.mjs tools/standalone/
-COPY --from=wasm /src/web web
+COPY --from=site /web web
 RUN GIT_COMMIT=${GIT_COMMIT} node tools/standalone/build.mjs --out /dist
 
 FROM scratch AS standalone-artifacts
@@ -80,15 +102,17 @@ COPY --from=standalone /dist /
 # ---------------------------------------------------------------- browser end-to-end tests
 FROM mcr.microsoft.com/playwright:v${PLAYWRIGHT_VERSION}-noble AS e2e
 ARG PLAYWRIGHT_VERSION
-WORKDIR /web
-COPY --from=wasm /src/web /web
-COPY --from=standalone /dist/standalone /standalone
 # Behind a TLS-intercepting proxy, pass its CA: docker build --secret id=ca,src=/path/ca.pem ...
+WORKDIR /opt/e2e
 RUN --mount=type=secret,id=ca,required=false \
     if [ -f /run/secrets/ca ]; then export NODE_EXTRA_CA_CERTS=/run/secrets/ca; fi \
  && npm init -y >/dev/null && npm install --no-audit --no-fund playwright@${PLAYWRIGHT_VERSION}
-# Every model's kernel on every engine; the development site over HTTP; then the standalone build
-# opened from disk and served over HTTP.
+ENV PLAYWRIGHT_MODULE=/opt/e2e/node_modules/playwright/index.mjs
+COPY --from=site /web /web
+COPY --from=standalone /dist/standalone /standalone
+WORKDIR /web
+# Every model's kernel on WebGPU and on the software GPU; the development site over HTTP; then the
+# standalone build opened from disk and served over HTTP.
 RUN node tests/kernels.mjs \
  && node tests/e2e.mjs \
  && node tests/e2e.mjs --root /standalone --file \
