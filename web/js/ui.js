@@ -29,7 +29,7 @@ export const PAGES = [
       { id: 'reflective', href: 'reflective.html', title: 'Reflective teaching' },
     ],
   },
-  { group: 'Meaning', items: [{ id: 'fga', href: 'fga.html', title: 'Learning meaning (FGA)' }] },
+  { group: 'Meaning', items: [{ id: 'fga', href: 'fga.html', title: 'Learning meaning (FGA)' }, { id: 'qa', href: 'qa.html', title: 'Reading for answers (QA)' }] },
   {
     group: 'Classroom',
     items: [

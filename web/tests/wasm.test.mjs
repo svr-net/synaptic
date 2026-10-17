@@ -114,6 +114,8 @@ const fr = model('fgaRotors');
 if (fr) check(fr.runs[1].rotorTest < fr.runs[1].projectionTest, 'a rotor family generalises from two words');
 const rq = model('readingQA');
 if (rq) check(rq.answers[1].reading.includes('waggle run'), 'the reader answers with the right sentence');
+const rg = call('readingQA golden', () => syn.runModel({ model: 'readingQA', readingQA: { set: 'golden', questions: 20 } }));
+if (rg) check(rg.scores.reading > rg.scores.firstSentence, 'the reader beats the first sentence on golden answers');
 
 const cls = model('classroom', spec);
 if (cls) {

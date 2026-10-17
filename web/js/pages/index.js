@@ -34,6 +34,7 @@ const DESCRIPTIONS = {
   assessment: 'Formative and summative assessment, the assessment cycle, choosing activities, rubrics and self-assessment.',
   strategies: 'Chunked lectures and videos, discussion and wait time, scaffolding, learning styles vs content, flipped one-shots, lesson plans on time.',
   reflective: 'Reflecting on a term of teaching, reading student feedback, critical reflection on whom practices leave out, professional growth.',
+  qa: 'A reader answers FineWeb-Edu questions, scored against golden answers; ask it about your own passage.',
   fga: 'Functional geometric algebra: learners read a text and learn multivectors of Cl(4, 1); the paper\'s claims checked; rotors against projections.',
   classroom: 'Every theory acting on the same learners over a course, with a delayed test.',
   theories: 'Activity 3.3 designed by each theory, on children, teenagers and adults.',
@@ -82,7 +83,7 @@ models (src/models): every theory and chapter as an agent program in WGSL
    │  assessmentSession · rubric · lecture · discussion · scaffolding
    │  strategies · lessonPlan · reflection · studentFeedback
    │  criticalReflection · professionalGrowth · fgaAlgebra · fgaLearning
-   │  fgaRotors
+   │  fgaRotors · readingQA
    ▼
 syn::kernel: plans (constants, one row per job, seeds) ▸ agent kernel
    │  (agents × jobs, workgroups of 64) ▸ reduce ▸ quantiles ▸ summary
@@ -100,7 +101,8 @@ pages (js/pages/*.js): render the results as charts and tables` }));
     ['Ch. 9: Assessing learning', 'Assessing learning', 'assessmentActivities, assessmentSession, rubric'],
     ['Ch. 10: Selecting instructional strategies and creating lesson plans', 'Strategies and lesson plans', 'lecture, discussion, scaffolding, strategies, lessonPlan'],
     ['Ch. 14: Practicing reflective teaching', 'Reflective teaching', 'reflection, studentFeedback, criticalReflection, professionalGrowth'],
-    ['Pustejovsky (2026): functional geometric algebra', 'Learning meaning (FGA)', 'fgaAlgebra, fgaLearning, fgaRotors'], ['Activity 3.3, conclusion', 'Theories compared, Gain allocation', 'classroom, theories, allocation, sensitivity'],
+    ['Pustejovsky (2026): functional geometric algebra', 'Learning meaning (FGA)', 'fgaAlgebra, fgaLearning, fgaRotors'],
+    ['QA golden test (FineWeb-Edu)', 'Reading for answers (QA)', 'readingQA'], ['Activity 3.3, conclusion', 'Theories compared, Gain allocation', 'classroom, theories, allocation, sensitivity'],
   ]);
   return engineNote(runResult, performance.now() - t0);
 });

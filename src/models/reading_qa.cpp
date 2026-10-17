@@ -115,6 +115,57 @@ std::vector<std::string> sentences(const std::string& text) {
   return out;
 }
 
+// SQuAD's token F1: lower case, no punctuation, no articles.
+std::vector<std::string> squadWords(const std::string& text) {
+  std::vector<std::string> out;
+  std::string w;
+  auto flush = [&]() {
+    if (!w.empty() && w != "a" && w != "an" && w != "the") out.push_back(w);
+    w.clear();
+  };
+  for (char ch : text) {
+    if (std::isalnum(static_cast<unsigned char>(ch))) w += static_cast<char>(std::tolower(static_cast<unsigned char>(ch)));
+    else if (std::isspace(static_cast<unsigned char>(ch))) flush();
+  }
+  flush();
+  return out;
+}
+
+double tokenF1(const std::string& prediction, const std::string& golden) {
+  const auto p = squadWords(prediction), g = squadWords(golden);
+  if (p.empty() || g.empty()) return p == g ? 1.0 : 0.0;
+  std::map<std::string, int> count;
+  for (const auto& w : g) count[w]++;
+  int common = 0;
+  for (const auto& w : p)
+    if (count[w]-- > 0) ++common;
+  if (common == 0) return 0.0;
+  const double precision = double(common) / double(p.size()), recall = double(common) / double(g.size());
+  return 2 * precision * recall / (precision + recall);
+}
+
+// The built-in golden set: questions of the QA golden test with their passages and golden answers.
+struct Golden {
+  const char* question;
+  const char* answer;
+  const char* passage;
+};
+const Golden kGolden[] = {
+#include "qa_golden_sample.inc"
+};
+
+Value goldenSet(int count) {
+  Value v = Value::object();
+  Value passages = Value::array(), questions = Value::array();
+  const int n = std::min<int>(count, static_cast<int>(sizeof(kGolden) / sizeof(kGolden[0])));
+  for (int i = 0; i < n; ++i) {
+    passages.push(kGolden[i].passage);
+    questions.push(Value::object().set("question", kGolden[i].question).set("golden", kGolden[i].answer).set("passage", i));
+  }
+  v.set("passages", passages).set("questions", questions).set("corpus", Value::array());
+  return v;
+}
+
 // A small built-in example (written for this model) for when no data is given.
 Value example() {
   Value v = Value::object();
@@ -143,7 +194,8 @@ const kernel::Model* readingQaModel() {
     m.agentSource = reading_agent;
     m.compile = [](const Value& spec) {
       const Value& given = spec.sub("readingQA");
-      const Value data = given.has("questions") ? given : example();
+      const bool golden = given.str("set", "") == "golden";
+      const Value data = golden ? goldenSet(given.integer("questions", 60)) : given.has("questions") ? given : example();
       // Documents: the passages first, then the corpus. Their sentences, tokenised.
       std::vector<std::string> docs;
       for (const auto& p : data.at("passages").asArray()) docs.push_back(p.asString());
@@ -207,7 +259,9 @@ const kernel::Model* readingQaModel() {
         readingRows.push_back({start, double(qs.size()), double(docFirst[p]), double(docCount[p])});
         openRows.push_back({start, double(qs.size()), 0.0, double(sentenceDoc.size())});
         maxCount = std::max(maxCount, docCount[p]);
-        qmeta.push(Value::object().set("passage", static_cast<double>(p)));
+        Value qm = Value::object().set("passage", static_cast<double>(p)).set("question", q.at("question"));
+        if (q.has("golden")) qm.set("golden", q.at("golden"));
+        qmeta.push(qm);
       }
       std::vector<double> params = {given.num("k1", 1.2), given.num("b", 0.75), given.num("threshold", 4.0),
                                     totalLen / std::max<double>(1.0, static_cast<double>(sentenceDoc.size())), 0, 0, 0, 0};
@@ -229,7 +283,7 @@ const kernel::Model* readingQaModel() {
           .set("documents", nDocs).set("passages", static_cast<double>(passageCount));
       reading.meta = meta;
       std::vector<Plan> plans{reading};
-      if (given.has("questions") ? given.num("openBook", 1.0) > 0.5 : true) {
+      if (given.num("openBook", 1.0) > 0.5) {
         Plan open = makePlan("readingQA", agentsOpen, 1, params, openRows, seedOf(spec), 1);
         open.keepAgents = open.agents;
         plans.push_back(open);
@@ -258,27 +312,69 @@ const kernel::Model* readingQaModel() {
         index = static_cast<std::size_t>(row[2]) + best;
         belief = bestV;
       };
+      const auto& questions = meta.at("questions").asArray();
+      const auto& docFirst = meta.at("docFirst").asArray();
+      // Against golden answers, when the questions have them: token F1 of the reader's answers, and
+      // of the passage's first sentence, a random sentence and the oracle (its best sentence).
+      double sum[5] = {0, 0, 0, 0, 0}, half[5] = {0, 0, 0, 0, 0}, found = 0, scored = 0;
+      std::vector<double> bins(20, 0.0);
       Value answers = Value::array();
       for (std::uint32_t j = 0; j < plans[0].jobs; ++j) {
         std::size_t i = 0;
         double b = 0;
         choose(0, j, i, b);
-        Value a = Value::object().set("reading", texts[i]).set("readingBelief", b).set("readingSentence", static_cast<double>(i));
+        const Value& q = questions[j];
+        Value a = Value::object().set("question", q.at("question")).set("reading", texts[i]).set("readingBelief", b)
+                      .set("readingSentence", static_cast<double>(i));
+        std::size_t openIndex = i;
         if (plans.size() > 1) {
-          choose(1, j, i, b);
-          a.set("openBook", texts[i]).set("openBookBelief", b).set("openBookSentence", static_cast<double>(i))
-              .set("openBookDocument", docOf[i]);
+          choose(1, j, openIndex, b);
+          a.set("openBook", texts[openIndex]).set("openBookBelief", b).set("openBookSentence", static_cast<double>(openIndex))
+              .set("openBookDocument", docOf[openIndex]);
+        }
+        if (q.has("golden")) {
+          const std::string& g = q.at("golden").asString();
+          const auto p = static_cast<std::size_t>(q.at("passage").asNumber());
+          const auto first = static_cast<std::size_t>(docFirst[p].asNumber());
+          const auto last = p + 1 < docFirst.size() ? static_cast<std::size_t>(docFirst[p + 1].asNumber()) : texts.size();
+          double oracle = 0;
+          for (std::size_t s = first; s < last; ++s) oracle = std::max(oracle, tokenF1(texts[s].asString(), g));
+          const std::size_t pick = first + (last > first ? hash32(j * 2654435761u + 2026u) % (last - first) : 0);
+          const double f[5] = {tokenF1(texts[i].asString(), g), tokenF1(texts[openIndex].asString(), g),
+                               first < last ? tokenF1(texts[first].asString(), g) : 0.0, first < last ? tokenF1(texts[pick].asString(), g) : 0.0, oracle};
+          for (int k = 0; k < 5; ++k) {
+            sum[k] += f[k];
+            half[k] += f[k] >= 0.5 ? 1.0 : 0.0;
+          }
+          bins[std::min<std::size_t>(9, static_cast<std::size_t>(f[0] * 10))] += 1;
+          bins[10 + std::min<std::size_t>(9, static_cast<std::size_t>(oracle * 10))] += 1;
+          if (static_cast<std::size_t>(docOf[openIndex].asNumber()) == p) found += 1;
+          scored += 1;
+          a.set("golden", g).set("f1", f[0]).set("openBookF1", f[1]).set("oracle", oracle);
         }
         answers.push(a);
       }
-      return Value::object()
-          .set("answers", answers)
-          .set("sentences", meta.at("sentences"))
-          .set("doc", meta.at("doc"))
-          .set("docFirst", meta.at("docFirst"))
-          .set("vocabulary", meta.at("vocabulary"))
-          .set("documents", meta.at("documents"))
-          .set("passages", meta.at("passages"));
+      Value result = Value::object()
+                         .set("answers", answers)
+                         .set("sentences", meta.at("sentences"))
+                         .set("doc", meta.at("doc"))
+                         .set("docFirst", meta.at("docFirst"))
+                         .set("vocabulary", meta.at("vocabulary"))
+                         .set("documents", meta.at("documents"))
+                         .set("passages", meta.at("passages"));
+      if (scored > 0) {
+        const char* keys[5] = {"reading", "openBook", "firstSentence", "randomSentence", "oracle"};
+        Value scores = Value::object(), atLeastHalf = Value::object();
+        for (int k = 0; k < 5; ++k) {
+          scores.set(keys[k], sum[k] / scored);
+          atLeastHalf.set(keys[k], half[k] / scored);
+        }
+        scores.set("openBookFoundPassage", found / scored);
+        result.set("scores", scores).set("atLeastHalf", atLeastHalf).set("scored", scored)
+            .set("readingF1Histogram", Value::Numbers(std::vector<double>(bins.begin(), bins.begin() + 10)))
+            .set("oracleF1Histogram", Value::Numbers(std::vector<double>(bins.begin() + 10, bins.end())));
+      }
+      return result;
     };
     return m;
   }();

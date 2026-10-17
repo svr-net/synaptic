@@ -462,3 +462,15 @@ TEST(reading_qa_answers_with_the_sentence_it_believes) {
     CHECK(num(x, "readingBelief") > 0.0 && num(x, "readingBelief") < 1.0);
   }
 }
+
+TEST(reading_qa_scores_itself_against_the_embedded_golden_answers) {
+  Value s = spec(64);
+  s.set("readingQA", Value::object().set("set", "golden").set("questions", 60));
+  const Value r = run("readingQA", s);
+  CHECK(num(r, "scored") == 60);
+  const Value& sc = r.at("scores");
+  CHECK(num(sc, "reading") > num(sc, "firstSentence") + 0.1);  // better than the first sentence
+  CHECK(num(sc, "reading") > num(sc, "randomSentence") + 0.1);
+  CHECK(num(sc, "oracle") >= num(sc, "reading"));               // the ceiling of one-sentence answers
+  CHECK(num(sc, "openBookFoundPassage") > 0.9);
+}
