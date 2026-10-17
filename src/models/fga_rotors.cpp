@@ -11,6 +11,7 @@
 // learner moves a rotor of Cl(4, 1) by gradient steps in all ten coordinate planes of the space —
 // six elliptic, four hyperbolic (those containing e) — each step the exact rotor of its plane; the
 // projection learner moves a 5 × 5 matrix from the identity. Jobs: one to six training nouns.
+#include <algorithm>
 #include <string>
 
 #include "syn/models/models.hpp"
