@@ -90,6 +90,11 @@ endif()
 if(SYN_BUILD_EXAMPLES)
   add_executable(learning_theories_demo examples/learning_theories_demo.cpp)
   target_link_libraries(learning_theories_demo PRIVATE syn)
+  if(NOT EMSCRIPTEN)
+    # The end-to-end QA golden test (tools/qa_golden/README.md).
+    add_executable(qa_golden tools/qa_golden/qa_golden.cpp)
+    target_link_libraries(qa_golden PRIVATE syn)
+  endif()
 endif()
 
 include(GNUInstallDirs)
