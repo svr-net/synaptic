@@ -27,7 +27,7 @@ const cmakeVersion = (await import('node:fs')).readFileSync(new URL('../../CMake
 if (ver) check(ver.library === `synaptic ${cmakeVersion}`, `version() reports the CMake project version: ${ver.library}`);
 
 const models = call('models', () => syn.models());
-check(models && models.length === ver?.models && models.length >= 26, 'every model listed');
+check(models && models.length === ver?.models && models.length >= 35, 'every model listed');
 for (const { name } of models || []) {
   const src = syn.kernelSources({ model: name });
   check(!src.error && src.agent.includes('@compute') && src.reduce.includes('@compute') && src.quantile.includes('@compute'), `${name}: WGSL sources`);
@@ -87,6 +87,25 @@ if (ses) {
 }
 const rub = model('rubric');
 if (rub) check(rub.rubrics[3].private.kappa > rub.rubrics[0].private.kappa, 'a precise rubric raises agreement');
+
+const lec = model('lecture');
+if (lec) check(lec.sessions[3].retained > lec.sessions[0].retained, 'chunked lectures are retained better');
+const disc = model('discussion');
+if (disc) check(disc.designs[1].articulated > disc.designs[0].articulated, 'think-pair-share gets everyone to articulate');
+const scaf = model('scaffolding');
+if (scaf) check(scaf.sequences[3].transfer > scaf.sequences[0].transfer, 'gradual release builds independence');
+const strat = model('strategies');
+if (strat) check(strat.styles.every((c) => c.rules[2].knowledge >= c.rules[1].knowledge), 'content beats learning styles');
+const lp = model('lessonPlan');
+if (lp) check(lp.designs[2].onTime > lp.designs[0].onTime, 'a timed plan with a cut list ends on time');
+const refl = model('reflection');
+if (refl) check(refl.designs[2].final > refl.designs[1].final, 'the four-step journal beats informal reflection');
+const fb = model('studentFeedback');
+if (fb) check(fb.rules[1].falseRevisions < fb.rules[0].falseRevisions, 'patterns, not single comments');
+const crit = model('criticalReflection');
+if (crit) check(crit.designs[10].lowestGroup > crit.designs[0].lowestGroup, 'critical reflection lifts the group left out');
+const pg = model('professionalGrowth');
+if (pg) check(pg.designs[1].efficacy > pg.designs[0].efficacy, 'a community of practice sustains efficacy');
 
 const cls = model('classroom', spec);
 if (cls) {
