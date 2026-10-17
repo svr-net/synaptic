@@ -69,18 +69,22 @@ jobs:
   # ---------------------------------------------------------------- WebAssembly module
   wasm:
     runs-on: ubuntu-24.04
-    container: emscripten/emsdk:4.0.10
     steps:
       - uses: actions/checkout@v4
-      - name: Build the Embind module
-        run: |
-          emcmake cmake -S . -B build-wasm -DCMAKE_BUILD_TYPE=Release
-          cmake --build build-wasm -j"$(nproc)"
-      - name: Check every entry point (Node)
-        run: node web/tests/wasm.test.mjs
+      - uses: docker/setup-buildx-action@v3
+      # The Dockerfile's wasm stage (emscripten/emsdk:4.0.10): the module built from source and
+      # checked in Node. Its layers depend only on the C++ sources, so the GitHub Actions layer
+      # cache skips the compile whenever they are unchanged.
+      - name: Build the Embind module and check every entry point
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          target: wasm-artifacts
+          outputs: type=local,dest=web/wasm
+          cache-from: type=gha,scope=wasm
+          cache-to: type=gha,scope=wasm,mode=max
       - name: Committed web/wasm matches the sources
         run: |
-          git config --global --add safe.directory "$GITHUB_WORKSPACE"
           if ! git diff --quiet -- web/wasm; then
             echo "::error::web/wasm/syn.{js,wasm} are out of date. Rebuild them (docker build --target wasm-artifacts --output web/wasm .) and commit."
             git diff --stat -- web/wasm
@@ -174,7 +178,9 @@ jobs:
           tags: synaptic:ci
           load: true
           build-args: GIT_COMMIT=${{ github.sha }}
-          cache-from: type=gha,scope=web
+          cache-from: |
+            type=gha,scope=wasm
+            type=gha,scope=web
           cache-to: type=gha,scope=web,mode=max
       - name: Smoke-test the web image
         run: |

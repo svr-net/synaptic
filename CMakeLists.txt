@@ -31,6 +31,12 @@ add_library(syn
 )
 add_library(syn::syn ALIAS syn)
 
+if(NOT EMSCRIPTEN)
+  # The software GPU spreads a dispatch's workgroups over the cores.
+  find_package(Threads REQUIRED)
+  target_link_libraries(syn PUBLIC Threads::Threads)
+endif()
+
 target_include_directories(syn PUBLIC
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
   $<INSTALL_INTERFACE:include>)

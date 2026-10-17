@@ -6,6 +6,7 @@
 #include <memory>
 #include <mutex>
 #include <stdexcept>
+#include <thread>
 
 #include "syn/gpu/software_gpu.hpp"
 #include "syn/space/space.hpp"
@@ -102,8 +103,34 @@ Buffers buffers(const Plan& p, bool trackWrites) {
   return b;
 }
 
+// The agent kernel over workgroups [first, last). Natively the workgroups are spread over the
+// cores (they write disjoint words, as on a GPU); in WebAssembly the page spreads them over
+// workers instead (simulateSlices).
 void agents(const Plan& p, const Shaders& sh, Buffers& b, std::size_t first, std::size_t last) {
-  gpu::dispatch(*sh.agent, {&b.header, &b.constants, &b.seeds, &b.scratch, &b.partials}, p.workgroups(), p.jobs, 1, first, last);
+  const std::vector<gpu::Buffer*> bind = {&b.header, &b.constants, &b.seeds, &b.scratch, &b.partials};
+#if defined(__EMSCRIPTEN__)
+  gpu::dispatch(*sh.agent, bind, p.workgroups(), p.jobs, 1, first, last);
+#else
+  const std::size_t groups = last - first;
+  const std::size_t threads = std::min<std::size_t>(std::max(1u, std::thread::hardware_concurrency()), groups / 4 + 1);
+  if (threads <= 1) {
+    gpu::dispatch(*sh.agent, bind, p.workgroups(), p.jobs, 1, first, last);
+    return;
+  }
+  std::vector<std::thread> pool;
+  std::vector<std::exception_ptr> errors(threads);
+  for (std::size_t t = 0; t < threads; ++t)
+    pool.emplace_back([&, t] {
+      try {
+        gpu::dispatch(*sh.agent, bind, p.workgroups(), p.jobs, 1, first + groups * t / threads, first + groups * (t + 1) / threads);
+      } catch (...) {
+        errors[t] = std::current_exception();
+      }
+    });
+  for (auto& th : pool) th.join();
+  for (auto& e : errors)
+    if (e) std::rethrow_exception(e);
+#endif
 }
 
 // The reduce and quantile kernels, then the read-back.
@@ -289,7 +316,13 @@ fn quant(q : u32, v : f32) { SCRATCH[(JOB * H.agents + A) * H.quant + q] = v; }
   s += m.helpersWgsl;
   s += "\nfn agent() {\n" + std::string(m.agentSource) + "\n}\n";
   s += R"wgsl(
-var<workgroup> RED : array<f32, 64>;
+// The workgroup's statistics are a matrix [64 agents × stats]. It is reduced in tiles of
+// 32 statistics: every agent writes its row of the tile to workgroup memory (rows padded to 33
+// words, so that neighbouring agents write different banks), then 32 agents each sum a column.
+// Two barriers per tile instead of seven per statistic.
+const TILE : u32 = 32u;
+const PITCH : u32 = 33u;
+var<workgroup> TILE_SUMS : array<f32, 2112>;  // 64 × PITCH
 @compute @workgroup_size(64)
 fn main(@builtin(local_invocation_id) lid : vec3<u32>, @builtin(workgroup_id) wid : vec3<u32>) {
   let a = wid.x * 64u + lid.x;
@@ -299,14 +332,16 @@ fn main(@builtin(local_invocation_id) lid : vec3<u32>, @builtin(workgroup_id) wi
   SEED = SEEDS[wid.y];
   if (a < H.agents) { agent(); }
   if (H.quant > 0x7fffffffu) { SCRATCH[0] = 0.0; }  // keeps the binding in the 'auto' layout of every model
-  for (var k = 0u; k < H.stats; k = k + 1u) {
-    RED[lid.x] = S[k];
+  let row = lid.x * PITCH;
+  let first = (wid.y * H.numWG + wid.x) * H.stats;
+  for (var k0 = 0u; k0 < H.stats; k0 = k0 + TILE) {
+    for (var j = 0u; j < TILE; j = j + 1u) { TILE_SUMS[row + j] = S[min(k0 + j, MAXS - 1u)]; }
     workgroupBarrier();
-    for (var w = 32u; w > 0u; w = w >> 1u) {
-      if (lid.x < w) { RED[lid.x] = RED[lid.x] + RED[lid.x + w]; }
-      workgroupBarrier();
+    if (lid.x < TILE && k0 + lid.x < H.stats) {
+      var acc = 0.0;
+      for (var r = 0u; r < 64u; r = r + 1u) { acc = acc + TILE_SUMS[r * PITCH + lid.x]; }
+      PARTIALS[first + k0 + lid.x] = acc;
     }
-    if (lid.x == 0u) { PARTIALS[(wid.y * H.numWG + wid.x) * H.stats + k] = RED[0]; }
     workgroupBarrier();
   }
 }

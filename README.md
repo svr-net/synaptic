@@ -66,7 +66,7 @@ headers and a `syn::syn` CMake target.
 |---|---|
 | `native (gcc)`, `native (clang)` | Release build with warnings as errors, `ctest`, example program |
 | `native (ASan + UBSan)` | Debug build with address and undefined-behaviour sanitizers, `ctest` |
-| `wasm` | Embind module built in `emscripten/emsdk:4.0.10`. Runs the Node checks of every model, and fails if the committed `web/wasm/` is out of date (the build is byte-reproducible) |
+| `wasm` | Embind module built by the Dockerfile's `wasm` stage (`emscripten/emsdk:4.0.10`), with the Node checks of every model; fails if the committed `web/wasm/` is out of date (the build is byte-reproducible). Its layers depend only on the C++ sources and are cached between runs |
 | `standalone` | Copy-deployable site and zip, uploaded as the `synaptic-standalone` artifact |
 | `e2e` | Every model's kernel on WebGPU (SwiftShader) and on the software GPU, compared value by value (`web/tests/kernels.mjs`); every page in headless Chromium: dev site over HTTP, standalone from `file://` and over HTTP, including phone layouts, compatibility-mode and no-adapter devices. Screenshots are uploaded as an artifact |
 | `docker` | `native` and `web` images with BuildKit layer caching, plus a smoke test of the nginx image |
@@ -104,6 +104,11 @@ disk and checks that the pages make no network request at all, and that WebGPU a
 ## Docker
 
 The multi-stage `Dockerfile` builds everything from source. Each stage runs its tests, so a successful build means they passed.
+Its layers are ordered by input: toolchains and npm packages first, the C++ sources only where they are compiled, and the
+web pages only where they are used, so an edit to a page reuses the compiled library. The compiles keep ccache in BuildKit
+cache mounts, so a change to one C++ file recompiles that file (locally: wasm module 129 s cold, 16 s after a one-file
+change, 6 s after a page edit; native image 65 s cold, 6 s after a one-file change, tests included). CI caches the layers in
+the GitHub Actions cache.
 
 ```sh
 docker build -t synaptic .                         # WASM from source + checks -> standalone site on nginx (default)
