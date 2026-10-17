@@ -41,9 +41,10 @@ ask.addEventListener('click', async () => {
 page.content.before(el('section', { class: 'card' }, el('h2', { text: 'Ask the reader' }), passage, question, ask, reply));
 
 runButton(page, 'Run', async (spec) => {
-  const { results: [r, student], note } = await runModels([
+  const { results: [r, student, fresh], note } = await runModels([
     ['readingQA', { ...spec, readingQA: { set: 'golden', questions: questions() } }],
     ['readingStudent', { ...spec, readingStudent: { questions: questions() } }],
+    ['readingStudent', { ...spec, readingStudent: { questions: questions(), memory: false } }],
   ], page);
   const s = r.scores, half = r.atLeastHalf;
   tiles(page.content, [
@@ -72,23 +73,25 @@ runButton(page, 'Run', async (spec) => {
   ['question · golden answer · the reader\'s answer', 'F1', 'ceiling'],
   rows.map((a) => [el('div', { style: 'white-space:normal;max-width:900px' }, el('b', { text: a.question }), el('div', { class: 'note', text: `Golden: ${a.golden}` }), el('div', { text: `Reader: ${a.reading}` })),
     a.f1.toFixed(2), a.oracle.toFixed(2)]));
-  // ---- The reader as a student.
-  const sd = student.designs;
+  // ---- The reader as a student, starting from its memory of earlier runs.
+  const sd = student.designs, fd = fresh.designs, mem = student.memory;
   const g3 = grid(page.content);
   lineChart(card(g3, 'The reader as a student', `${student.students} students per study design read ${student.lessons} lessons (golden questions about ` +
     'other passages) three times, seeing the golden answer after each, and answer the test questions at checkpoints along the way. Each design adds ' +
-    'one module of the library to the one before.'), {
+    `one module of the library to the one before. They start from the reader's memory: generation ${mem.generation}, ${mem.lessons} lessons studied ` +
+    'in earlier runs.'), {
     x: Array.from(sd[0].curve, (_, k) => k + 1), xLabel: 'checkpoint (through three passes of the lessons)', yLabel: 'test F1',
     series: sd.map((d, i) => ({ name: d.name, y: Array.from(d.curve), colorIndex: i })),
   });
-  barChart(card(g3, 'What each module adds', `Token F1 on the test questions after the lessons. The best answer among the candidates (one sentence or two) scores ` +
-    `${student.oracle.toFixed(3)}.`), {
+  barChart(card(g3, 'What each module adds, and what memory keeps', 'Token F1 on the test questions after the lessons: starting fresh (the lexical ' +
+    `reader) and starting from memory. The best answer among the candidates (one sentence or two) scores ${student.oracle.toFixed(3)}.`), {
     labels: ['no feedback', 'behaviourism', '+ cognitivism', '+ social constr.', '+ andragogy', '+ reflection'],
-    series: [{ name: 'test F1', values: sd.map((d) => d.test) }, { name: 'answers of two sentences', values: sd.map((d) => d.twoSentences), colorIndex: 1 }],
+    series: [{ name: 'fresh', values: fd.map((d) => d.test) }, { name: 'from memory', values: sd.map((d) => d.test), colorIndex: 1 }],
     yFormat: (v) => v.toFixed(2),
   });
-  table(card(g3, 'The habits it learned', 'Weights of the reading habits: before (no feedback) and after reinforcement from feedback.'), ['habit', 'before', 'after'],
-    sd[0].habits.map((h, k) => [h.habit, h.weight.toFixed(2), sd[1].habits[k].weight.toFixed(2)]));
+  table(card(g3, 'The habits it learned', `Weights of the reading habits: the prior (the lexical reader), its memory (generation ${mem.generation}, ` +
+    `learned with “${mem.design || 'none'}”), and what it would remember after this run (“${student.remember.design}”).`), ['habit', 'prior', 'memory', 'next memory'],
+  sd[0].habits.map((h, k) => [h.habit, fresh.memory.weights[k].toFixed(2), mem.weights[k].toFixed(2), student.remember.weights[k].toFixed(2)]));
   callout(page.content, 'The belief is a point of the <a href="core.html">space</a>, as everywhere in the library; the reader is lexical — it extracts one sentence and ' +
     'does not paraphrase or reason — which the oracle makes visible. Learning meaning in the algebra is the <a href="fga.html">FGA page</a>.');
   return note;

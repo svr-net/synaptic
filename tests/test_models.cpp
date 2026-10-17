@@ -476,10 +476,30 @@ TEST(reading_qa_scores_itself_against_the_embedded_golden_answers) {
 }
 
 TEST(reading_student_learns_from_feedback) {
-  const Value r = run("readingStudent", spec(64));  // built-in lessons and golden test questions
+  Value s = spec(64);
+  s.set("readingStudent", Value::object().set("memory", false));  // fresh: the prior, built-in lessons and golden test questions
+  const Value r = run("readingStudent", s);
   const auto& d = r.at("designs").asArray();
   CHECK(d.size() == 6);
   CHECK(num(d[1], "test") > num(d[0], "test") + 0.005);  // feedback improves the reader
   CHECK(num(d[1], "lessons") > num(d[0], "lessons"));
   for (const auto& x : d) CHECK(num(x, "test") <= num(r, "oracle") + 1e-9);
+}
+
+TEST(reading_student_remembers) {
+  // From its memory (src/models/student_memory.inc), without new feedback it answers as well as
+  // it did after its lessons, and better than fresh; what it would remember next is its best design.
+  const Value fresh = [] {
+    Value s = spec(64);
+    s.set("readingStudent", Value::object().set("memory", false));
+    return run("readingStudent", s);
+  }();
+  const Value r = run("readingStudent", spec(64));
+  const Value& m = r.at("memory");
+  CHECK(num(m, "generation") >= 1);
+  CHECK(num(m, "lessons") > 0);
+  CHECK(r.at("memory").at("weights").size() == 8);
+  CHECK(num(r.at("designs").asArray()[0], "test") > num(fresh.at("designs").asArray()[0], "test") + 0.005);
+  CHECK(num(r.at("remember"), "generation") == num(m, "generation") + 1);
+  CHECK(fresh.at("memory").num("generation", -1) == 0);
 }

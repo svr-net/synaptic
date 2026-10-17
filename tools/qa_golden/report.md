@@ -16,11 +16,15 @@ Open book: the reader's answer came from the question's own passage for 96% of t
 
 400 lessons (golden questions about other passages), 200 test questions, 64 students per design. Candidates: one sentence or two adjacent ones; the best of them scores 0.543.
 
-| study design | test F1 | lessons F1 | two-sentence answers |
-|---|---:|---:|---:|
-| no feedback (the lexical reader) | 0.334 | 0.354 | 0% |
-| behaviourism: reinforcement from feedback | 0.362 | 0.388 | 79% |
-| + cognitivism: spaced retrieval of mistakes | 0.364 | 0.389 | 85.7% |
-| + social constructivism: scaffolding, easy before hard | 0.36 | 0.388 | 95.5% |
-| + andragogy: self-directed study | 0.361 | 0.388 | 93.9% |
-| + reflection: one or two changes at a time | 0.358 | 0.385 | 92.9% |
+It starts from its memory: generation 1, 1200 lessons studied before (+ cognitivism: spaced retrieval of mistakes).
+
+| study design | test F1, fresh | test F1, from memory | lessons F1, from memory | two-sentence answers |
+|---|---:|---:|---:|---:|
+| no feedback (the lexical reader) | 0.334 | 0.361 | 0.388 | 92.5% |
+| behaviourism: reinforcement from feedback | 0.362 | 0.364 | 0.392 | 83.3% |
+| + cognitivism: spaced retrieval of mistakes | 0.364 | 0.364 | 0.393 | 82.3% |
+| + social constructivism: scaffolding, easy before hard | 0.36 | 0.363 | 0.392 | 84.5% |
+| + andragogy: self-directed study | 0.361 | 0.364 | 0.392 | 86.5% |
+| + reflection: one or two changes at a time | 0.358 | 0.362 | 0.39 | 84.9% |
+
+Its next memory (generation 2): the habits of "+ cognitivism: spaced retrieval of mistakes", the design that did best on its own lessons; test F1 0.364.

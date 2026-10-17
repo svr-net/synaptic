@@ -359,6 +359,15 @@ asked, coverage). Each study design adds a module; test F1 on the 200 held-out q
 Feedback is what improves it; with eight habits the later modules add little. The first version, a perceptron step towards the
 single better answer, made it worse (0.28–0.31): one noisy example at a time washed out its best habit.
 
+**The student's memory** (`src/models/student_memory.inc`): what it learned is kept between runs. Each run starts from its
+memory (`readingStudent.memory: false` starts fresh, from the prior) and returns `remember`: the habits of the design that did
+best on its own lessons — never chosen by the test. `qa_golden DATA_DIR --write-memory src/models/student_memory.inc` stores
+them as the next generation: a C++ initializer, compiled into the native library and the WASM build, holding the generation,
+the lessons studied in all generations, the design and lessons it was learned from, its test F1 when written, and the eight
+habit weights. Generation 1 (1,200 lessons) answers with no new feedback at test F1 0.361, against 0.334 fresh; a second
+generation stays at 0.364 — eight habits are saturated. The golden test fails if the remembered score drops (`baseline.json`,
+`memory`).
+
 ## Conventions
 
 - Abilities and difficulties are logits, read off points: chance(atLogit(θ − b)) = σ(θ − b). Levers and shares lie in [0, 1].

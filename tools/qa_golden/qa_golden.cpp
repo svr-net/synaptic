@@ -4,11 +4,12 @@
 // passage's first sentence, a random sentence, and the oracle (the passage sentence closest to the
 // golden answer: the best any one-sentence extractive reader can do).
 //
-//   qa_golden DATA_DIR [--baseline FILE] [--write-baseline FILE]
+//   qa_golden DATA_DIR [--baseline FILE] [--write-baseline FILE] [--write-memory FILE]
 //
 // DATA_DIR holds qa.tsv and corpus.tsv (tools/qa_golden/prepare.py). Writes DATA_DIR/report.md
 // and DATA_DIR/answers.tsv. With --baseline, fails (exit 1) if a score drops more than 0.01 below
-// the recorded one.
+// the recorded one. With --write-memory, writes what the student learned in this run, starting from
+// its memory, as its next memory (src/models/student_memory.inc): the next run starts from there.
 #include <algorithm>
 #include <cctype>
 #include <cmath>
@@ -41,6 +42,22 @@ std::vector<std::vector<std::string>> readTsv(const std::string& path) {
   return rows;
 }
 
+// The memory as C++ (src/models/student_memory.inc): what the next run of the student starts from.
+std::string memoryInc(const Value& next, const std::string& source, double test) {
+  static const char* habits[8] = {"overlap with the question (BM25)", "position in the passage", "first sentence", "length",
+                                  "is itself a question", "two sentences", "holds what is asked (a number, a name)", "covers the question"};
+  std::ostringstream o;
+  o.precision(17);
+  o << "// The reader's memory: the reading habits it has learned from golden answers, kept between runs.\n"
+    << "// Written by tools/qa_golden (qa_golden DATA_DIR --write-memory src/models/student_memory.inc). Do not edit by hand.\n"
+    << "{" << next.num("generation", 0) << ",  // generation\n " << next.num("lessons", 0) << ",  // lessons studied, in all generations\n \""
+    << next.at("design").asString() << "\",  // study design it was learned with\n \"" << source << "\",  // lessons it was learned from\n "
+    << test << ",  // its test F1 on the golden test when it was written\n {";
+  const auto& w = next.at("weights");
+  for (std::size_t k = 0; k < 8; ++k) o << w[k].asNumber() << (k < 7 ? ",  // " : "}}  // ") << habits[k] << "\n" << (k < 7 ? "  " : "");
+  return o.str();
+}
+
 std::string field(const std::string& s) {
   std::string out = s;
   std::replace(out.begin(), out.end(), '\t', ' ');
@@ -55,11 +72,12 @@ int main(int argc, char** argv) {
     return 2;
   }
   const std::string dir = argv[1];
-  std::string baselineIn, baselineOut;
+  std::string baselineIn, baselineOut, memoryOut;
   for (int i = 2; i + 1 < argc; i += 2) {
     const std::string k = argv[i];
     if (k == "--baseline") baselineIn = argv[i + 1];
     else if (k == "--write-baseline") baselineOut = argv[i + 1];
+    else if (k == "--write-memory") memoryOut = argv[i + 1];
   }
   const auto qa = readTsv(dir + "/qa.tsv");
   const auto corpus = readTsv(dir + "/corpus.tsv");
@@ -113,18 +131,41 @@ int main(int argc, char** argv) {
       if (r.size() >= 4) train.push(Value::object().set("question", r[1]).set("golden", r[2]).set("passage", r[3]));
     for (const auto& r : qa)
       if (r.size() >= 4) test.push(Value::object().set("question", r[1]).set("golden", r[2]).set("passage", r[3]));
-    Value sspec = Value::object();
-    sspec.set("readingStudent", Value::object().set("train", train).set("test", test));
-    sspec.set("sim", Value::object().set("seed", 2026));
-    const Value st = syn::kernel::run("readingStudent", sspec);
+    auto student = [&](bool memory) {
+      Value sspec = Value::object();
+      sspec.set("readingStudent", Value::object().set("train", train).set("test", test).set("memory", memory));
+      sspec.set("sim", Value::object().set("seed", 2026));
+      return syn::kernel::run("readingStudent", sspec);
+    };
+    const Value fresh = student(false), st = student(true);
     md << "\n## The reader as a student\n\n" << st.num("lessons", 0) << " lessons (golden questions about other passages), " << st.num("tests", 0)
        << " test questions, " << st.num("students", 0) << " students per design. Candidates: one sentence or two adjacent ones; the best of them "
-       << "scores " << std::round(1000 * st.num("oracle", 0)) / 1000 << ".\n\n| study design | test F1 | lessons F1 | two-sentence answers |\n|---|---:|---:|---:|\n";
-    for (const auto& d : st.at("designs").asArray()) {
-      md << "| " << d.at("name").asString() << " | " << std::round(1000 * d.num("test", 0)) / 1000 << " | " << std::round(1000 * d.num("lessons", 0)) / 1000
-         << " | " << std::round(1000 * d.num("twoSentences", 0)) / 10 << "% |\n";
+       << "scores " << std::round(1000 * st.num("oracle", 0)) / 1000 << ".\n\n";
+    const Value& mem = st.at("memory");
+    md << "It starts from its memory: generation " << mem.num("generation", 0) << ", " << mem.num("lessons", 0) << " lessons studied before";
+    if (!mem.at("design").asString().empty()) md << " (" << mem.at("design").asString() << ")";
+    md << ".\n\n| study design | test F1, fresh | test F1, from memory | lessons F1, from memory | two-sentence answers |\n|---|---:|---:|---:|---:|\n";
+    const auto& fd = fresh.at("designs").asArray();
+    const auto& sd = st.at("designs").asArray();
+    for (std::size_t j = 0; j < sd.size(); ++j) {
+      const Value& d = sd[j];
+      md << "| " << d.at("name").asString() << " | " << std::round(1000 * fd[j].num("test", 0)) / 1000 << " | " << std::round(1000 * d.num("test", 0)) / 1000
+         << " | " << std::round(1000 * d.num("lessons", 0)) / 1000 << " | " << std::round(1000 * d.num("twoSentences", 0)) / 10 << "% |\n";
     }
-    metrics.set("student", st.at("designs").asArray()[1].num("test", 0));
+    metrics.set("student", fd[1].num("test", 0));
+    metrics.set("memory", sd[0].num("test", 0));
+    const Value& next = st.at("remember");
+    double nextTest = 0;
+    for (const auto& d : sd)
+      if (d.at("name").asString() == next.at("design").asString()) nextTest = d.num("test", 0);
+    md << "\nIts next memory (generation " << next.num("generation", 0) << "): the habits of \"" << next.at("design").asString()
+       << "\", the design that did best on its own lessons; test F1 " << std::round(1000 * nextTest) / 1000 << ".\n";
+    if (!memoryOut.empty()) {
+      std::ostringstream src;
+      src << train.size() << " lessons of edededdy/fineweb-edu-grounded-qa (tools/qa_golden/prepare.py, seed 2026)";
+      std::ofstream(memoryOut) << memoryInc(next, src.str(), nextTest);
+      md << "Written to " << memoryOut << ".\n";
+    }
   }
   std::ofstream(dir + "/report.md") << md.str();
   std::cout << md.str();
@@ -135,7 +176,7 @@ int main(int argc, char** argv) {
     std::ifstream in(baselineIn);
     std::string text((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
     bool failed = false;
-    for (const char* k : {"reading", "openBook", "openBookFoundPassage", "student"}) {
+    for (const char* k : {"reading", "openBook", "openBookFoundPassage", "student", "memory"}) {
       const auto at = text.find(std::string("\"") + k + "\":");
       if (at == std::string::npos) continue;
       const double recorded = std::stod(text.substr(at + std::string(k).size() + 3));

@@ -37,7 +37,8 @@
 constexpr const char* student_helpers = R"wgsl(
 // Constants: P(0) habits F, P(1) lessons, P(2) test questions, P(3) passes, P(4) rate, P(5) margin,
 // P(6) spacing, P(7) block, P(8) pool, P(9) support, P(10) questions table (first, count, best),
-// P(11) candidates (F habits, F1), P(12) curriculum order of the lessons, P(13) checkpoints.
+// P(11) candidates (F habits, F1), P(12) curriculum order of the lessons, P(13) checkpoints,
+// P(14) sharpness, P(15..22) the habits it starts with (its memory, or the prior).
 var<private> W : array<f32, 8>;
 var<private> JOURNAL : array<f32, 8>;
 fn candidate(c : u32) -> u32 { return u32(P(11u)) + c * 9u; }
@@ -136,13 +137,11 @@ constexpr const char* student_agent = R"wgsl(
   let tests = u32(P(2u));
   let passes = u32(P(3u));
   let rate = P(4u);
-  // Prior knowledge: the lexical reader (overlap with the question; one sentence).
+  // What it knows before the lessons: its memory of earlier runs, or the lexical reader.
   for (var k = 0u; k < 8u; k = k + 1u) {
-    W[k] = 0.0;
+    W[k] = P(15u + k);
     JOURNAL[k] = 0.0;
   }
-  W[0] = 1.0;
-  W[5] = -1.0;
   // The order of the lessons: a shuffle of the student's own, or easy before hard (scaffolding).
   var order : array<u32, 512>;
   for (var i = 0u; i < lessons; i = i + 1u) { order[i] = i; }
@@ -244,6 +243,20 @@ struct Embedded {
 const Embedded kLessons[] = {
 #include "qa_training_sample.inc"
 };
+
+// The memory: what earlier runs learned (tools/qa_golden writes it; the prior is generation 0).
+struct Memory {
+  int generation;
+  double lessons;
+  const char* design;
+  const char* source;
+  double test;
+  double weights[8];
+};
+const Memory kMemory =
+#include "student_memory.inc"
+    ;
+const double kPrior[8] = {1, 0, 0, 0, 0, -1, 0, 0};
 
 const char* kHabits[8] = {"overlap with the question (BM25)", "position in the passage", "first sentence", "length",
                           "is itself a question", "two sentences", "holds what is asked (a number, a name)", "covers the question"};
@@ -379,6 +392,11 @@ const kernel::Model* readingStudentModel() {
       std::vector<double> params = {8, double(a.size()), double(b.size()), double(std::clamp(c.integer("passes", 3), 1, 10)), c.num("rate", 0.2),
                                     c.num("margin", 0.02), c.num("spacing", 10), double(std::max(1, c.integer("block", 20))), c.num("pool", 6),
                                     c.num("support", 2.0), 0, 0, 0, 16, c.num("sharpness", 5.0)};
+      // It starts from its memory (unless asked to start fresh), as weights given in the spec, or the prior.
+      const bool remember = c.flag("memory", true);
+      for (int k = 0; k < 8; ++k) params.push_back(remember ? kMemory.weights[k] : kPrior[k]);
+      if (c.has("start"))
+        for (int k = 0; k < 8 && k < static_cast<int>(c.at("start").size()); ++k) params[15 + k] = c.at("start")[static_cast<std::size_t>(k)].asNumber();
       std::vector<double> questions, candidates;
       Value meta = Value::object();
       double oracle = 0, oracleSingle = 0;
@@ -417,6 +435,9 @@ const kernel::Model* readingStudentModel() {
       for (auto i : order) params.push_back(double(i));
       meta.set("oracle", oracle / std::max<double>(1, double(b.size()))).set("oracleSingle", oracleSingle / std::max<double>(1, double(b.size())))
           .set("lessons", double(a.size())).set("tests", double(b.size()));
+      Value start = Value::array();
+      for (int k = 0; k < 8; ++k) start.push(params[15 + k]);
+      meta.set("start", start).set("remembered", remember && !c.has("start"));
       std::vector<std::vector<double>> rows;
       for (int d = 0; d < 6; ++d) rows.push_back({double(d)});
       Plan p = makePlan("readingStudent", static_cast<std::uint32_t>(c.integer("students", 64)), 28, params, rows, seedOf(spec));
@@ -439,7 +460,26 @@ const kernel::Model* readingStudentModel() {
                          .set("twoSentences", o.mean(p, j, 26))
                          .set("bestCandidate", o.mean(p, j, 27)));
       }
-      return Value::object().set("designs", designs).set("oracle", p.meta.at("oracle")).set("oracleSingle", p.meta.at("oracleSingle"))
+      // What to remember: the habits of the design that did best on its own lessons (never the test).
+      std::size_t keep = 1;
+      for (std::size_t j = 1; j < designs.size(); ++j)
+        if (designs.asArray()[j].num("lessons", 0) > designs.asArray()[keep].num("lessons", 0)) keep = j;
+      Value weights = Value::array();
+      for (const auto& h : designs.asArray()[keep].at("habits").asArray()) weights.push(h.at("weight"));
+      const bool remembered = p.meta.at("remembered").asBool();
+      Value memory = Value::object()
+                         .set("generation", remembered ? kMemory.generation : 0)
+                         .set("lessons", remembered ? kMemory.lessons : 0.0)
+                         .set("design", remembered ? kMemory.design : "")
+                         .set("source", remembered ? kMemory.source : "")
+                         .set("test", remembered ? kMemory.test : 0.0)
+                         .set("weights", p.meta.at("start"));
+      Value next = Value::object()
+                       .set("generation", (remembered ? kMemory.generation : 0) + 1)
+                       .set("lessons", (remembered ? kMemory.lessons : 0.0) + p.meta.num("lessons", 0) * p.params[3])
+                       .set("design", kDesigns[keep])
+                       .set("weights", weights);
+      return Value::object().set("designs", designs).set("memory", memory).set("remember", next).set("oracle", p.meta.at("oracle")).set("oracleSingle", p.meta.at("oracleSingle"))
           .set("lessons", p.meta.at("lessons")).set("tests", p.meta.at("tests")).set("students", static_cast<double>(p.agents));
     };
     return m;
