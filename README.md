@@ -249,7 +249,7 @@ python3 -m http.server -d web 8000      # any static server; file:// will not lo
 | `assessment.html` | Chapter 9: assessment activities, assessment vs grades and satisfaction, formative and summative, the cycle, rubrics, self-assessment | `assessmentActivities` · `assessmentSession` · `rubric` |
 | `strategies.html` | Chapter 10: attention and chunked lectures, video length, discussion formats and wait time, scaffolding, learning styles vs content vs variety, flipped one-shots, problem-based learning, the sample lesson plan on time | `lecture` · `discussion` · `scaffolding` · `strategies` · `lessonPlan` |
 | `reflective.html` | Chapter 14: a term of reflective practice (informal, the four-step journal, video, peer observation, the CIQ), reading student feedback, critical reflection group by group, professional growth | `reflection` · `studentFeedback` · `criticalReflection` · `professionalGrowth` |
-| `qa.html` | The QA golden test in the browser: the reader answers 60 embedded golden FineWeb-Edu questions, scored against the golden answers; ask it about your own passage | `readingQA` |
+| `qa.html` | The QA golden test in the browser: the reader answers 60 embedded golden FineWeb-Edu questions, scored against the golden answers — by word overlap, with its remembered habits, and from its notes alone; the reader as a student; its notes and its memory; ask it about your own passage, or with none, from what it knows | `readingQA` · `readingStudent` · `readingNotes` |
 | `fga.html` | Functional geometric algebra (Pustejovsky 2026): learners read a text and learn multivectors of Cl(4, 1); the paper's claims checked; rotors against projections; binding capacity against HRR | `fgaAlgebra` · `fgaLearning` · `fgaRotors` |
 | `classroom.html` | Every theory on the same learners over a course: score profile, learner scatter, equity | `classroom` |
 | `theories.html` | Activity 3.3 designed by every theory, on three populations | `theories` |
@@ -313,8 +313,9 @@ Each model is one file in `src/models/`, and its tests are in `tests/test_models
 | Ch. 14: professional development | `professional_growth.cpp` | Ideas from a community of practice, colleagues, courses and the literature, copied or adapted; the expert blind spot and becoming a student again; efficacy and isolation |
 | FGA: the algebra | `fga_algebra.cpp` | Application by contraction, event binding by the wedge and exact unbinding, type checks by grade and nullity, rotors (elliptic and hyperbolic), polar idempotents, a dot object — each claim measured on random lexicons; binding capacity against holographic reduced representations |
 | FGA: learning | `fga_learning.cpp` | Learners read a text (parsed into name–relation–name sentences) and learn a multivector per word by gradient descent on ⟨S R O⟩₀ with corrupted negatives; typed, untyped, grade prior, flat |
-| The reader as a student | `reading_student.cpp` | A student learns reading habits from golden lessons (expected reward over candidates of one or two sentences) with the library's modules as study designs — behaviourism, spaced retrieval, scaffolding, self-direction, reflection — scored on held-out golden answers |
+| The reader as a student | `reading_student.cpp` | A student learns reading and note-taking habits from golden lessons with every learning method of the library as a switch — reinforcement, schema, interleaving, worked examples, spaced retrieval, equilibration, scaffolding, peer discussion, self-direction, growth mindset, reflection — in 24 study designs, scored on held-out golden answers; it starts from and returns the reader's memory |
 | QA golden test | `reading_qa.cpp` | A reader learns word informativeness (idf) from a corpus and believes the sentence that answers a question (BM25 evidence read as a point); reading and open book; scored against golden answers in `tools/qa_golden` |
+| Taking notes | `reading_notes.cpp` | Before any question, the reader keeps the sentences of each passage it believes are worth keeping (learned note-taking habits read as a point); the notes are its knowledge |
 | FGA: rotors | `fga_rotors.cpp` | Regular polysemy as a rotor family: a rotor of Cl(4, 1) learned by exact plane steps against a learned 5 × 5 projection, from one to six words |
 | Combining the theories | `classroom.cpp` (`classroom`) | Every theory acting on the same learners over a course; score, recall and risk profiles; equity; per-learner read-back |
 | Activity 3.3 | `classroom.cpp` (`theories`) | The lesson each theory designs (16 levers), on children, teenagers and adults: 24 jobs, one dispatch |
@@ -342,22 +343,65 @@ Open book, the reader's answer comes from the right passage for 96% of the quest
 as the software GPU for every question. `tools/qa_golden/run.sh /path/to/knowledge` reruns it and fails on a drop below
 `baseline.json`. The reader is lexical: it extracts one sentence, so the oracle bounds it.
 
-**The reader as a student** (`readingStudent`): the reader learns to read for answers with the library's own modules, in the
-order of the book. Lessons are 400 golden questions about other passages; after each answer it sees the golden one and learns
-how to weigh eight reading habits (overlap, position, first sentence, length, being a question, two sentences, holding what is
-asked, coverage). Each study design adds a module; test F1 on the 200 held-out questions:
+**The reader as a student** (`readingStudent`): the reader learns to read for answers with every learning method the library
+models. Lessons are 400 golden questions about other passages; after each answer it sees the golden one and learns how to weigh
+eight reading habits (overlap, position, first sentence, length, being a question, two sentences, holding what is asked,
+coverage). A study design is a set of the library's methods, each a switch in the kernel:
 
-| study design | test F1 |
+| method | library models | how the reader studies |
+|---|---|---|
+| reinforcement | conditioning, operant | the habits of better answers gain weight (expected-reward gradient); without it, no feedback |
+| schema | schema | starts from its prior knowledge — its memory — instead of the lexical reader |
+| interleaving | interleaving | question kinds mixed; without it, studied in blocks of one kind |
+| worked examples | gagne, lecture | studies the best answer first: a small step towards its habits |
+| spaced retrieval | memory | lessons answered badly come back after a spacing |
+| equilibration | equilibration | a small surprise assimilated (half step), a large one accommodated (double step) |
+| scaffolding | zpd, scaffolding | easy before hard in the first pass, with support that fades |
+| peer discussion | dialogue, discussion | where a classmate's (the lexical reader's) answer was better, a step towards it |
+| self-direction | andragogy | after the first pass, picks the lesson it is least sure about |
+| growth mindset | motivation | keeps its effort after a run of misses; without it, effort falls with each miss |
+| reflection | reflection | a journal, and one or two changes per block of lessons |
+
+It runs 24 designs at once (no feedback, its memory alone, reinforcement, reinforcement with each method, all methods, all but
+one). On the 200 held-out questions (from memory generation 2): no feedback 0.334, reinforcement 0.362, + worked examples
+0.372, + schema 0.370, + reflection 0.366; **all methods together 0.362** — they interfere: their larger steps compound
+(the learning curve of all methods dips early), and all methods also learn the lessons less well (0.381 against 0.388) — the
+library's own reflection model's point that one or two changes at a time stick where seven do not. The first version of
+reinforcement, a perceptron step towards the single better answer, made it worse (0.28–0.31). `tools/qa_golden/report.md` has
+every design and what each method adds and costs.
+
+**What the reader keeps** (`src/models/reading_memory.{hpp,cpp}`): its memory and its knowledge, compiled into the native
+library and the WASM build, so that it can answer when neither the lessons nor the passages are at hand.
+
+- **Memory** (`student_memory.inc`): the weights of its reading habits (how to pick an answer) and of its note-taking habits
+  (which sentences of a passage are worth keeping, before any question), with the generation, the lessons studied in all
+  generations, the design and lessons each was learned from, its test F1 when written, and a fingerprint of the habits the
+  weights are for. A memory learned for other habits is refused (`memory.used: false`, with the reason) and the reader starts
+  from the prior, never applying weights to the wrong habits. Each `readingStudent` run starts from the memory
+  (`memory: false` starts fresh; `notes: true` learns note-taking) and returns `remember`: the habits of the design that did
+  best on its own lessons — never chosen by the test. With `anchor`, every lesson also pulls the habits back towards the
+  memory, so that a few lessons of another kind do not wash it out (drift over 20 lessons 0.36 → 0.06). The memory is
+  learned with all methods.
+- **Knowledge** (`reader_knowledge.inc`): the notes it took (`readingNotes`) on the 200 passages of the golden test — five
+  sentences each, 37% of the text, chosen by the note-taking habits (learned with all methods) before any question — with
+  the passage each came from.
+- **Answering with them** (`readingQA`): `remembered` answers from the passage with the remembered habits; `knowledge` answers
+  with the passages gone, open book over the notes alone (with no passage at all, it answers from what it knows).
+
+`qa_golden DATA_DIR --keep 5 --write-memory src/models/student_memory.inc --write-knowledge src/models/reader_knowledge.inc`
+writes the next generation. On the 200 golden questions:
+
+| answer | token F1 |
 |---|---:|
-| no feedback (the lexical reader) | 0.334 |
-| behaviourism: reinforcement from feedback (expected reward over all candidates) | 0.362 |
-| + cognitivism: spaced retrieval of mistakes | 0.364 |
-| + social constructivism: scaffolding, easy before hard | 0.360 |
-| + andragogy: self-directed study | 0.361 |
-| + reflection: one or two changes at a time | 0.358 |
+| reader, its own passage (lexical) | 0.343 |
+| reader with its remembered habits (generation 3, 3,600 lessons, learned with all methods) | 0.375 |
+| from its knowledge alone — the passages gone; notes of 5 sentences each, 37% of the text | 0.308 |
+| from notes of 1 / 2 / 3 sentences each (9% / 18% / 25% of the text) | 0.207 / 0.234 / 0.261 |
+| no text and no knowledge | 0 |
 
-Feedback is what improves it; with eight habits the later modules add little. The first version, a perceptron step towards the
-single better answer, made it worse (0.28–0.31): one noisy example at a time washed out its best habit.
+Learning to take notes adds little over keeping the most informative sentences (best kept sentence 0.198 → 0.202); what
+preserves the answers is keeping a third of the text, chosen before the questions. The golden test fails if the remembered or
+knowledge score drops (`baseline.json`: `memory`, `remembered`, `knowledge`, `allMethods`).
 
 ## Conventions
 

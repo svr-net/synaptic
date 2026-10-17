@@ -1,28 +1,44 @@
-// The reader as a student: it learns to read for answers with the library's own modules, in the
-// order of the book, and the QA golden test measures what each one adds.
+// The reader as a student: it learns to read for answers with every learning method the library
+// models, and the QA golden test measures what each one adds.
 //
 // A lesson is a golden question about a FineWeb-Edu passage (other passages than the test's). The
 // student answers with one of the passage's sentences or two adjacent ones, then sees the golden
-// answer: the reward is the token F1 of its answer, and the lesson is the candidate it should have
-// chosen (the one closest to the golden answer). What it learns is how to weigh its reading
+// answer: the reward is the token F1 of its answer. What it learns is how to weigh its reading
 // habits — the overlap of a candidate with the question's informative words (BM25), its position,
 // whether it is the first sentence, its length, whether it is itself a question, whether it is two
 // sentences, whether it holds what the question asks for (a number for "how many", a name for
-// "who"), and how much of the question it covers. It starts as the lexical reader of readingQA
-// (overlap only, one sentence). Agents are students, each with its own order of lessons; jobs are
-// study designs, each adding one module to the one before:
-//   0 no feedback — the lexical reader;
-//   1 behaviourism — reinforcement: after every answer the weights move towards the habits of the
-//     better answer, in proportion to the reward it missed (a Rescorla–Wagner/perceptron step);
-//   2 + cognitivism — spaced retrieval: lessons answered badly come back after a spacing;
-//   3 + social constructivism — scaffolding in the ZPD: easy lessons before hard ones in the first
-//     pass, with support (a large step) that fades;
-//   4 + andragogy — self-direction: the student picks, from a few lessons, the one it is least sure
-//     about;
-//   5 + reflection — every block of lessons the student reviews what went wrong and changes one or
-//     two habits at a time (chapter 14).
-// After the lessons, and at checkpoints along the way, it answers the test questions; the score is
-// the token F1 of its answers against the golden ones.
+// "who"), and how much of the question it covers. Agents are students, each with its own order of
+// lessons; jobs are study designs: sets of the library's learning methods, each a switch —
+//   reinforcement (conditioning, operant): after every answer the habits of the better answers gain
+//     weight and those of the worse lose it, in proportion to the reward (the expected-reward
+//     gradient of a Rescorla–Wagner learner); without it there is no feedback;
+//   schema (schema): it starts from its prior knowledge — its memory — instead of the lexical reader;
+//   interleaving (interleaving): question kinds mixed; without it, studied in blocks of one kind;
+//   worked examples (gagne, lecture): before answering, it studies the best answer, a small step
+//     towards its habits (guidance);
+//   spaced retrieval (memory): lessons answered badly come back after a spacing;
+//   equilibration (equilibration): a small surprise is assimilated (a half step), a large one
+//     accommodated (a double step);
+//   scaffolding (zpd, scaffolding): easy lessons before hard ones in the first pass, with support (a
+//     larger step) that fades;
+//   peer discussion (dialogue, discussion): it compares its answer with a classmate's (the lexical
+//     reader's) and, where the classmate's was better, takes a step towards it;
+//   self-direction (andragogy): after the first pass it picks, from a few lessons, the one it is
+//     least sure about;
+//   growth mindset (motivation): it keeps its effort after a run of misses; without it, effort falls
+//     with each miss in a row;
+//   reflection (chapter 14): every block of lessons it reviews its journal and changes one or two
+//     habits at a time.
+// The designs: no feedback; its memory alone; reinforcement; reinforcement with each method; all
+// methods; all methods but one. After the lessons, and at checkpoints along the way, it answers the
+// test questions; the score is the token F1 of its answers against the golden ones.
+//
+// It starts from its memory (reading_memory.hpp), if the memory was learned for these habits, and
+// returns what it would remember next: the habits learned with all methods. With `notes`, it learns
+// the other half of its memory, taking notes: from a passage alone, without a question, which
+// sentence is worth keeping — the lesson's golden answer says which one was. With `anchor`, each
+// lesson also pulls the habits back towards where it started, so that new lessons of another kind do
+// not wash out what it knew.
 #include <algorithm>
 #include <cmath>
 #include <map>
@@ -30,6 +46,7 @@
 #include <set>
 #include <string>
 
+#include "reading_memory.hpp"
 #include "reading_text.hpp"
 #include "syn/models/models.hpp"
 
@@ -37,8 +54,12 @@
 constexpr const char* student_helpers = R"wgsl(
 // Constants: P(0) habits F, P(1) lessons, P(2) test questions, P(3) passes, P(4) rate, P(5) margin,
 // P(6) spacing, P(7) block, P(8) pool, P(9) support, P(10) questions table (first, count, best),
-// P(11) candidates (F habits, F1), P(12) curriculum order of the lessons, P(13) checkpoints.
+// P(11) candidates (F habits, F1), P(12) curriculum order of the lessons, P(13) checkpoints,
+// P(14) sharpness, P(15..22) its memory, P(23) anchor, P(24..31) the prior (the lexical reader, the
+// classmate), P(32) blocked order of the lessons (by question kind), P(33) worked-example step,
+// P(34) surprise that calls for accommodation, P(35) discussion step, P(36) discouragement per miss.
 var<private> W : array<f32, 8>;
+var<private> START : array<f32, 8>;
 var<private> JOURNAL : array<f32, 8>;
 fn candidate(c : u32) -> u32 { return u32(P(11u)) + c * 9u; }
 fn questionRow(q : u32) -> u32 { return u32(P(10u)) + q * 3u; }
@@ -105,7 +126,12 @@ fn lesson(q : u32, rate : f32, reflect : bool) -> f32 {
   }
   for (var k = 0u; k < 8u; k = k + 1u) {
     let d = rate * beta * g[k];
-    if (reflect) { JOURNAL[k] = JOURNAL[k] + d; } else { W[k] = W[k] + d; }
+    if (reflect) {
+      JOURNAL[k] = JOURNAL[k] + d;
+    } else {
+      // The anchor: what it knew holds unless the lessons keep calling for a change.
+      W[k] = W[k] + d - rate * P(23u) * (W[k] - START[k]);
+    }
   }
   let chosen = choose(q);
   return rewardOf(u32(P(r + 2u))) - rewardOf(chosen);
@@ -120,7 +146,33 @@ fn reflect() {
   }
   W[first] = W[first] + JOURNAL[first];
   W[second] = W[second] + JOURNAL[second];
-  for (var k = 0u; k < 8u; k = k + 1u) { JOURNAL[k] = 0.0; }
+  // The anchor, for the block of lessons the journal covers.
+  let hold = pow(max(0.0, 1.0 - P(4u) * P(23u)), P(7u));
+  for (var k = 0u; k < 8u; k = k + 1u) {
+    JOURNAL[k] = 0.0;
+    W[k] = START[k] + (W[k] - START[k]) * hold;
+  }
+}
+// A step from the habits of candidate `own` towards those of candidate `to` (a worked example, or
+// a classmate's better answer): into the journal when reflecting.
+fn stepTowards(own : u32, to : u32, s : f32, reflect : bool) {
+  for (var k = 0u; k < 8u; k = k + 1u) {
+    let d = s * (P(candidate(to) + k) - P(candidate(own) + k));
+    if (reflect) { JOURNAL[k] = JOURNAL[k] + d; } else { W[k] = W[k] + d; }
+  }
+}
+// The classmate's answer: the candidate the lexical reader (the prior) believes most.
+fn classmate(q : u32) -> u32 {
+  let r = questionRow(q);
+  let first = u32(P(r));
+  var best = first;
+  var bestS = -1e30;
+  for (var c = first; c < first + u32(P(r + 1u)); c = c + 1u) {
+    var s = 0.0;
+    for (var k = 0u; k < 8u; k = k + 1u) { s = s + P(24u + k) * P(candidate(c) + k); }
+    if (s > bestS) { bestS = s; best = c; }
+  }
+  return best;
 }
 // The mean reward of the student's answers to questions [start, start + n).
 fn exam(start : u32, n : u32) -> f32 {
@@ -131,21 +183,33 @@ fn exam(start : u32, n : u32) -> f32 {
 )wgsl";
 
 constexpr const char* student_agent = R"wgsl(
-  let design = u32(J(0u));
+  // The study design: which of the library's learning methods the student uses (one bit each).
+  let methods = u32(J(0u));
+  let reinforced = (methods & 1u) != 0u;
+  let schema = (methods & 2u) != 0u;
+  let interleaved = (methods & 4u) != 0u;
+  let examples = (methods & 8u) != 0u;
+  let spaced = (methods & 16u) != 0u;
+  let equilibrating = (methods & 32u) != 0u;
+  let scaffolded = (methods & 64u) != 0u;
+  let discussing = (methods & 128u) != 0u;
+  let selfDirected = (methods & 256u) != 0u;
+  let growth = (methods & 512u) != 0u;
+  let reflecting = (methods & 1024u) != 0u;
   let lessons = u32(P(1u));
   let tests = u32(P(2u));
   let passes = u32(P(3u));
   let rate = P(4u);
-  // Prior knowledge: the lexical reader (overlap with the question; one sentence).
+  // What it knows before the lessons: its memory (a schema), or the lexical reader.
   for (var k = 0u; k < 8u; k = k + 1u) {
-    W[k] = 0.0;
+    W[k] = select(P(24u + k), P(15u + k), schema);
+    START[k] = W[k];
     JOURNAL[k] = 0.0;
   }
-  W[0] = 1.0;
-  W[5] = -1.0;
-  // The order of the lessons: a shuffle of the student's own, or easy before hard (scaffolding).
+  // The order of the lessons: interleaved (its own shuffle), blocked by question kind, or easy
+  // before hard (scaffolding).
   var order : array<u32, 512>;
-  for (var i = 0u; i < lessons; i = i + 1u) { order[i] = i; }
+  for (var i = 0u; i < lessons; i = i + 1u) { order[i] = u32(P(u32(P(32u)) + i)); }
   var queue : array<u32, 64>;
   var due : array<u32, 64>;
   for (var i = 0u; i < 64u; i = i + 1u) { queue[i] = 0u; due[i] = 0u; }
@@ -157,11 +221,12 @@ constexpr const char* student_agent = R"wgsl(
   var step = 0u;
   var mark = 0u;
   var draw = 100u;
+  var misses = 0u;
   for (var sweep = 0u; sweep < passes; sweep = sweep + 1u) {
     for (var i = 0u; i < lessons; i = i + 1u) { done[i] = false; }
-    if (design >= 3u && sweep == 0u) {
+    if (scaffolded && sweep == 0u) {
       for (var i = 0u; i < lessons; i = i + 1u) { order[i] = u32(P(u32(P(12u)) + i)); }
-    } else {
+    } else if (interleaved) {
       for (var i = lessons - 1u; i > 0u; i = i - 1u) {
         let j = min(i, u32(U(draw) * f32(i + 1u)));
         draw = draw + 1u;
@@ -169,6 +234,8 @@ constexpr const char* student_agent = R"wgsl(
         order[i] = order[j];
         order[j] = t;
       }
+    } else {
+      for (var i = 0u; i < lessons; i = i + 1u) { order[i] = u32(P(u32(P(32u)) + i)); }
     }
     for (var i = 0u; i < lessons; i = i + 1u) {
       // Checkpoints: answer the test questions now and then.
@@ -177,15 +244,15 @@ constexpr const char* student_agent = R"wgsl(
         mark = mark + 1u;
       }
       step = step + 1u;
-      if (design == 0u) { continue; }
+      if (!reinforced) { continue; }
       // Spaced retrieval: a lesson answered badly comes back when it is due.
-      if (design >= 2u && head != tail && due[head % 64u] <= step) {
-        _ = lesson(queue[head % 64u], rate, design >= 5u);
+      if (spaced && head != tail && due[head % 64u] <= step) {
+        _ = lesson(queue[head % 64u], rate, reflecting);
         head = head + 1u;
       }
       // The next lesson: in order, or the least certain of a few (self-direction).
       var q = order[i];
-      if (design >= 4u && sweep > 0u) {
+      if (selfDirected && sweep > 0u) {
         var bestM = 1e30;
         for (var k = 0u; k < u32(P(8u)); k = k + 1u) {
           let c = order[min(lessons - 1u, i + u32(U(draw) * f32(lessons - i)))];
@@ -197,19 +264,34 @@ constexpr const char* student_agent = R"wgsl(
       }
       if (done[q]) { q = order[i]; }
       done[q] = true;
-      // Scaffolding: a large step at first, fading over the first pass.
+      // Effort: scaffolding's support fades over the first pass; without a growth mindset, a run of
+      // misses discourages.
       var r = rate;
-      if (design >= 3u && sweep == 0u) { r = rate * (1.0 + P(9u) * (1.0 - f32(i) / f32(lessons))); }
-      let missed = lesson(q, r, design >= 5u);
-      if (design >= 2u && missed > P(5u) && tail - head < 64u) {
+      if (scaffolded && sweep == 0u) { r = r * (1.0 + P(9u) * (1.0 - f32(i) / f32(lessons))); }
+      if (!growth) { r = r / (1.0 + P(36u) * f32(misses)); }
+      // A worked example first: a small step towards the best answer's habits.
+      let best = u32(P(questionRow(q) + 2u));
+      if (examples) { stepTowards(choose(q), best, r * P(33u), reflecting); }
+      // Its own answer, and how surprised the feedback leaves it.
+      let answer = choose(q);
+      let surprise = rewardOf(best) - rewardOf(answer);
+      if (equilibrating) { r = r * select(0.5, 2.0, surprise > P(34u)); }
+      let missed = lesson(q, r, reflecting);
+      // Discussion: where the classmate's answer was better, a step towards it.
+      if (discussing) {
+        let other = classmate(q);
+        if (rewardOf(other) > rewardOf(answer) + P(5u)) { stepTowards(answer, other, r * P(35u), reflecting); }
+      }
+      misses = select(0u, misses + 1u, surprise > P(5u));
+      if (spaced && missed > P(5u) && tail - head < 64u) {
         queue[tail % 64u] = q;
         due[tail % 64u] = step + u32(P(6u));
         tail = tail + 1u;
       }
-      if (design >= 5u && step % u32(P(7u)) == 0u) { reflect(); }
+      if (reflecting && step % u32(P(7u)) == 0u) { reflect(); }
     }
   }
-  if (design >= 5u) { reflect(); }
+  if (reflecting) { reflect(); }
   stat(16u, exam(lessons, tests));
   stat(17u, exam(0u, lessons));
   for (var k = 0u; k < 8u; k = k + 1u) { stat(18u + k, W[k]); }
@@ -230,10 +312,8 @@ namespace syn::models {
 namespace {
 
 using namespace text;
-
-struct Lesson {
-  std::string question, golden, passage;
-};
+using memory::Candidates;
+using memory::Item;
 
 // The built-in lessons: golden questions about other passages than the test's.
 struct Embedded {
@@ -245,109 +325,60 @@ const Embedded kLessons[] = {
 #include "qa_training_sample.inc"
 };
 
-const char* kHabits[8] = {"overlap with the question (BM25)", "position in the passage", "first sentence", "length",
-                          "is itself a question", "two sentences", "holds what is asked (a number, a name)", "covers the question"};
-const char* kDesigns[6] = {"no feedback (the lexical reader)", "behaviourism: reinforcement from feedback", "+ cognitivism: spaced retrieval of mistakes",
-                           "+ social constructivism: scaffolding, easy before hard", "+ andragogy: self-directed study",
-                           "+ reflection: one or two changes at a time"};
+// The library's learning methods, one bit each of a study design (reinforcement is bit 0).
+struct Method {
+  const char* name;
+  const char* models;  // the library's models of it
+};
+const Method kMethods[11] = {{"reinforcement", "conditioning, operant"},
+                             {"schema: starts from its memory", "schema"},
+                             {"interleaving question kinds", "interleaving"},
+                             {"worked examples", "gagne, lecture"},
+                             {"spaced retrieval of mistakes", "memory"},
+                             {"equilibration: assimilate or accommodate", "equilibration"},
+                             {"scaffolding: easy before hard", "zpd, scaffolding"},
+                             {"peer discussion", "dialogue, discussion"},
+                             {"self-direction", "andragogy"},
+                             {"growth mindset", "motivation"},
+                             {"reflection: one or two changes at a time", "reflection"}};
+constexpr unsigned kAll = (1u << 11) - 1;
 
-std::vector<Lesson> lessonsOf(const Value& v) {
-  std::vector<Lesson> out;
+// The designs: no feedback, its memory alone, reinforcement, reinforcement with each method, all
+// methods, all methods but one.
+struct Design {
+  unsigned methods;
+  std::string name;
+};
+std::vector<Design> designs() {
+  std::vector<Design> d = {{0, "no feedback (the lexical reader)"}, {2, "its memory alone, no feedback"}, {1, "reinforcement"}};
+  for (unsigned b = 1; b < 11; ++b) d.push_back({1u | (1u << b), std::string("reinforcement + ") + kMethods[b].name});
+  d.push_back({kAll, "all methods"});
+  for (unsigned b = 1; b < 11; ++b) d.push_back({kAll & ~(1u << b), std::string("all methods but ") + kMethods[b].name});
+  return d;
+}
+std::size_t designOf(unsigned methods) {
+  const auto d = designs();
+  for (std::size_t j = 0; j < d.size(); ++j)
+    if (d[j].methods == methods) return j;
+  return 0;
+}
+
+// The kind of a question, for blocked study: its first word.
+std::string kindOf(const std::string& question) {
+  const auto ws = words(question, false);
+  return ws.empty() ? std::string() : ws[0];
+}
+
+std::vector<Item> lessonsOf(const Value& v) {
+  std::vector<Item> out;
   for (const auto& x : v.asArray()) out.push_back({x.at("question").asString(), x.at("golden").asString(), x.at("passage").asString()});
   return out;
 }
 
-bool hasDigit(const std::string& s) { return std::any_of(s.begin(), s.end(), [](unsigned char c) { return std::isdigit(c) != 0; }); }
-bool hasName(const std::string& s) {
-  for (std::size_t i = 1; i + 1 < s.size(); ++i)
-    if (s[i - 1] == ' ' && std::isupper(static_cast<unsigned char>(s[i])) && std::islower(static_cast<unsigned char>(s[i + 1]))) return true;
-  return false;
-}
-
-// Candidates of one question (its passage's sentences, then adjacent pairs) with their habits and
-// the token F1 of each against the golden answer.
-struct Prepared {
-  std::vector<std::vector<double>> habits;
-  std::vector<double> reward;
-  std::size_t best = 0;
-};
-
-std::vector<Prepared> prepare(const std::vector<Lesson>& items) {
-  // What the reader learns from the passages it reads: how informative each word is.
-  std::map<std::string, double> df;
-  std::vector<std::vector<std::string>> sents(items.size());
-  double totalLen = 0, nSent = 0;
-  for (std::size_t i = 0; i < items.size(); ++i) {
-    sents[i] = sentences(items[i].passage);
-    std::set<std::string> seen;
-    for (const auto& s : sents[i]) {
-      const auto ws = words(s, true);
-      totalLen += static_cast<double>(ws.size());
-      nSent += 1;
-      seen.insert(ws.begin(), ws.end());
-    }
-    for (const auto& w : seen) df[w] += 1;
-  }
-  const double n = static_cast<double>(items.size()), avg = totalLen / std::max(1.0, nSent);
-  auto idf = [&](const std::string& w) {
-    const double d = df.count(w) ? df[w] : 0.0;
-    return std::max(0.0, std::log((n - d + 0.5) / (d + 0.5) + 1.0));
-  };
-  std::vector<Prepared> out;
-  for (std::size_t i = 0; i < items.size(); ++i) {
-    const auto& q = items[i].question;
-    std::set<std::string> qw;
-    for (const auto& w : words(q, true)) qw.insert(w);
-    std::string lower = q;
-    std::transform(lower.begin(), lower.end(), lower.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
-    const bool asksNumber = lower.find("how many") != std::string::npos || lower.find("how much") != std::string::npos ||
-                            lower.find("percent") != std::string::npos || lower.find("what year") != std::string::npos ||
-                            lower.rfind("when", 0) == 0 || lower.find("how long") != std::string::npos || lower.find("how old") != std::string::npos;
-    const bool asksName = lower.rfind("who", 0) == 0 || lower.find(" who ") != std::string::npos || lower.find("which person") != std::string::npos;
-    const auto& ss = sents[i];
-    std::vector<std::string> texts;
-    std::vector<int> pos;
-    std::vector<bool> pair;
-    for (std::size_t k = 0; k < ss.size() && texts.size() < 40; ++k) {
-      texts.push_back(ss[k]);
-      pos.push_back(static_cast<int>(k));
-      pair.push_back(false);
-    }
-    for (std::size_t k = 0; k + 1 < ss.size() && texts.size() < 64; ++k) {
-      texts.push_back(ss[k] + " " + ss[k + 1]);
-      pos.push_back(static_cast<int>(k));
-      pair.push_back(true);
-    }
-    Prepared p;
-    double maxBm = 1e-9;
-    std::vector<double> bm(texts.size());
-    for (std::size_t c = 0; c < texts.size(); ++c) {
-      const auto ws = words(texts[c], true);
-      std::map<std::string, double> tf;
-      for (const auto& w : ws) tf[w] += 1;
-      const double norm = 1.2 * (1 - 0.75 + 0.75 * static_cast<double>(ws.size()) / avg);
-      double e = 0;
-      for (const auto& w : qw)
-        if (tf.count(w)) e += idf(w) * tf[w] * 2.2 / (tf[w] + norm);
-      bm[c] = e;
-      if (!pair[c]) maxBm = std::max(maxBm, e);
-    }
-    for (std::size_t c = 0; c < texts.size(); ++c) {
-      const auto ws = words(texts[c], true);
-      std::set<std::string> have(ws.begin(), ws.end());
-      double covered = 0;
-      for (const auto& w : qw) covered += have.count(w) ? 1.0 : 0.0;
-      const double fit = (asksNumber && hasDigit(texts[c])) || (asksName && hasName(texts[c])) ? 1.0 : 0.0;
-      p.habits.push_back({bm[c] / maxBm, ss.size() > 1 ? double(pos[c]) / double(ss.size() - 1) : 0.0, pos[c] == 0 && !pair[c] ? 1.0 : 0.0,
-                          static_cast<double>(words(texts[c], false).size()) / 40.0, texts[c].find('?') != std::string::npos ? 1.0 : 0.0,
-                          pair[c] ? 1.0 : 0.0, fit, qw.empty() ? 0.0 : covered / static_cast<double>(qw.size())});
-      p.reward.push_back(tokenF1(texts[c], items[i].golden));
-    }
-    for (std::size_t c = 1; c < p.reward.size(); ++c)
-      if (p.reward[c] > p.reward[p.best]) p.best = c;
-    out.push_back(std::move(p));
-  }
-  return out;
+double dot(const std::vector<double>& f, const double* w) {
+  double s = 0;
+  for (int k = 0; k < memory::kHabitCount; ++k) s += f[static_cast<std::size_t>(k)] * w[k];
+  return s;
 }
 
 }  // namespace
@@ -356,13 +387,13 @@ const kernel::Model* readingStudentModel() {
   static const kernel::Model model = [] {
     kernel::Model m;
     m.name = "readingStudent";
-    m.title = "The reader as a student: learning to read for answers with the library's modules, scored on golden answers";
+    m.title = "The reader as a student: learning to read for answers with every learning method of the library, scored on golden answers";
     m.maxStats = 28;
     m.agentSource = student_agent;
     m.helpersWgsl = student_helpers;
     m.compile = [](const Value& spec) {
       const Value& c = spec.sub("readingStudent");
-      std::vector<Lesson> train, test;
+      std::vector<Item> train, test;
       if (c.has("train")) train = lessonsOf(c.at("train"));
       else
         for (const auto& l : kLessons) train.push_back({l.question, l.answer, l.passage});
@@ -375,10 +406,23 @@ const kernel::Model* readingStudentModel() {
       }
       const auto lessons = std::min<std::size_t>(train.size(), static_cast<std::size_t>(std::clamp(c.integer("lessons", 512), 1, 512)));
       train.resize(lessons);
-      const auto a = prepare(train), b = prepare(test);
+      const bool notes = c.flag("notes", false);
+      const auto a = notes ? memory::noteCandidates(train) : memory::answerCandidates(train);
+      const auto b = notes ? memory::noteCandidates(test) : memory::answerCandidates(test);
+      const double* prior = notes ? memory::kNotePrior : memory::kHabitPrior;
       std::vector<double> params = {8, double(a.size()), double(b.size()), double(std::clamp(c.integer("passes", 3), 1, 10)), c.num("rate", 0.2),
                                     c.num("margin", 0.02), c.num("spacing", 10), double(std::max(1, c.integer("block", 20))), c.num("pool", 6),
                                     c.num("support", 2.0), 0, 0, 0, 16, c.num("sharpness", 5.0)};
+      // It starts from its memory — if the memory was learned for these habits — unless asked to start
+      // fresh or given the weights to start from.
+      const memory::Memory mem = memory::recall(!c.flag("memory", true), c.str("memoryFingerprint", ""));
+      const double* start = notes ? mem.notes : mem.habits;
+      for (int k = 0; k < 8; ++k) params.push_back(start[k]);
+      if (c.has("start"))
+        for (int k = 0; k < 8 && k < static_cast<int>(c.at("start").size()); ++k) params[15 + k] = c.at("start")[static_cast<std::size_t>(k)].asNumber();
+      params.push_back(c.num("anchor", 0.0));
+      for (int k = 0; k < 8; ++k) params.push_back(prior[k]);
+      params.insert(params.end(), {0, c.num("example", 0.25), c.num("accommodate", 0.3), c.num("discussion", 0.5), c.num("discouragement", 0.1)});
       std::vector<double> questions, candidates;
       Value meta = Value::object();
       double oracle = 0, oracleSingle = 0;
@@ -393,19 +437,19 @@ const kernel::Model* readingStudentModel() {
             oracle += p.reward[p.best];
             double single = 0;
             for (std::size_t k = 0; k < p.reward.size(); ++k)
-              if (p.habits[k][5] < 0.5) single = std::max(single, p.reward[k]);
+              if (!p.pair[k]) single = std::max(single, p.reward[k]);
             oracleSingle += single;
           }
         }
       }
-      // Easy before hard: lessons ordered by how much the lexical reader misses.
+      // Easy before hard: lessons ordered by how much the prior misses.
       std::vector<std::size_t> order(a.size());
       std::iota(order.begin(), order.end(), 0);
       auto gap = [&](std::size_t i) {
         const auto& p = a[i];
-        std::size_t lex = 0;  // the lexical reader's answer: the single sentence of most overlap
+        std::size_t lex = 0;  // the prior's answer
         for (std::size_t k = 1; k < p.reward.size(); ++k)
-          if (p.habits[k][5] < 0.5 && p.habits[k][0] > p.habits[lex][0]) lex = k;
+          if (dot(p.habits[k], prior) > dot(p.habits[lex], prior)) lex = k;
         return p.reward[p.best] - p.reward[lex];
       };
       std::stable_sort(order.begin(), order.end(), [&](std::size_t x, std::size_t y) { return gap(x) < gap(y); });
@@ -415,10 +459,28 @@ const kernel::Model* readingStudentModel() {
       params.insert(params.end(), candidates.begin(), candidates.end());
       params[12] = double(params.size());
       for (auto i : order) params.push_back(double(i));
+      // Blocked: lessons grouped by question kind (what, how, why, who, …).
+      std::vector<std::size_t> blocked(a.size());
+      std::iota(blocked.begin(), blocked.end(), 0);
+      std::stable_sort(blocked.begin(), blocked.end(), [&](std::size_t x, std::size_t y) { return kindOf(train[x].question) < kindOf(train[y].question); });
+      params[32] = double(params.size());
+      for (auto i : blocked) params.push_back(double(i));
       meta.set("oracle", oracle / std::max<double>(1, double(b.size()))).set("oracleSingle", oracleSingle / std::max<double>(1, double(b.size())))
           .set("lessons", double(a.size())).set("tests", double(b.size()));
+      Value startW = Value::array();
+      for (int k = 0; k < 8; ++k) startW.push(params[15 + k]);
+      Value recalled = Value::object()
+                           .set("used", mem.used && !c.has("start"))
+                           .set("reason", c.has("start") ? std::string("started from the given weights") : mem.reason)
+                           .set("generation", mem.used ? mem.generation : 0)
+                           .set("lessons", mem.used ? mem.lessons : 0.0)
+                           .set("design", notes ? mem.notesDesign : mem.design)
+                           .set("source", mem.source)
+                           .set("test", notes ? mem.notesTest : mem.test)
+                           .set("weights", startW);
+      meta.set("memory", recalled).set("notes", notes);
       std::vector<std::vector<double>> rows;
-      for (int d = 0; d < 6; ++d) rows.push_back({double(d)});
+      for (const auto& d : designs()) rows.push_back({double(d.methods)});
       Plan p = makePlan("readingStudent", static_cast<std::uint32_t>(c.integer("students", 64)), 28, params, rows, seedOf(spec));
       p.meta = meta;
       return std::vector<Plan>{p};
@@ -426,12 +488,19 @@ const kernel::Model* readingStudentModel() {
     m.summarise = [](const Value&, const std::vector<Plan>& plans, const std::vector<Output>& out) {
       const Plan& p = plans[0];
       const Output& o = out[0];
-      Value designs = Value::array();
+      const auto all = designs();
+      Value results = Value::array();
       for (std::uint32_t j = 0; j < p.jobs; ++j) {
         Value habits = Value::array();
-        for (int k = 0; k < 8; ++k) habits.push(Value::object().set("habit", kHabits[k]).set("weight", o.mean(p, j, 18 + k)));
-        designs.push(Value::object()
-                         .set("name", kDesigns[j])
+        const bool notes = p.meta.at("notes").asBool();
+        for (int k = 0; k < 8; ++k)
+          habits.push(Value::object().set("habit", notes ? memory::kNoteHabits[k] : memory::kHabits[k]).set("weight", o.mean(p, j, 18 + k)));
+        Value used = Value::array();
+        for (unsigned b = 0; b < 11; ++b)
+          if (all[j].methods & (1u << b)) used.push(kMethods[b].name);
+        results.push(Value::object()
+                         .set("name", all[j].name)
+                         .set("methods", used)
                          .set("curve", Value::Numbers(o.range(p, j, 0, 16)))
                          .set("test", o.mean(p, j, 16))
                          .set("lessons", o.mean(p, j, 17))
@@ -439,7 +508,29 @@ const kernel::Model* readingStudentModel() {
                          .set("twoSentences", o.mean(p, j, 26))
                          .set("bestCandidate", o.mean(p, j, 27)));
       }
-      return Value::object().set("designs", designs).set("oracle", p.meta.at("oracle")).set("oracleSingle", p.meta.at("oracleSingle"))
+      // What each method adds to reinforcement alone, and what it costs to leave it out of all.
+      const auto& rs = results.asArray();
+      auto test = [&](unsigned methods) { return rs[designOf(methods)].num("test", 0); };
+      Value methods = Value::array();
+      for (unsigned b = 1; b < 11; ++b)
+        methods.push(Value::object()
+                         .set("method", kMethods[b].name)
+                         .set("models", kMethods[b].models)
+                         .set("alone", test(1u | (1u << b)) - test(1))
+                         .set("removed", test(kAll) - test(kAll & ~(1u << b))));
+      // What to remember: the habits it learned with all methods.
+      const std::size_t keep = designOf(kAll);
+      Value weights = Value::array();
+      for (const auto& h : rs[keep].at("habits").asArray()) weights.push(h.at("weight"));
+      const Value& recalled = p.meta.at("memory");
+      Value next = Value::object()
+                       .set("generation", recalled.num("generation", 0) + 1)
+                       .set("lessons", recalled.num("lessons", 0) + p.meta.num("lessons", 0) * p.params[3])
+                       .set("design", all[keep].name)
+                       .set("test", rs[keep].num("test", 0))
+                       .set("weights", weights);
+      return Value::object().set("designs", results).set("methods", methods).set("memory", recalled).set("remember", next).set("notes", p.meta.at("notes"))
+          .set("fingerprint", memory::fingerprint()).set("oracle", p.meta.at("oracle")).set("oracleSingle", p.meta.at("oracleSingle"))
           .set("lessons", p.meta.at("lessons")).set("tests", p.meta.at("tests")).set("students", static_cast<double>(p.agents));
     };
     return m;

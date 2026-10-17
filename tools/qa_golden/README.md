@@ -11,8 +11,13 @@ An end-to-end test of reading for answers against golden answers.
 - **Model**: `readingQA` (`src/models/reading_qa.cpp`), a fused WGSL kernel. The reader learns how
   informative each word is from everything it reads (inverse document frequency), weighs every
   candidate sentence by the question's words in it (BM25), and believes the sentence answers the
-  question with chance(atLogit(evidence − τ)), a point of the space. It answers twice: from the
-  question's own passage, and open book from every sentence of the corpus.
+  question with chance(atLogit(evidence − τ)), a point of the space. It answers from the question's own
+  passage, open book from every sentence of the corpus, with the reading habits it remembers, and from
+  its knowledge alone — the notes it took on the passages (`readingNotes`), the passages gone.
+- **Lessons** (`train.tsv`): golden questions about other passages. The reader as a student
+  (`readingStudent`) learns from them how to pick an answer and how to take notes; `--write-memory` and
+  `--write-knowledge` store what it learned and the notes it took (`src/models/student_memory.inc`,
+  `src/models/reader_knowledge.inc`).
 - **Scoring**: SQuAD token F1 against the golden answer, next to the passage's first sentence, a random
   sentence, and the oracle (the passage sentence closest to the golden answer — the ceiling of any
   one-sentence extractive answer). `qa_golden` fails if a score falls more than 0.01 below

@@ -1,6 +1,7 @@
 // The space exists once, in WGSL. These tests run its functions on the software GPU (32-bit
 // floats, as on a GPU) and check them against the geometric product of Cl(4, 1) (syn::Multivector,
 // 64-bit) and against the closed forms of the readings.
+#include <algorithm>
 #include <cctype>
 #include <cmath>
 #include <string>
@@ -280,6 +281,31 @@ TEST(kernel_agents_use_no_wgsl_reserved_words) {
       for (const char* r : reserved)
         if (word == r && !declaration) syntest::fail(m->name + ": the agent uses the WGSL reserved word '" + word + "'", __FILE__, __LINE__);
       word.clear();
+    }
+  }
+}
+
+TEST(model_helpers_do_not_redeclare_functions) {
+  // WGSL has no overloading: a helper may not declare a function the space's prelude (or another of
+  // its helpers) declares. The software GPU would accept it; WebGPU refuses the shader.
+  auto declared = [](const std::string& src) {
+    std::vector<std::string> names;
+    for (std::size_t at = src.find("fn "); at != std::string::npos; at = src.find("fn ", at + 3)) {
+      if (at > 0 && (std::isalnum(static_cast<unsigned char>(src[at - 1])) || src[at - 1] == '_')) continue;
+      std::size_t end = at + 3;
+      while (end < src.size() && (std::isalnum(static_cast<unsigned char>(src[end])) || src[end] == '_')) ++end;
+      if (end < src.size() && src[end] == '(') names.push_back(src.substr(at + 3, end - at - 3));
+    }
+    return names;
+  };
+  const auto prelude = declared(space::spaceWgsl());
+  for (const auto* m : kernel::models()) {
+    const auto own = declared(m->helpersWgsl);
+    for (std::size_t i = 0; i < own.size(); ++i) {
+      if (std::find(prelude.begin(), prelude.end(), own[i]) != prelude.end())
+        syntest::fail(m->name + ": the helper fn " + own[i] + " redeclares a function of the space's prelude", __FILE__, __LINE__);
+      if (std::find(own.begin(), own.begin() + static_cast<std::ptrdiff_t>(i), own[i]) != own.begin() + static_cast<std::ptrdiff_t>(i))
+        syntest::fail(m->name + ": the helper fn " + own[i] + " is declared twice", __FILE__, __LINE__);
     }
   }
 }
