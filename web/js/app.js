@@ -14,6 +14,7 @@ const pages = {
   audience: () => import('./pages/audience.js'),
   outcomes: () => import('./pages/outcomes.js'),
   assessment: () => import('./pages/assessment.js'),
+  strategies: () => import('./pages/strategies.js'),
   classroom: () => import('./pages/classroom.js'),
   theories: () => import('./pages/theories.js'),
   allocation: () => import('./pages/allocation.js'),

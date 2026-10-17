@@ -48,7 +48,7 @@ bool finiteEverywhere(const Value& v) {
 }  // namespace
 
 TEST(every_model_runs_and_is_finite) {
-  CHECK(kernel::models().size() == 26);
+  CHECK(kernel::models().size() == 31);
   for (const kernel::Model* m : kernel::models()) {
     const Value r = run(m->name, spec(200));
     if (!finiteEverywhere(r)) ::syntest::fail("non-finite value in " + m->name, __FILE__, __LINE__);
@@ -277,4 +277,74 @@ TEST(rubric_precision_raises_agreement_and_feedback_calibrates) {
   const Value& quantified = item(r, "rubrics", 2).sub("private");
   CHECK(num(quantified, "validity") < num(none, "validity"));  // counting is reliable, not valid
   CHECK(at(item(r, "selfAssessment", 1), "calibrationError", 3) < at(item(r, "selfAssessment", 0), "calibrationError", 3));
+}
+
+// ------------------------------------------------------------------ chapter 10
+
+TEST(lecture_chunks_hold_attention_and_stories_and_analogies_help) {
+  const Value r = run("lecture");
+  const Value& straight = item(r, "sessions", 0);
+  const Value& twelve = item(r, "sessions", 3);
+  const auto& a = straight.at("attention").asNumbers();
+  CHECK(a.back() < 0.5 * a.front());                                 // attention fades in a long lecture
+  CHECK(num(twelve, "learned") > num(straight, "learned") + 0.05);   // chunks of 12-15 minutes
+  CHECK(num(twelve, "retained") > num(straight, "retained"));
+  CHECK(num(item(r, "sessions", 5), "retained") > num(twelve, "retained"));  // a story deepens the trace
+  CHECK(num(item(r, "sessions", 6), "learned") > num(twelve, "learned"));    // an analogy connects
+  const auto& videos = r.at("videos").asArray();
+  for (std::size_t k = 1; k < videos.size(); ++k) CHECK(num(videos[k], "completed") < num(videos[k - 1], "completed"));
+  CHECK(num(videos[0], "completed") > 0.8);                          // short videos are watched to the end
+  CHECK(num(videos.back(), "completed") < 0.1);
+}
+
+TEST(discussion_wait_time_structures_and_managing_talkers) {
+  const Value r = run("discussion", spec(300));
+  const auto& waits = r.at("waitTime").asArray();
+  CHECK(num(waits.back(), "voices") > num(waits.front(), "voices") + 0.05);      // silence lets more voices in
+  CHECK(num(waits.back(), "moreTimeVoices") > num(waits.front(), "moreTimeVoices") + 0.1);
+  const Value& whole = item(r, "designs", 0);
+  CHECK(num(whole, "topFiveShare") > 0.75);                                      // a few people do most of the talking
+  CHECK(num(item(r, "designs", 1), "articulated") > 0.99);                      // think-pair-share: everyone articulates
+  CHECK(num(item(r, "designs", 1), "learned") > num(whole, "learned"));
+  CHECK(num(item(r, "designs", 5), "voices") > num(whole, "voices"));          // three chips each
+  CHECK(num(item(r, "designs", 5), "topFiveShare") < num(whole, "topFiveShare"));
+  CHECK(num(item(r, "designs", 7), "learned") < num(whole, "learned"));        // closed questions
+}
+
+TEST(scaffolding_gradual_release_builds_independence) {
+  const Value r = run("scaffolding");
+  const Value& alone = item(r, "sequences", 0);
+  const Value& gradual = item(r, "sequences", 3);
+  CHECK(num(gradual, "transfer") > num(alone, "transfer") + 0.05);
+  CHECK(num(gradual, "transfer") > num(item(r, "sequences", 2), "transfer"));  // support must fade
+  CHECK(num(alone, "gaveUp") > num(gradual, "gaveUp") + 0.2);                  // zone 3 frustrates
+  CHECK(num(item(r, "projects", 2), "quality") > 2 * num(item(r, "projects", 0), "quality"));  // stages with feedback
+}
+
+TEST(strategies_content_not_learning_styles_and_variety_for_access) {
+  const Value r = run("strategies");
+  for (const auto& c : r.at("styles").asArray()) {
+    const auto& rules = c.at("rules").asArray();
+    CHECK(num(rules[2], "knowledge") >= num(rules[1], "knowledge"));            // content beats stated style
+    CHECK(num(rules[1], "satisfaction") > num(rules[2], "satisfaction"));       // a preference only pleases
+    CHECK(num(rules[3], "barredKnowledge") > num(rules[2], "barredKnowledge"));  // variety reaches everyone
+  }
+  const auto& f = r.at("flipped").asArray();
+  CHECK(num(f[4], "prepared") > num(f[1], "prepared") + 0.3);                   // accountability and embedding
+  CHECK(num(f[4], "higherOrder") > num(f[0], "higherOrder"));
+  CHECK(num(f[1], "unpreparedHigherOrder") < num(f[0], "higherOrder"));         // unprepared learners fall behind
+  const auto& pbl = r.at("pbl").asArray();
+  CHECK_NEAR(num(pbl[1], "basics"), num(pbl[0], "basics"), 0.02);               // similar outcomes
+  CHECK(num(pbl[1], "interest") > num(pbl[0], "interest"));                     // higher satisfaction
+}
+
+TEST(lesson_plan_time_stamps_cut_lists_and_backups) {
+  const Value r = run("lessonPlan", spec(1000));
+  const auto& d = r.at("designs").asArray();
+  CHECK(r.at("plan").size() == 6);
+  CHECK(num(d[1], "onTime") > num(d[0], "onTime") + 0.5);    // a timed plan keeps the wrap-up and reflection
+  CHECK(num(d[2], "onTime") >= num(d[1], "onTime"));         // a cut list
+  CHECK(num(d[2], "learning") > num(d[1], "learning"));      // cutting beats rushing
+  CHECK(num(d[8], "spareMinutes") < num(d[6], "spareMinutes"));  // a backup uses spare minutes
+  CHECK(num(d[5], "onTime") > num(d[0], "onTime"));          // experience
 }

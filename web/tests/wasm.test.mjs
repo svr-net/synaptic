@@ -27,7 +27,7 @@ const cmakeVersion = (await import('node:fs')).readFileSync(new URL('../../CMake
 if (ver) check(ver.library === `synaptic ${cmakeVersion}`, `version() reports the CMake project version: ${ver.library}`);
 
 const models = call('models', () => syn.models());
-check(models && models.length === ver?.models && models.length >= 26, 'every model listed');
+check(models && models.length === ver?.models && models.length >= 31, 'every model listed');
 for (const { name } of models || []) {
   const src = syn.kernelSources({ model: name });
   check(!src.error && src.agent.includes('@compute') && src.reduce.includes('@compute') && src.quantile.includes('@compute'), `${name}: WGSL sources`);
@@ -87,6 +87,17 @@ if (ses) {
 }
 const rub = model('rubric');
 if (rub) check(rub.rubrics[3].private.kappa > rub.rubrics[0].private.kappa, 'a precise rubric raises agreement');
+
+const lec = model('lecture');
+if (lec) check(lec.sessions[3].retained > lec.sessions[0].retained, 'chunked lectures are retained better');
+const disc = model('discussion');
+if (disc) check(disc.designs[1].articulated > disc.designs[0].articulated, 'think-pair-share gets everyone to articulate');
+const scaf = model('scaffolding');
+if (scaf) check(scaf.sequences[3].transfer > scaf.sequences[0].transfer, 'gradual release builds independence');
+const strat = model('strategies');
+if (strat) check(strat.styles.every((c) => c.rules[2].knowledge >= c.rules[1].knowledge), 'content beats learning styles');
+const lp = model('lessonPlan');
+if (lp) check(lp.designs[2].onTime > lp.designs[0].onTime, 'a timed plan with a cut list ends on time');
 
 const cls = model('classroom', spec);
 if (cls) {

@@ -68,12 +68,12 @@ jobs:
             dist/synaptic-standalone-${{ steps.tag.outputs.tag }}.zip
             dist/synaptic-standalone-${{ steps.tag.outputs.tag }}.zip.sha256
           body: |
-            Learning-theory library (C++17), modelling *Learning Theories: Understanding How People Learn*, *Identifying Audience Needs*, *Establishing Learning Goals and Outcomes* and *Assessing Learning* (chapters 3, 7, 8 and 9 of *Instruction in Libraries and Information Centers*), with a WebAssembly + WebGPU front end.
+            Learning-theory library (C++17), modelling *Learning Theories: Understanding How People Learn*, *Identifying Audience Needs*, *Establishing Learning Goals and Outcomes*, *Assessing Learning* and *Selecting Instructional Strategies and Creating Lesson Plans* (chapters 3, 7, 8, 9 and 10 of *Instruction in Libraries and Information Centers*), with a WebAssembly + WebGPU front end.
 
             ### Standalone site: `synaptic-standalone-${{ steps.tag.outputs.tag }}.zip`
             Unzip it anywhere and open `index.html`. It needs no server and no install, because the WebAssembly library is embedded in the bundle.
             The same folder can be uploaded unchanged to any static host (S3, GitHub Pages, nginx, IIS).
-            It has 18 pages, one per library context: the space, behaviourism, humanism, cognitivism, constructivism, social constructivism, developmental stages, andragogy, motivation and mindset, identifying audience needs, learning goals and outcomes, assessing learning, the classroom simulation, the theories compared, gain allocation, lever sensitivities and the WebGPU fused kernels.
+            It has 19 pages, one per library context: the space, behaviourism, humanism, cognitivism, constructivism, social constructivism, developmental stages, andragogy, motivation and mindset, identifying audience needs, learning goals and outcomes, assessing learning, strategies and lesson plans, the classroom simulation, the theories compared, gain allocation, lever sensitivities and the WebGPU fused kernels.
             Every model lives in one space, the pure elliptic conformal geometric algebra Cl(4, 1), and runs as a fused kernel: on WebGPU whenever the browser offers an adapter (the *Auto* engine), on the same kernels across Web Workers otherwise, or in WebAssembly.
             Verify the download with the attached `.sha256` file.
 
