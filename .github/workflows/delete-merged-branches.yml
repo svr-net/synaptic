@@ -1,0 +1,43 @@
+# Deletes branches once their work is on the default branch: the head branch of a merged pull
+# request (from this repository), or — run by hand — every unprotected branch with no commits
+# that the default branch lacks.
+name: Delete merged branches
+
+on:
+  pull_request:
+    types: [closed]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  delete:
+    if: github.event_name == 'workflow_dispatch' || (github.event.pull_request.merged && github.event.pull_request.head.repo.full_name == github.repository)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/github-script@v7
+        with:
+          script: |
+            const { owner, repo } = context.repo;
+            const main = context.payload.repository.default_branch;
+            let branches = [];
+            if (context.eventName === 'pull_request') {
+              branches = [context.payload.pull_request.head.ref];
+            } else {
+              const all = await github.paginate(github.rest.repos.listBranches, { owner, repo, per_page: 100 });
+              for (const b of all) {
+                if (b.name === main || b.protected) continue;
+                const { data } = await github.rest.repos.compareCommits({ owner, repo, base: main, head: b.name });
+                if (data.ahead_by === 0) branches.push(b.name);
+              }
+            }
+            for (const ref of branches) {
+              if (ref === main) continue;
+              try {
+                await github.rest.git.deleteRef({ owner, repo, ref: `heads/${ref}` });
+                core.info(`deleted ${ref}`);
+              } catch (e) {
+                core.warning(`${ref}: ${e.message}`);
+              }
+            }
