@@ -40,13 +40,14 @@ const kernel::Model* professionalGrowthModel();
 const kernel::Model* fgaAlgebraModel();
 const kernel::Model* fgaLearningModel();
 const kernel::Model* fgaRotorsModel();
+const kernel::Model* readingQaModel();
 }  // namespace syn::models
 
 namespace syn::kernel {
 
 std::vector<const Model*> allModels() {
   using namespace syn::models;
-  return {spaceModel(), conditioningModel(), operantModel(), tokenEconomyModel(), maslowModel(), ispModel(), memoryModel(), interleavingModel(), schemaModel(), equilibrationModel(), zpdModel(), dialogueModel(), developmentModel(), andragogyModel(), motivationModel(), classroomModel(), theoriesModel(), allocationModel(), sensitivityModel(), gagneModel(), audienceModel(), communityModel(), outcomesModel(), assessmentActivitiesModel(), assessmentSessionModel(), rubricModel(), lectureModel(), discussionModel(), scaffoldingModel(), strategiesModel(), lessonPlanModel(), reflectionModel(), studentFeedbackModel(), criticalReflectionModel(), professionalGrowthModel(), fgaAlgebraModel(), fgaLearningModel(), fgaRotorsModel()};
+  return {spaceModel(), conditioningModel(), operantModel(), tokenEconomyModel(), maslowModel(), ispModel(), memoryModel(), interleavingModel(), schemaModel(), equilibrationModel(), zpdModel(), dialogueModel(), developmentModel(), andragogyModel(), motivationModel(), classroomModel(), theoriesModel(), allocationModel(), sensitivityModel(), gagneModel(), audienceModel(), communityModel(), outcomesModel(), assessmentActivitiesModel(), assessmentSessionModel(), rubricModel(), lectureModel(), discussionModel(), scaffoldingModel(), strategiesModel(), lessonPlanModel(), reflectionModel(), studentFeedbackModel(), criticalReflectionModel(), professionalGrowthModel(), fgaAlgebraModel(), fgaLearningModel(), fgaRotorsModel(), readingQaModel()};
 }
 
 }  // namespace syn::kernel

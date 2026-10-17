@@ -90,6 +90,11 @@ endif()
 if(SYN_BUILD_EXAMPLES)
   add_executable(learning_theories_demo examples/learning_theories_demo.cpp)
   target_link_libraries(learning_theories_demo PRIVATE syn)
+  # The end-to-end QA golden test (tools/qa_golden/README.md); its source is not in every build context.
+  if(NOT EMSCRIPTEN AND EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/tools/qa_golden/qa_golden.cpp)
+    add_executable(qa_golden tools/qa_golden/qa_golden.cpp)
+    target_link_libraries(qa_golden PRIVATE syn)
+  endif()
 endif()
 
 include(GNUInstallDirs)

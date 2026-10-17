@@ -48,7 +48,7 @@ bool finiteEverywhere(const Value& v) {
 }  // namespace
 
 TEST(every_model_runs_and_is_finite) {
-  CHECK(kernel::models().size() == 38);
+  CHECK(kernel::models().size() == 39);
   for (const kernel::Model* m : kernel::models()) {
     const Value r = run(m->name, spec(200));
     if (!finiteEverywhere(r)) ::syntest::fail("non-finite value in " + m->name, __FILE__, __LINE__);
@@ -448,4 +448,17 @@ TEST(fga_rotors_generalise_from_few_words) {
     CHECK(num(x, "hyperbolic") < 1e-6);                                        // an alternation inside V_E stays elliptic
   }
   CHECK(num(runs[4], "projectionTest") < num(runs[0], "projectionTest"));  // projections need more words
+}
+
+TEST(reading_qa_answers_with_the_sentence_it_believes) {
+  const Value r = run("readingQA");  // the built-in example
+  const auto& a = r.at("answers").asArray();
+  CHECK(a.size() == 3);
+  CHECK(a[0].at("reading").asString().find("weight of the ice") != std::string::npos);
+  CHECK(a[1].at("reading").asString().find("length of the waggle run") != std::string::npos);
+  CHECK(a[2].at("reading").asString().find("pressed into dense ice") != std::string::npos);
+  for (const auto& x : a) {
+    CHECK(x.at("openBook").asString() == x.at("reading").asString());  // the corpus does not distract it
+    CHECK(num(x, "readingBelief") > 0.0 && num(x, "readingBelief") < 1.0);
+  }
 }

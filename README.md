@@ -312,11 +312,33 @@ Each model is one file in `src/models/`, and its tests are in `tests/test_models
 | Ch. 14: professional development | `professional_growth.cpp` | Ideas from a community of practice, colleagues, courses and the literature, copied or adapted; the expert blind spot and becoming a student again; efficacy and isolation |
 | FGA: the algebra | `fga_algebra.cpp` | Application by contraction, event binding by the wedge and exact unbinding, type checks by grade and nullity, rotors (elliptic and hyperbolic), polar idempotents, a dot object — each claim measured on random lexicons; binding capacity against holographic reduced representations |
 | FGA: learning | `fga_learning.cpp` | Learners read a text (parsed into name–relation–name sentences) and learn a multivector per word by gradient descent on ⟨S R O⟩₀ with corrupted negatives; typed, untyped, grade prior, flat |
+| QA golden test | `reading_qa.cpp` | A reader learns word informativeness (idf) from a corpus and believes the sentence that answers a question (BM25 evidence read as a point); reading and open book; scored against golden answers in `tools/qa_golden` |
 | FGA: rotors | `fga_rotors.cpp` | Regular polysemy as a rotor family: a rotor of Cl(4, 1) learned by exact plane steps against a learned 5 × 5 projection, from one to six words |
 | Combining the theories | `classroom.cpp` (`classroom`) | Every theory acting on the same learners over a course; score, recall and risk profiles; equity; per-learner read-back |
 | Activity 3.3 | `classroom.cpp` (`theories`) | The lesson each theory designs (16 levers), on children, teenagers and adults: 24 jobs, one dispatch |
 | Allocation | `classroom.cpp` (`allocation`) | Shapley (adds up exactly), incremental and standalone shares of the gain |
 | Sensitivities | `classroom.cpp` (`sensitivity`) | Bump-and-rerun slopes per lever with common random numbers vs independent seeds |
+
+## QA golden test
+
+`tools/qa_golden` is an end-to-end test of reading for answers against golden answers. It takes a seeded
+sample of the questions of [edededdy/fineweb-edu-grounded-qa](https://huggingface.co/datasets/edededdy/fineweb-edu-grounded-qa)
+(golden answers written from FineWeb-Edu passages; the file is pinned by its SHA-256), with the documents of
+[svr-net/knowledge](https://github.com/svr-net/knowledge) as the corpus. The `readingQA` model reads them, learns how
+informative each word is, and answers each question with the sentence it believes answers it — from the question's
+passage, and open book from the whole corpus — as a fused kernel on the software GPU and on WebGPU. Answers are scored
+with SQuAD token F1 (`tools/qa_golden/report.md`):
+
+| answer (200 questions) | token F1 |
+|---|---:|
+| reader, its own passage | 0.343 |
+| reader, open book (6,894 sentences) | 0.340 |
+| first sentence of the passage | 0.171 |
+| oracle: the passage sentence closest to the golden answer | 0.503 |
+
+Open book, the reader's answer comes from the right passage for 96% of the questions, and WebGPU gives the same answer
+as the software GPU for every question. `tools/qa_golden/run.sh /path/to/knowledge` reruns it and fails on a drop below
+`baseline.json`. The reader is lexical: it extracts one sentence, so the oracle bounds it.
 
 ## Conventions
 

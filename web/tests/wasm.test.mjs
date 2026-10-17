@@ -27,7 +27,7 @@ const cmakeVersion = (await import('node:fs')).readFileSync(new URL('../../CMake
 if (ver) check(ver.library === `synaptic ${cmakeVersion}`, `version() reports the CMake project version: ${ver.library}`);
 
 const models = call('models', () => syn.models());
-check(models && models.length === ver?.models && models.length >= 38, 'every model listed');
+check(models && models.length === ver?.models && models.length >= 39, 'every model listed');
 for (const { name } of models || []) {
   const src = syn.kernelSources({ model: name });
   check(!src.error && src.agent.includes('@compute') && src.reduce.includes('@compute') && src.quantile.includes('@compute'), `${name}: WGSL sources`);
@@ -112,6 +112,8 @@ const fl = model('fgaLearning');
 if (fl) check(fl.designs[0].reversed > fl.designs[4].reversed, 'bivector relations judge reversed sentences false');
 const fr = model('fgaRotors');
 if (fr) check(fr.runs[1].rotorTest < fr.runs[1].projectionTest, 'a rotor family generalises from two words');
+const rq = model('readingQA');
+if (rq) check(rq.answers[1].reading.includes('waggle run'), 'the reader answers with the right sentence');
 
 const cls = model('classroom', spec);
 if (cls) {
