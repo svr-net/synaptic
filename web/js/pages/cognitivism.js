@@ -1,15 +1,16 @@
-import { run } from '../syn-client.js';
 import { barChart, fmt, lineChart } from '../charts.js';
+import { runModels } from '../engine/run.js';
 import { callout, card, grid, initPage, runButton, specEditor, table, tiles, toolbarNumber } from '../ui.js';
 
 const page = initPage({
   id: 'cognitivism',
   title: 'Cognitivism: memory, retrieval and the nine events',
-  context: 'syn/cognitivism: MemoryModel · simulatePlan · simulateInterleaving · SchemaNetwork · designFromGagne',
+  context: 'models: memory · interleaving · schema · gagne · fused kernels in the space Cl(4, 1)',
   description: 'The mind as an information processor: knowledge is encoded into long-term memory as connected <b>schemas</b> and must be ' +
     'retrieved to be used. Rereading and drilling do little; <b>retrieval practice</b>, <b>spaced practice</b> and <b>interleaving</b> make ' +
     "knowledge stick (Brown, Roediger & McDaniel 2014). A memory trace's stability grows most when it is recalled just as it was becoming hard " +
-    "to recall. <b>Gagné's nine events</b> set the external conditions of learning; the last card removes each event in turn from a full lesson.",
+    "to recall. <b>Gagné's nine events</b> set the external conditions of learning; the last card removes each event in turn from a full lesson." +
+    " <i>In the space:</i> a memory trace is a point that forgetting turns away from the learner (a rotor in the N–A plane); retrieval succeeds inside the cap of a uniform draw; execution, discrimination and spreading activation are mixtures.",
 });
 specEditor(page, ['population', 'course', 'simulation']);
 
@@ -17,10 +18,13 @@ const testDay = toolbarNumber(page, 'test on day', 30, { step: 1 });
 const gap = toolbarNumber(page, 'spacing gap (days)', 3, { step: 1 });
 
 runButton(page, 'Run', async (spec) => {
-  const [m, gagne] = await Promise.all([
-    run('memory', { ...spec, memory: { testDay: testDay(), gap: gap(), horizon: Math.max(45, testDay() + 10) } }),
-    run('gagne', { ...spec, sim: { ...spec.sim, learners: Math.min(spec.sim.learners, 400) } }),
-  ]);
+  const { results: [memory, interleaving, schema, gagne], note } = await runModels([
+    ['memory', { ...spec, memory: { testDay: testDay(), gap: gap(), horizon: Math.max(45, testDay() + 10) } }],
+    ['interleaving', spec],
+    ['schema', spec],
+    ['gagne', { ...spec, sim: { ...spec.sim, learners: Math.min(spec.sim.learners, 400) } }],
+  ], page);
+  const m = { ...memory, interleaving, ...schema };
   const by = (name) => m.plans.find((p) => p.name.startsWith(name));
   // Lasting recall: at the end of the horizon, well after the test (when the cram has faded).
   const lasting = (p) => p.recall[p.recall.length - 1];
@@ -70,4 +74,5 @@ runButton(page, 'Run', async (spec) => {
     gagne.events.map((e) => [e.event, fmt.num(e.withoutIt, 3), fmt.num(gagne.full - e.withoutIt, 3)]));
   callout(page.content, 'Gagné does not address emotion: the nine-event lesson leaves the humanist levers at zero. Compare it with the blended design on ' +
     '<a href="theories.html">Theories compared</a>.');
+  return note;
 });

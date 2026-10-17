@@ -1,23 +1,24 @@
 import { barChart, fmt, lineChart } from '../charts.js';
-import { engineNote, engineSelector, runAnalysis } from '../gpu/backend.js';
+import { engineNote, runModel } from '../engine/run.js';
 import { LEVERS } from '../spec.js';
 import { callout, card, grid, initPage, runButton, specEditor, table, tiles } from '../ui.js';
 
 const page = initPage({
   id: 'theories',
   title: 'Theories compared (Activity 3.3)',
-  context: 'syn/classroom: theoryDesign · ClassroomEngine on three populations',
+  context: 'models: theories · fused kernels in the space Cl(4, 1)',
   description: "The chapter's Activity 3.3: teach a class to brainstorm keywords and combine them with AND, OR and NOT, designing the lesson from " +
     'the perspective of one theory. Each theory becomes a set of teaching practices (levers), and every design is run on the same learners. ' +
-    'The chapter\'s conclusion, that the theories are not mutually exclusive and are best combined, is the <i>blended</i> design.',
+    'The chapter\'s conclusion, that the theories are not mutually exclusive and are best combined, is the <i>blended</i> design.' +
+    ' <i>In the space:</i> the classroom agent under the eight theory designs, on three populations.',
 });
 specEditor(page, ['course', 'simulation']);
 
-const button = runButton(page, 'Compare', async (spec) => {
+runButton(page, 'Compare', async (spec) => {
   const t0 = performance.now();
-  const runResult = await runAnalysis('theories', spec);
+  const runResult = await runModel('theories', spec);
   const r = runResult.result;
-  window.__synEngineRun = { page: 'theories', engine: runResult.engine, blended: r.populations[1].results[7].delayedScore, banking: r.populations[1].results[0].delayedScore };
+  window.__synEngineRun = { page: 'theories', engine: runResult.label, blended: r.populations[1].results[7].delayedScore, banking: r.populations[1].results[0].delayedScore };
   const [kids, teens, adults] = r.populations;
   const best = (p) => p.results.reduce((a, b, i) => (b.delayedScore > p.results[a].delayedScore ? i : a), 0);
   const single = (p) => p.results.slice(1, -1).reduce((a, b, i) => (b.delayedScore > p.results[a + 1].delayedScore ? i : a), 0) + 1;
@@ -49,4 +50,3 @@ const button = runButton(page, 'Compare', async (spec) => {
     'then see where its gain comes from on <a href="allocation.html">Gain allocation</a>.');
   return engineNote(runResult, performance.now() - t0);
 });
-engineSelector(page, () => button.click());

@@ -1,7 +1,6 @@
 #include <cmath>
 
 #include "syn/core/elliptic_cga.hpp"
-#include "syn/core/math.hpp"
 #include "syn/core/multivector.hpp"
 #include "test_framework.hpp"
 

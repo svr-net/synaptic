@@ -1,22 +1,24 @@
-import { run } from '../syn-client.js';
 import { barChart, fmt, lineChart } from '../charts.js';
+import { runModels } from '../engine/run.js';
 import { card, grid, initPage, runButton, table, tiles, toolbarNumber } from '../ui.js';
 
 const page = initPage({
   id: 'humanism',
   title: 'Humanism: needs, emotions and self-direction',
-  context: 'syn/humanism: needActivation · learningReadiness · simulateInformationSearch',
+  context: 'models: maslow · isp · fused kernels in the space Cl(4, 1)',
   description: "Learners are whole people. <b>Maslow's hierarchy</b>: higher needs (esteem, self-actualisation) motivate only once lower ones " +
     '(safety, belonging) are met, and an empathetic teacher can meet some of them. <b>Library anxiety</b> (Mellon) and the feelings of ' +
     "<b>Kuhlthau's Information Search Process</b> (uncertainty, optimism, confusion, clarity, confidence) interfere with the cognitive work " +
-    'of research; acknowledging them as normal and offering support lowers the interference.',
+    'of research; acknowledging them as normal and offering support lowers the interference.' +
+    ' <i>In the space:</i> each need is a point whose gate is the equator dilated by (met − threshold)/width; felt uncertainty and progress through Kuhlthau\'s stages are points nudged by anxiety, support and work.',
 });
 
 const anxiety = toolbarNumber(page, 'library anxiety (0–1)', 0.5, { step: 0.05 });
 const deadline = toolbarNumber(page, 'deadline (days)', 42, { step: 1 });
 
 runButton(page, 'Run', async (spec) => {
-  const r = await run('humanism', { ...spec, humanism: { anxiety: anxiety(), deadline: deadline() } });
+  const { results: [maslow, isp], note } = await runModels([['maslow', spec], ['isp', { ...spec, isp: { anxiety: anxiety(), deadline: deadline() } }]], page);
+  const r = { ...maslow, ...isp };
   const [none, half, full] = r.isp;
   tiles(page.content, [
     { label: 'Dominant need (student)', value: r.dominant, hint: `with support: ${r.dominantSupported}` },
@@ -40,8 +42,9 @@ runButton(page, 'Run', async (spec) => {
   });
   lineChart(card(g, 'Where students are (no support)', `Share of students in each ISP stage; the deadline is day ${r.deadline}.`), {
     x: Array.from(none.days), xLabel: 'day', yLabel: 'share',
-    series: [...r.stages.map((s, k) => ({ name: s.name, y: Array.from(none.stageShare[k]), colorIndex: k })), { name: 'done', y: Array.from(none.stageShare[6]), colorIndex: 7, dash: true }],
+    series: [...r.stages.map((s, k) => ({ name: s.name, y: Array.from(none.stageShare[k]), colorIndex: k })), { name: 'done', y: Array.from(none.stageShare[r.stages.length]), colorIndex: 7, dash: true }],
   });
   table(card(g, 'Kuhlthau stages', 'Typical feelings and the days students spend in each stage.'), ['stage', 'feeling', 'uncertainty', 'days (none)', 'days (half)', 'days (full)'],
     r.stages.map((s, k) => [s.name, s.feeling, fmt.num(s.uncertainty, 2), fmt.num(none.daysInStage[k], 1), fmt.num(half.daysInStage[k], 1), fmt.num(full.daysInStage[k], 1)]));
+  return note;
 });

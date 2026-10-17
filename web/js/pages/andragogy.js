@@ -1,19 +1,20 @@
-import { run } from '../syn-client.js';
 import { barChart, fmt, lineChart } from '../charts.js';
+import { runModels } from '../engine/run.js';
 import { card, el, grid, initPage, runButton, table, tiles } from '../ui.js';
 
 const page = initPage({
   id: 'andragogy',
   title: 'Andragogy: how adults learn',
-  context: 'syn/andragogy: engagement · engagementTerms · simulateNeedsCycle',
+  context: 'models: andragogy · fused kernels in the space Cl(4, 1)',
   description: "Knowles' six assumptions about adult learners (self-direction, experience, readiness tied to social roles, problem-centred " +
     'orientation, internal motivation, the need to know why) each pair with a design feature. Engagement rises when the design matches how ' +
     "strongly the learner holds each assumption. <b>Bartle's seven steps</b> make it a process: climate, mechanisms for input, diagnosis of " +
-    'needs, objectives, design, execution, evaluation and rediagnosis.',
+    'needs, objectives, design, execution, evaluation and rediagnosis.' +
+    ' <i>In the space:</i> assumptions and design features are points; engagement is the equator dilated by every main effect and interaction.',
 });
 
 runButton(page, 'Run', async (spec) => {
-  const r = await run('andragogy', spec);
+  const { results: [r], note } = await runModels([['andragogy', spec]], page);
   const c = r.curves.map((x) => Array.from(x));
   const last = c[0].length - 1;
   tiles(page.content, [
@@ -37,4 +38,5 @@ runButton(page, 'Run', async (spec) => {
   const box = card(g, 'Assumptions and the design features that serve them', '');
   table(box, ['assumption about adult learners', 'design feature'], r.assumptions.map((a, k) => [a, r.features[k]]));
   box.append(el('h2', { text: 'Seven steps (Bartle 2019)', style: 'margin-top:12px' }), el('ol', { class: 'plain' }, r.steps.map((s) => el('li', { text: s }))));
+  return note;
 });

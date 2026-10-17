@@ -1,23 +1,23 @@
 // Promise-based client for the WASM worker: await syn.call('classroom', spec).
 
-// Worker 0 serves every call; the fused-kernel CPU backend also spreads its workgroups over
+// Worker 0 serves every call; the software GPU also spreads the workgroups of a dispatch over
 // extra workers (one WebAssembly instance each), created on first use.
 const workers = [];
 let nextId = 1;
 const pending = new Map();
 
-function createWorker() {
+function createWorker(name) {
   // Standalone build: the whole worker (glue + embedded .wasm) ships as a string in a classic
   // script, so it runs from a blob URL without any fetch, from file:// or any static host.
   if (globalThis.__SYN_WORKER_SOURCE__) {
     const blob = new Blob([globalThis.__SYN_WORKER_SOURCE__], { type: 'text/javascript' });
-    return new Worker(URL.createObjectURL(blob));
+    return new Worker(URL.createObjectURL(blob), { name });
   }
-  return new Worker(new URL('./syn-worker.js', import.meta.url), { type: 'module' });
+  return new Worker(new URL('./syn-worker.js', import.meta.url), { type: 'module', name });
 }
 
 function startWorker() {
-  const w = createWorker();
+  const w = createWorker(`syn-${workers.length}`);
   w.onmessage = (e) => {
     const p = pending.get(e.data.id);
     if (!p) return;
@@ -36,7 +36,7 @@ function workerAt(i) {
   return workers[i];
 }
 
-/** Number of workers the CPU kernel backend uses: the device's cores, at most 8. */
+/** Number of workers the software GPU uses: the device's cores, at most 8. */
 export function workerCount() {
   return Math.max(1, Math.min(8, navigator.hardwareConcurrency || 4));
 }

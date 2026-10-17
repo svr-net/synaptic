@@ -1,47 +1,55 @@
-import { run } from '../syn-client.js';
-import { fmt, histogram, lineChart } from '../charts.js';
+import { barChart, fmt, lineChart } from '../charts.js';
+import { runModels } from '../engine/run.js';
 import { card, grid, initPage, passFail, runButton, table, tiles } from '../ui.js';
 
 const page = initPage({
   id: 'core',
-  title: 'Core numerics',
-  context: 'syn/core: EllipticCGA · Multivector · Rng · summarise · quantile · logistic · SessionGrid',
-  description: 'Every model in the library is a Monte Carlo simulation of learners. Each learner draws from its own reproducible random stream ' +
-    '(xoshiro256** seeded through splitmix64), so two teaching designs can be run on the same learners and the same luck ' +
-    '(common random numbers). Abilities and difficulties live on a logit scale and are turned into probabilities by the logistic function. ' +
-    'Course calendars are session grids: uniform for weekly lessons, expanding for spaced review. ' +
-    'All geometry is <b>pure elliptic conformal geometric algebra</b>: Cl(n+1, 1) with e² = −1, where points of the sphere are null vectors ' +
-    'x + e, X·Y = cos θ − 1, caps are vectors c + cos ρ·e tested by the sign of an inner product, and motions are rotor and dilation versors.',
+  title: 'The space',
+  context: 'syn/space: Cl(4, 1) · atLogit · chance · shift · mixture · rotate · cap · sampleLevel   syn/kernel: fused kernels',
+  description: 'Every model of the library lives in one space: the <b>pure elliptic conformal geometric algebra</b> Cl(4, 1), the conformal model ' +
+    'of the 3-sphere, with directions N (the learner), A (cognitive), B (affective), C (social) and e with e² = −1. Points are null vectors x + e. ' +
+    '<b>Scalars are the miniature basis</b>: a probability is not stored but read off a point, chance(X) = 1 + ½·X·L = cos²(φ/2) against the ' +
+    'learner L = N + e, so the point of logit x has chance σ(x). Effects that add on the logit scale are <b>dilation versors</b> about the learner; ' +
+    'learning-rate updates are <b>mixtures</b> (the reading is linear in them); rotors move content between channels; thresholds and zones are ' +
+    '<b>caps</b>; random quantities are random points. Every model runs as a <b>fused kernel</b> written once in WGSL: on WebGPU, or — with no ' +
+    'GPU — on the library\'s software GPU, which executes the same WGSL on the CPU.',
 });
 
 runButton(page, 'Run', async (spec) => {
-  const r = await run('coreDemo', { ...spec, core: { samples: 20000, gap: spec.course.sessionGap, sessions: spec.course.sessions } });
+  const { results: [r], note } = await runModels([['space', { ...spec, space: { samples: 20000 } }]], page);
+  const c = r.checks;
   tiles(page.content, [
-    { label: 'Mean of normals', value: r.summary.mean.toFixed(4), hint: 'expected 0' },
-    { label: 'Standard deviation', value: r.summary.sd.toFixed(4), hint: 'expected 1' },
-    { label: '10% / 90% quantile', value: `${r.summary.q10.toFixed(3)} / ${r.summary.q90.toFixed(3)}`, hint: 'expected ∓1.2816' },
-    { label: 'Streams', value: r.streamsReproducible && r.seedsIndependent ? 'ok' : 'broken', hint: 'same seed → same draws' },
+    { label: 'chance(atLogit(x)) − σ(x)', value: c.chanceIsLogistic.toExponential(1), hint: 'the reading of a point is the logistic of its logit' },
+    { label: 'Dilation adds logits', value: c.dilationAddsLogits.toExponential(1), hint: `shift by ${r.params.shift}` },
+    { label: 'Random points: logit mean / sd', value: `${fmt.num(r.random.meanLogit, 3)} / ${fmt.num(r.random.sdLogit, 3)}`, hint: `${fmt.num(r.random.samples)} points, expected 0 / 1` },
+    { label: 'Points are null', value: c.pointsAreNull.toExponential(1), hint: 'max |X·X|' },
   ]);
   const g = grid(page.content);
-  histogram(card(g, 'Standard normal draws', '20,000 Box–Muller normals from one stream.'), Array.from(r.normals), { bins: 50, xFormat: (v) => v.toFixed(1) });
-  lineChart(card(g, 'Logistic link σ(θ − b)', 'Probability of success of a learner of ability θ on a task of difficulty b.'), {
-    x: Array.from(r.logisticX), xLabel: 'θ − b (logits)', yLabel: 'P(success)', series: [{ name: 'σ(x)', y: Array.from(r.logisticY) }],
+  const x = Array.from(r.x);
+  lineChart(card(g, 'The miniature basis', 'The chance of the point of logit x, read off the algebra, against the logistic σ(x); the same point dilated by d, against σ(x + d).'), {
+    x, xLabel: 'logit x', yLabel: 'chance',
+    series: [{ name: 'chance(atLogit(x))', y: Array.from(r.chance) }, { name: 'σ(x)', y: Array.from(r.logistic), dash: true, colorIndex: 1 },
+      { name: `chance(shift(X, ${r.params.shift}))`, y: Array.from(r.shifted), colorIndex: 2 }, { name: `σ(x + ${r.params.shift})`, y: Array.from(r.logisticShifted), dash: true, colorIndex: 3 }],
   });
-  const u = Array.from(r.uniformGrid), e = Array.from(r.expandingGrid);
-  lineChart(card(g, 'Session grids', 'Weekly lessons against an expanding review calendar (gaps 1, 2, 4, 8… days).'), {
-    x: u.map((_, i) => i + 1), xLabel: 'session', yLabel: 'day',
-    series: [{ name: 'uniform (weekly)', y: u, markers: true }, { name: 'expanding', y: e, markers: true, colorIndex: 1 }],
+  lineChart(card(g, 'Mixtures and caps', `A mixture towards the learner by ${r.params.mixture} moves the chance linearly; the cap of chance ${r.params.cap} is a threshold.`), {
+    x, xLabel: 'logit x', yLabel: '',
+    series: [{ name: 'chance', y: Array.from(r.chance) }, { name: `mixture towards L (${r.params.mixture})`, y: Array.from(r.mixed), colorIndex: 1 },
+      { name: `inside the cap of chance ${r.params.cap}`, y: Array.from(r.insideCap), colorIndex: 2, dash: true }],
   });
-  table(card(g, 'Checks', ''), ['check', 'result'], [
-    ['two streams of the same seed agree', passFail(r.streamsReproducible)],
-    ['different seeds give different numbers', passFail(r.seedsIndependent)],
-    ['normal mean within 0.02', passFail(Math.abs(r.summary.mean) < 0.02)],
-    ['normal sd within 0.02', passFail(Math.abs(r.summary.sd - 1) < 0.02)],
-    ['CGA: points are null, max |X·X|', passFail(r.cga.nullPoints < 1e-12, r.cga.nullPoints.toExponential(1))],
-    ['CGA: X·Y = cos θ − 1', passFail(r.cga.innerProductIsAngle < 1e-12, r.cga.innerProductIsAngle.toExponential(1))],
-    ['CGA: X·S = cos θ − cos ρ for a cap', passFail(r.cga.capMembership < 1e-12, r.cga.capMembership.toExponential(1))],
-    ['CGA: rotors preserve angles', passFail(r.cga.rotorIsometry < 1e-9, r.cga.rotorIsometry.toExponential(1))],
-    ['CGA: dilation scales tan(φ/2) by e^β', passFail(r.cga.dilationTangent < 1e-9, r.cga.dilationTangent.toExponential(1))],
-    ['time (ms)', fmt.num(r.elapsedMs, 1)],
+  lineChart(card(g, 'Angle from the learner', 'φ = 2·atan(e^{−x/2}): the stereographic coordinate of the chance.'), {
+    x, xLabel: 'logit x', yLabel: 'φ (radians)', series: [{ name: 'φ', y: Array.from(r.angle) }, { name: 'similarity to the same level in another channel', y: Array.from(r.crossChannel), colorIndex: 1 }],
+  });
+  barChart(card(g, 'Random points', 'Points sampled uniformly in chance: their logits are logistic, the space\'s own distribution (scaled to sd 1).'), {
+    labels: Array.from(r.random.binCentres, (v) => v.toFixed(1)), series: [{ name: 'share of points', values: Array.from(r.random.binShare) }], yFormat: (v) => fmt.pct(v, 1),
+  });
+  table(card(g, 'Checks', 'Every closed-form versor is also tested against the geometric product of Cl(4, 1) in the C++ tests.'), ['check', 'value', 'result'], [
+    ['chance of a point = logistic of its logit', c.chanceIsLogistic.toExponential(1), passFail(c.chanceIsLogistic < 1e-4)],
+    ['dilation by d adds d to the logit', c.dilationAddsLogits.toExponential(1), passFail(c.dilationAddsLogits < 1e-4)],
+    ['mixture moves the chance linearly', c.mixtureIsLinear.toExponential(1), passFail(c.mixtureIsLinear < 1e-4)],
+    ['points are null vectors', c.pointsAreNull.toExponential(1), passFail(c.pointsAreNull < 1e-4)],
+    ['the logit read back', c.logitReadBack.toExponential(1), passFail(c.logitReadBack < 1e-2)],
+    ['rotors between channels keep the chance', c.rotorKeepsChance.toExponential(1), passFail(c.rotorKeepsChance < 1e-4)],
+    ['random logits: mean 0, sd 1', `${fmt.num(r.random.meanLogit, 3)}, ${fmt.num(r.random.sdLogit, 3)}`, passFail(Math.abs(r.random.meanLogit) < 0.05 && Math.abs(r.random.sdLogit - 1) < 0.05)],
   ]);
+  return note;
 });

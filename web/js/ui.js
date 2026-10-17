@@ -5,7 +5,7 @@ import { fmt } from './charts.js';
 
 export const PAGES = [
   { group: 'Overview', items: [{ id: 'index', href: 'index.html', title: 'Overview' }] },
-  { group: 'Foundations', items: [{ id: 'core', href: 'core.html', title: 'Core numerics' }] },
+  { group: 'Foundations', items: [{ id: 'core', href: 'core.html', title: 'The space' }] },
   {
     group: 'Learning theories',
     items: [
@@ -22,6 +22,9 @@ export const PAGES = [
       { id: 'development', href: 'development.html', title: 'Developmental stages' },
       { id: 'andragogy', href: 'andragogy.html', title: 'Andragogy' },
       { id: 'motivation', href: 'motivation.html', title: 'Motivation & mindset' },
+      { id: 'audience', href: 'audience.html', title: 'Identifying audience needs' },
+      { id: 'outcomes', href: 'outcomes.html', title: 'Learning goals and outcomes' },
+      { id: 'assessment', href: 'assessment.html', title: 'Assessing learning' },
     ],
   },
   {
@@ -92,14 +95,14 @@ export function initPage({ id, title, context, description }) {
     .catch((e) => { wasmDot.className = 'dot bad'; wasmText.textContent = 'WASM: ' + e.message; });
   gpuStatus().then((s) => { gpuDot.className = 'dot ' + (s.ok ? 'ok' : 'bad'); gpuText.textContent = 'WebGPU: ' + s.text; });
 
-  return { main, toolbar, status, content, spec: loadSpec() };
+  return { id, main, toolbar, status, content, spec: loadSpec() };
 }
 
 export async function gpuStatus() {
   if (!('gpu' in navigator)) return { ok: false, text: 'not available' };
   try {
     const adapter = await navigator.gpu.requestAdapter();
-    if (!adapter) return { ok: false, text: 'no adapter (CPU kernels)' };
+    if (!adapter) return { ok: false, text: 'no adapter (software GPU)' };
     const info = adapter.info || {};
     return { ok: true, text: [info.vendor, info.architecture].filter(Boolean).join(' ') || 'available' };
   } catch (e) {

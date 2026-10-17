@@ -1,21 +1,22 @@
-import { run } from '../syn-client.js';
 import { barChart, fmt, lineChart } from '../charts.js';
+import { runModels } from '../engine/run.js';
 import { card, el, grid, initPage, runButton, table, tiles, toolbarNumber } from '../ui.js';
 
 const page = initPage({
   id: 'development',
   title: 'Developmental stages: Piaget and Perry',
-  context: 'syn/development: stageDistribution · activityFit · perryProgression · sourceEvaluationAccuracy',
+  context: 'models: development · fused kernels in the space Cl(4, 1)',
   description: "<b>Piaget's four stages</b> (Table 3.1): sensorimotor, preoperational, concrete operational and formal operational. Children " +
     'reach them at roughly, not exactly, the nominal ages, so the fit of an activity to a class is a probability. <b>Perry\'s scheme</b>: ' +
     'dualism → multiplicity → relativism → commitment. The position shapes how a student judges sources: by authority, by personal ' +
-    'resonance (all views equal) or by evidence weighed through the methods of a discipline.',
+    'resonance (all views equal) or by evidence weighed through the methods of a discipline.' +
+    ' <i>In the space:</i> reaching a stage is the chance of a point at logit (age − onset)/spread; Perry transitions are cap tests; a judgement of a source dilates the equator by weighted logits.',
 });
 
 const onsetSd = toolbarNumber(page, 'stage onset spread (years)', 0.9, { step: 0.1 });
 
 runButton(page, 'Run', async (spec) => {
-  const r = await run('development', { ...spec, development: { onsetSd: onsetSd() } });
+  const { results: [r], note } = await runModels([['development', { ...spec, development: { onsetSd: onsetSd() } }]], page);
   const ages = Array.from(r.ages);
   const at = (age) => ages.findIndex((a) => Math.abs(a - age) < 1e-9);
   const acc = Array.from(r.sourceAccuracy);
@@ -45,4 +46,5 @@ runButton(page, 'Run', async (spec) => {
   table(box, ['activity', 'needs', 'age 5', 'age 9', 'age 15'], r.activities.map((a) => [a.name, a.demands.join(', '),
     fmt.pct(a.fit[at(5)], 0), fmt.pct(a.fit[at(9)], 0), fmt.pct(a.fit[at(15)], 0)]));
   box.append(el('p', { class: 'note', text: 'The classroom engine uses the stage distribution too: abstract content (Boolean logic) needs formal operations, which scaffolding partly substitutes for.' }));
+  return note;
 });

@@ -1,23 +1,24 @@
-import { run } from '../syn-client.js';
 import { fmt, lineChart, scatterChart } from '../charts.js';
+import { runModels } from '../engine/run.js';
 import { callout, card, grid, initPage, runButton, table, tiles, toolbarNumber } from '../ui.js';
 
 const page = initPage({
   id: 'social',
   title: 'Social constructivism: the ZPD, dialogue and culture',
-  context: 'syn/social: zoneOf · expectedGain · simulateTutoring · simulateDialogue',
+  context: 'models: zpd · dialogue · fused kernels in the space Cl(4, 1)',
   description: "<b>Vygotsky's Zone of Proximal Development</b>: tasks a learner can do only with help from a more knowledgeable other. Learning " +
     'needs success (with help) and novelty (not yet mastered alone), so it peaks in the ZPD. <b>Dialogue</b> with peers moves learners towards ' +
     'more knowledgeable classmates, and explaining deepens the explainer\'s own understanding. <b>Bourdieu</b>: schools reflect the culture of ' +
     'wealthier families, so a mismatch between home and school culture taxes learning unless teaching is inclusive. ' +
     'The zones are computed in pure elliptic CGA: a task at angle φ = 2·atan(e^{(b−θ)/2}) from the learner L succeeds alone with ' +
-    'probability 1 + ½·T·L, which is exactly σ(θ − b).',
+    'probability 1 + ½·T·L, which is exactly σ(θ − b).' +
+    ' <i>In the space:</i> a task is the point of logit θ − b, so 1 + ½·T·L = σ(θ − b); the scaffold is the dilation shift(T, s); the zones are caps; peers move each other by mixtures.',
 });
 
 const scaffold = toolbarNumber(page, 'scaffolding s (logits)', 1.5, { step: 0.1 });
 
 runButton(page, 'Run', async (spec) => {
-  const [z, d] = await Promise.all([run('zpd', { ...spec, zpd: { scaffold: scaffold() } }), run('dialogue', spec)]);
+  const { results: [z, d], note } = await runModels([['zpd', { ...spec, zpd: { scaffold: scaffold() } }], ['dialogue', spec]], page);
   const best = z.tutoring.reduce((a, b) => (b.gain > a.gain ? b : a));
   const none = d.runs.find((r) => r.grouping.startsWith('individual') && r.inclusivity === 0);
   const mixedInc = d.runs.find((r) => r.grouping.startsWith('mixed') && r.inclusivity > 0);
@@ -60,4 +61,5 @@ runButton(page, 'Run', async (spec) => {
     d.runs.map((r) => [r.grouping, r.inclusivity ? 'yes' : 'no', fmt.pct(r.finalMean, 1), fmt.num(r.finalGap, 3), fmt.num(r.spread[r.spread.length - 1], 3)]));
   callout(page.content, 'In the classroom engine <i>scaffolding</i> targets each learner\'s ZPD, <i>peer dialogue</i> adds support for those below the class level and deeper encoding, ' +
     'and <i>inclusivity</i> removes the culture tax.');
+  return note;
 });
