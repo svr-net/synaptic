@@ -8,9 +8,9 @@
 // (1 − (1 − r̂)^r)^k. Partial reinforcement keeps r̂ low, so extinction is slow (the partial
 // reinforcement extinction effect). Jobs: CRF, FR n, VR n, FI n, VI n; agents: learners.
 #include "syn/models/models.hpp"
-#include "syn/kernel/agent.hpp"
 
-SYN_AGENT(operant_agent,
+// The agent program, in WGSL.
+constexpr const char* operant_agent = R"wgsl(
   let kind = J(0u);
   let n = max(f32(1), J(1u));
   let training = u32(P(0u));
@@ -89,7 +89,7 @@ SYN_AGENT(operant_agent,
   stat(385u, extinct);
   stat(386u, cumR);
   stat(387u, cumS);
-)
+)wgsl";
 
 namespace syn::models {
 
@@ -99,7 +99,7 @@ const kernel::Model* operantModel() {
     m.name = "operant";
     m.title = "Operant conditioning: schedules of reinforcement and the partial reinforcement extinction effect";
     m.maxStats = 388;
-    SYN_USE_AGENT(m, operant_agent);
+    m.agentSource = operant_agent;
     m.compile = [](const Value& spec) {
       const Value& c = spec.sub("operant");
       const int training = c.integer("training", 300), extinction = c.integer("extinction", 300);

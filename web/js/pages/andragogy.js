@@ -1,6 +1,6 @@
 import { barChart, fmt, lineChart } from '../charts.js';
-import { modelButton, runModels } from '../engine/run.js';
-import { card, el, grid, initPage, table, tiles } from '../ui.js';
+import { runModels } from '../engine/run.js';
+import { card, el, grid, initPage, runButton, table, tiles } from '../ui.js';
 
 const page = initPage({
   id: 'andragogy',
@@ -13,7 +13,7 @@ const page = initPage({
     ' <i>In the space:</i> assumptions and design features are points; engagement is the equator dilated by every main effect and interaction.',
 });
 
-modelButton(page, 'Run', async (spec) => {
+runButton(page, 'Run', async (spec) => {
   const { results: [r], note } = await runModels([['andragogy', spec]], page);
   const c = r.curves.map((x) => Array.from(x));
   const last = c[0].length - 1;

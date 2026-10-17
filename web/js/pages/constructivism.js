@@ -1,6 +1,6 @@
 import { fmt, lineChart } from '../charts.js';
-import { modelButton, runModels } from '../engine/run.js';
-import { callout, card, grid, initPage, table, tiles, toolbarNumber } from '../ui.js';
+import { runModels } from '../engine/run.js';
+import { callout, card, grid, initPage, runButton, table, tiles, toolbarNumber } from '../ui.js';
 
 const page = initPage({
   id: 'constructivism',
@@ -17,7 +17,7 @@ const page = initPage({
 const feedback = toolbarNumber(page, 'P(an adult names the animal)', 0.3, { step: 0.05 });
 const avoidance = toolbarNumber(page, 'avoidance of discomfort', 0.7, { step: 0.05 });
 
-modelButton(page, 'Run', async (spec) => {
+runButton(page, 'Run', async (spec) => {
   const { results: [r], note } = await runModels([['equilibration', { ...spec, equilibration: { feedback: feedback(), avoidance: avoidance() } }]], page);
   const [silent, some, always, avoid] = r.runs;
   tiles(page.content, [

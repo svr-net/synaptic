@@ -7,9 +7,9 @@
 // Plan 1, one job, many agents: random points sampled uniformly in chance; their logits are
 // logistic (the space's own coordinate), histogrammed into 32 bins.
 #include "syn/models/models.hpp"
-#include "syn/kernel/agent.hpp"
 
-SYN_AGENT(space_agent,
+// The agent program, in WGSL.
+constexpr const char* space_agent = R"wgsl(
   if (P(0u) < f32(0.5)) {
     let x = J(0u);
     let X = atLogit(x, kA);
@@ -35,7 +35,7 @@ SYN_AGENT(space_agent,
     stat(4u + b, f32(1));
     quant(0u, chance(X));
   }
-)
+)wgsl";
 
 namespace syn::models {
 
@@ -45,7 +45,7 @@ const kernel::Model* spaceModel() {
     m.name = "space";
     m.title = "the space: logits, dilations, mixtures, caps and random points in Cl(4, 1)";
     m.maxStats = 36;
-    SYN_USE_AGENT(m, space_agent);
+    m.agentSource = space_agent;
     m.compile = [](const Value& spec) {
       const Value& c = spec.sub("space");
       const double d = c.num("shift", 1.5), t = c.num("mixture", 0.3), p = c.num("cap", 0.7), alpha = c.num("rotation", 0.8);

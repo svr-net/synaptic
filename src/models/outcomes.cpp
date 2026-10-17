@@ -22,9 +22,9 @@
 #include <string>
 
 #include "syn/models/models.hpp"
-#include "syn/kernel/agent.hpp"
 
-SYN_AGENT(outcomes_agent,
+// The agent program, in WGSL.
+constexpr const char* outcomes_agent = R"wgsl(
   let kind = J(0u);
   if (kind < f32(0.5)) {
     let level = J(1u);
@@ -50,7 +50,7 @@ SYN_AGENT(outcomes_agent,
     let judgeBias = select(f32(0.2), f32(0), sharedOutcomes);
     let judgeNoise = select(f32(0.3), f32(0.12), sharedOutcomes);
     let aptitude = exp(P(2u) * kLogisticUnit * logisticOf(U(0u)));
-    ARR(mastery, V5, 15);
+    var mastery : array<V5, 15>;
     for (var i = 0u; i < items; i = i + 1u) {
       let t = max(f32(0), J(1u + i) - select(f32(0), P(3u), J(1u + i) > f32(0)));
       mastery[i] = raise(atChance(f32(0), kA), f32(1) - exp(-aptitude * t * efficiency * crowding / P(12u + 3u * i)));
@@ -95,7 +95,7 @@ SYN_AGENT(outcomes_agent,
     let outcome = u32(J(1u));
     let evidence = u32(J(2u));
     var prev = atChance(f32(1), kA);
-    ARR(x, f32, 6);
+    var x : array<f32, 6>;
     for (var k = 0u; k < 6u; k = k + 1u) {
       let keep = chance(shift(equator(kA), P(5u) + f32(0.8) * kLogisticUnit * logisticOf(U(k)) - f32(0.45) * f32(k)));
       prev = lower(prev, f32(1) - keep);
@@ -125,7 +125,7 @@ SYN_AGENT(outcomes_agent,
     }
     stat(24u, select(max(lastIndependent, f32(0)), recommended, recommended >= f32(0)));
   }
-)
+)wgsl";
 
 namespace syn::models {
 
@@ -303,7 +303,7 @@ const kernel::Model* outcomesModel() {
     m.name = "outcomes";
     m.title = "Learning outcomes: Bloom's levels as points, evidence against levels, the twin sins and Backward Design";
     m.maxStats = 25;
-    SYN_USE_AGENT(m, outcomes_agent);
+    m.agentSource = outcomes_agent;
     m.compile = [](const Value& spec) {
       const Value& c = spec.sub("outcomes");
       const double minutes = c.num("minutes", 50.0);

@@ -1,5 +1,5 @@
 import { barChart, fmt } from '../charts.js';
-import { engineNote, engineSelector, runModel } from '../engine/run.js';
+import { engineNote, runModel } from '../engine/run.js';
 import { card, grid, initPage, runButton, specEditor, table, tiles, toolbarNumber } from '../ui.js';
 
 const page = initPage({
@@ -17,12 +17,12 @@ specEditor(page, ['population', 'course', 'design', 'simulation']);
 const bump = toolbarNumber(page, 'bump', 0.1, { step: 0.05, width: 60 });
 const reps = toolbarNumber(page, 'replications', 6, { step: 1, width: 60 });
 
-const button = runButton(page, 'Compute sensitivities', async (spec) => {
+runButton(page, 'Compute sensitivities', async (spec) => {
   const t0 = performance.now();
   // Every course of the analysis is one job of a single dispatch.
   const runResult = await runModel('sensitivity', { ...spec, sensitivity: { bump: bump(), replications: reps(), maxLearners: 300 } });
   const r = runResult.result;
-  window.__synEngineRun = { page: 'sensitivity', engine: runResult.engine, varianceReduction: r.varianceReduction, score: r.score };
+  window.__synEngineRun = { page: 'sensitivity', engine: runResult.label, varianceReduction: r.varianceReduction, score: r.score };
   const sorted = [...r.levers].sort((a, b) => b.crn - a.crn);
   tiles(page.content, [
     { label: 'Delayed score', value: fmt.num(r.score, 3) },
@@ -40,4 +40,3 @@ const button = runButton(page, 'Compute sensitivities', async (spec) => {
     sorted.map((l) => [l.lever, l.theory, fmt.num(l.value, 2), fmt.num(l.crn, 4), fmt.num(l.crnSe, 4), fmt.num(l.independent, 4), fmt.num(l.independentSe, 4), l.crnSe > 0 ? `×${fmt.num(l.independentSe / l.crnSe, 0)}` : '–']));
   return engineNote(runResult, performance.now() - t0);
 });
-engineSelector(page, () => button.click());

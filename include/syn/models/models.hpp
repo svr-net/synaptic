@@ -1,7 +1,7 @@
 #pragma once
 
 // Shared helpers for the models: building plans from a specification and reading results.
-// Every model lives in src/models/<name>.cpp: its agent (SYN_AGENT), how a specification
+// Every model lives in src/models/<name>.cpp: its agent program (WGSL), how a specification
 // compiles to plans, and how the per-job means become the result.
 
 #include <cmath>
@@ -12,8 +12,6 @@
 
 #include "syn/core/value.hpp"
 #include "syn/kernel/kernel.hpp"
-#include "syn/kernel/random.hpp"
-#include "syn/space/space.hpp"
 
 namespace syn::models {
 
@@ -51,10 +49,16 @@ inline Plan makePlan(const std::string& model, std::uint32_t agents, std::uint32
   return p;
 }
 
-/** A logistic variate of sd 1 from the kernels' counter-based random numbers (for fixed test sets). */
-inline double logisticDraw(std::uint32_t seed, std::uint32_t a, std::uint32_t k) {
-  const double u = kernel::uniform<double>(seed, a, k);
-  return space::kLogisticUnit * std::log(u / (1.0 - u));
+/** A 32-bit hash (PCG) for deriving seeds and orders of analyses on the host. */
+inline std::uint32_t hash32(std::uint32_t v) {
+  const std::uint32_t state = v * 747796405u + 2891336453u;
+  const std::uint32_t word = ((state >> ((state >> 28u) + 4u)) ^ state) * 277803737u;
+  return (word >> 22u) ^ word;
+}
+
+/** A host uniform in (0, 1) from (s, a, k), for choosing the orders an analysis evaluates. */
+inline double hostUniform(std::uint32_t s, std::uint32_t a, std::uint32_t k) {
+  return (static_cast<double>(hash32(s ^ hash32((a * 2654435769u) ^ hash32(k))) >> 8u) + 0.5) / 16777216.0;
 }
 
 /** Evenly spaced values. */
@@ -72,9 +76,3 @@ inline std::vector<double> column(const Plan& p, const Output& o, std::uint32_t 
 }
 
 }  // namespace syn::models
-
-/** Fills the agent fields of a kernel::Model from an agent defined with SYN_AGENT. */
-#define SYN_USE_AGENT(MODEL, AGENT)                     \
-  (MODEL).agent32 = &::syn_agents::AGENT<float>;        \
-  (MODEL).agent64 = &::syn_agents::AGENT<double>;       \
-  (MODEL).agentSource = ::syn_agents::AGENT##_source()

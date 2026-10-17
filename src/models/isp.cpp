@@ -9,9 +9,9 @@
 // raised towards completion, and the stage is done when it would pass it.
 // Jobs: one per (support, relevance, session day, targeted stage, strength); agents: students.
 #include "syn/models/models.hpp"
-#include "syn/kernel/agent.hpp"
 
-SYN_AGENT(isp_agent,
+// The agent program, in WGSL.
+constexpr const char* isp_agent = R"wgsl(
   let deadline = u32(P(0u));
   let horizon = u32(P(1u));
   let amplification = P(4u);
@@ -69,7 +69,7 @@ SYN_AGENT(isp_agent,
     stat(649u, doneDay);
     stat(650u, f32(1));
   }
-)
+)wgsl";
 
 namespace syn::models {
 
@@ -96,7 +96,7 @@ const kernel::Model* ispModel() {
     m.name = "isp";
     m.title = "Kuhlthau's Information Search Process: felt uncertainty, support and zones of intervention";
     m.maxStats = 652;
-    SYN_USE_AGENT(m, isp_agent);
+    m.agentSource = isp_agent;
     m.compile = [](const Value& spec) {
       const Value& c = spec.sub("isp");
       const int deadline = std::min(42, c.integer("deadline", 42));

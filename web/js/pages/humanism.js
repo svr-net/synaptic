@@ -1,6 +1,6 @@
 import { barChart, fmt, lineChart } from '../charts.js';
-import { modelButton, runModels } from '../engine/run.js';
-import { card, grid, initPage, table, tiles, toolbarNumber } from '../ui.js';
+import { runModels } from '../engine/run.js';
+import { card, grid, initPage, runButton, table, tiles, toolbarNumber } from '../ui.js';
 
 const page = initPage({
   id: 'humanism',
@@ -16,7 +16,7 @@ const page = initPage({
 const anxiety = toolbarNumber(page, 'library anxiety (0–1)', 0.5, { step: 0.05 });
 const deadline = toolbarNumber(page, 'deadline (days)', 42, { step: 1 });
 
-modelButton(page, 'Run', async (spec) => {
+runButton(page, 'Run', async (spec) => {
   const { results: [maslow, isp], note } = await runModels([['maslow', spec], ['isp', { ...spec, isp: { anxiety: anxiety(), deadline: deadline() } }]], page);
   const r = { ...maslow, ...isp };
   const [none, half, full] = r.isp;

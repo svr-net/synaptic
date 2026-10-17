@@ -1,6 +1,6 @@
 import { barChart, fmt, lineChart } from '../charts.js';
-import { modelButton, runModels } from '../engine/run.js';
-import { callout, card, el, grid, initPage, table, tiles, toolbarNumber } from '../ui.js';
+import { runModels } from '../engine/run.js';
+import { callout, card, el, grid, initPage, runButton, table, tiles, toolbarNumber } from '../ui.js';
 
 const page = initPage({
   id: 'outcomes',
@@ -23,7 +23,7 @@ page.main.insertBefore(el('section', { class: 'card' }, el('h2', { text: 'Your o
 
 const verdict = (a) => (a.strong ? '✓ strong' : a.measurable ? '~ measurable, too broad' : '✗ not measurable');
 
-modelButton(page, 'Run', async (spec) => {
+runButton(page, 'Run', async (spec) => {
   const texts = box.value.split('\n').map((s) => s.trim()).filter(Boolean);
   const { results: [r], note } = await runModels([['outcomes', { ...spec, outcomes: { minutes: minutes(), outcomes: count(), texts } }]], page);
   const [coverage, activity, backward] = r.plans;

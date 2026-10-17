@@ -4,9 +4,10 @@
 #include <cmath>
 #include <map>
 #include <memory>
-#include <regex>
+#include <mutex>
 #include <stdexcept>
 
+#include "syn/gpu/software_gpu.hpp"
 #include "syn/space/space.hpp"
 
 namespace syn::kernel {
@@ -54,7 +55,7 @@ const Model& model(const std::string& name) {
   throw std::invalid_argument("unknown model: " + name);
 }
 
-// ---------------------------------------------------------------- CPU engines
+// ---------------------------------------------------------------- the software GPU
 
 namespace {
 
@@ -65,152 +66,129 @@ void validate(const Plan& p, const Model& m) {
   if (p.jobRows.size() != static_cast<std::size_t>(p.jobs) * p.jobStride) throw std::invalid_argument(m.name + ": job rows have the wrong size");
 }
 
-template <class T>
-void runAgent(const Plan& p, const Model& m, std::uint32_t job, std::uint32_t a, T* stats, T* quants) {
-  Ctx<T> c;
-  c.plan = &p;
-  c.params = p.params.data();
-  c.row = p.jobRows.data() + static_cast<std::size_t>(job) * p.jobStride;
-  c.seed = p.seeds[job];
-  c.job = job;
-  c.agent = a;
-  c.stats = stats;
-  c.quants = quants;
-  if constexpr (std::is_same_v<T, float>) m.agent32(c);
-  else m.agent64(c);
+// Each model's agent kernel, and the reduce and quantile kernels, compiled once.
+struct Shaders {
+  std::shared_ptr<const gpu::Shader> agent, reduce, quantile;
+};
+
+Shaders shaders(const Model& m) {
+  static std::mutex lock;
+  static std::map<std::string, std::shared_ptr<const gpu::Shader>> agents;
+  static const auto reduce = gpu::Shader::compile(reduceKernel());
+  static const auto quantile = gpu::Shader::compile(quantileKernel());
+  std::lock_guard<std::mutex> guard(lock);
+  auto& a = agents[m.name];
+  if (!a) a = gpu::Shader::compile(agentKernel(m));
+  return {a, reduce, quantile};
 }
 
-template <class T>
-Slice tiles(const Plan& p, std::size_t begin, std::size_t end) {
-  const Model& m = model(p.model);
-  validate(p, m);
-  const std::size_t total = static_cast<std::size_t>(p.jobs) * p.workgroups();
-  if (begin > end || end > total) throw std::invalid_argument("runTiles: tile range out of bounds");
-  Slice s;
-  s.tileBegin = begin;
-  s.tileEnd = end;
-  s.partials.assign((end - begin) * p.stats, 0.0);
-  s.scratch.assign((end - begin) * kWorkgroup * p.quantiles, 0.0f);
-  std::vector<T> stats(m.maxStats), quants(std::max<std::uint32_t>(1, p.quantiles)), acc(p.stats);
-  for (std::size_t tile = begin; tile < end; ++tile) {
-    const auto job = static_cast<std::uint32_t>(tile / p.workgroups());
-    const std::size_t wg = tile % p.workgroups();
-    std::fill(acc.begin(), acc.end(), T(0));
-    for (std::uint32_t k = 0; k < kWorkgroup; ++k) {
-      const std::size_t a = wg * kWorkgroup + k;
-      if (a >= p.agents) break;
-      std::fill(stats.begin(), stats.end(), T(0));
-      std::fill(quants.begin(), quants.end(), T(0));
-      runAgent<T>(p, m, job, static_cast<std::uint32_t>(a), stats.data(), quants.data());
-      for (std::uint32_t i = 0; i < p.stats; ++i) acc[i] = acc[i] + stats[i];
-      for (std::uint32_t q = 0; q < p.quantiles; ++q)
-        s.scratch[((tile - begin) * kWorkgroup + k) * p.quantiles + q] = static_cast<float>(quants[q]);
-    }
-    for (std::uint32_t i = 0; i < p.stats; ++i) s.partials[(tile - begin) * p.stats + i] = static_cast<double>(acc[i]);
-  }
-  return s;
+// The buffers of a plan, as the WebGPU host creates them (at least 16 bytes each).
+struct Buffers {
+  gpu::Buffer header, constants, seeds, scratch, partials;
+};
+
+gpu::Buffer atLeast4(gpu::Buffer b) {
+  if (b.words.size() < 4) b.words.resize(4, 0u);
+  return b;
 }
 
-}  // namespace
-
-Slice runTiles(const Plan& p, std::size_t begin, std::size_t end, Precision precision) {
-  return precision == Precision::F32 ? tiles<float>(p, begin, end) : tiles<double>(p, begin, end);
+Buffers buffers(const Plan& p, bool trackWrites) {
+  Buffers b;
+  b.header = atLeast4(gpu::Buffer::ofWords(p.header()));
+  b.constants = atLeast4(gpu::Buffer::ofFloats(p.constants()));
+  b.seeds = atLeast4(gpu::Buffer::ofWords(p.seeds));
+  b.scratch = gpu::Buffer::zeros(std::max<std::size_t>(4, p.scratchFloats()), trackWrites);
+  b.partials = gpu::Buffer::zeros(std::max<std::size_t>(4, p.partialFloats()), trackWrites);
+  return b;
 }
 
-Output finish(const Plan& p, const std::vector<Slice>& slices) {
-  const std::size_t total = static_cast<std::size_t>(p.jobs) * p.workgroups();
-  std::size_t covered = 0;
-  for (const auto& s : slices) {
-    if (s.tileBegin != covered) throw std::invalid_argument("finish: slices must cover the tiles in order");
-    if (s.partials.size() != (s.tileEnd - s.tileBegin) * p.stats) throw std::invalid_argument("finish: a slice has the wrong size");
-    covered = s.tileEnd;
-  }
-  if (covered != total) throw std::invalid_argument("finish: slices do not cover every tile");
-  auto slice = [&](std::size_t tile) -> const Slice& {
-    for (const auto& s : slices)
-      if (tile >= s.tileBegin && tile < s.tileEnd) return s;
-    throw std::logic_error("finish: tile not covered");
-  };
+void agents(const Plan& p, const Shaders& sh, Buffers& b, std::size_t first, std::size_t last) {
+  gpu::dispatch(*sh.agent, {&b.header, &b.constants, &b.seeds, &b.scratch, &b.partials}, p.workgroups(), p.jobs, 1, first, last);
+}
+
+// The reduce and quantile kernels, then the read-back.
+Output finishPlan(const Plan& p, const Shaders& sh, Buffers& b) {
+  gpu::Buffer sums = gpu::Buffer::zeros(std::max<std::size_t>(4, p.sumFloats()));
+  gpu::Buffer quantiles = gpu::Buffer::zeros(std::max<std::size_t>(4, p.quantileFloats()));
+  gpu::dispatch(*sh.reduce, {&b.header, &b.partials, &sums}, static_cast<std::uint32_t>((p.sumFloats() + 63) / 64), 1, 1);
+  if (p.quantiles > 0) gpu::dispatch(*sh.quantile, {&b.header, &b.scratch, &quantiles}, p.quantiles, p.jobs, 1);
   Output out;
-  out.means.assign(p.sumFloats(), 0.0);
-  for (std::uint32_t job = 0; job < p.jobs; ++job)
-    for (std::uint32_t i = 0; i < p.stats; ++i) {
-      double acc = 0.0;
-      for (std::uint32_t w = 0; w < p.workgroups(); ++w) {
-        const std::size_t tile = static_cast<std::size_t>(job) * p.workgroups() + w;
-        const Slice& s = slice(tile);
-        acc += s.partials[(tile - s.tileBegin) * p.stats + i];
-      }
-      out.means[job * p.stats + i] = acc / p.agents;
-    }
+  const auto s = sums.floats(), q = quantiles.floats();
+  out.means.assign(s.begin(), s.begin() + static_cast<std::ptrdiff_t>(p.sumFloats()));
+  if (p.quantiles > 0) out.quantiles.assign(q.begin(), q.begin() + static_cast<std::ptrdiff_t>(p.quantileFloats()));
   if (p.keepAgents > 0 && p.quantiles > 0) {
+    const auto scratch = b.scratch.floats();
     const std::uint32_t keep = std::min(p.keepAgents, p.agents);
     out.agentValues.assign(static_cast<std::size_t>(p.jobs) * keep * p.quantiles, 0.0);
     for (std::uint32_t job = 0; job < p.jobs; ++job)
-      for (std::uint32_t a = 0; a < keep; ++a) {
-        const std::size_t tile = static_cast<std::size_t>(job) * p.workgroups() + a / kWorkgroup;
-        const Slice& s = slice(tile);
-        for (std::uint32_t q = 0; q < p.quantiles; ++q)
-          out.agentValues[(static_cast<std::size_t>(job) * keep + a) * p.quantiles + q] =
-              s.scratch[((tile - s.tileBegin) * kWorkgroup + a % kWorkgroup) * p.quantiles + q];
-      }
-  }
-  if (p.quantiles > 0) {
-    out.quantiles.assign(p.quantileFloats(), 0.0);
-    std::vector<std::uint32_t> hist(kHistogramBins);
-    for (std::uint32_t job = 0; job < p.jobs; ++job)
-      for (std::uint32_t q = 0; q < p.quantiles; ++q) {
-        std::fill(hist.begin(), hist.end(), 0u);
-        for (std::uint32_t a = 0; a < p.agents; ++a) {
-          const std::size_t tile = static_cast<std::size_t>(job) * p.workgroups() + a / kWorkgroup;
-          const Slice& s = slice(tile);
-          const float v = std::min(1.0f, std::max(0.0f, s.scratch[((tile - s.tileBegin) * kWorkgroup + a % kWorkgroup) * p.quantiles + q]));
-          ++hist[std::min<std::uint32_t>(kHistogramBins - 1, static_cast<std::uint32_t>(v * static_cast<float>(kHistogramBins)))];
-        }
-        const float qs[3] = {0.1f, 0.5f, 0.9f};
-        for (int i = 0; i < 3; ++i) {
-          const auto rank = static_cast<std::uint32_t>(std::floor(qs[i] * static_cast<float>(p.agents - 1)));
-          std::uint32_t cum = 0, bin = 0;
-          for (std::uint32_t b = 0; b < kHistogramBins; ++b) {
-            cum += hist[b];
-            if (cum > rank) {
-              bin = b;
-              break;
-            }
-          }
-          out.quantiles[(static_cast<std::size_t>(job) * p.quantiles + q) * 3 + i] = (bin + 0.5) / kHistogramBins;
-        }
-      }
+      for (std::uint32_t a = 0; a < keep; ++a)
+        for (std::uint32_t v = 0; v < p.quantiles; ++v)
+          out.agentValues[(static_cast<std::size_t>(job) * keep + a) * p.quantiles + v] =
+              scratch[(static_cast<std::size_t>(job) * p.agents + a) * p.quantiles + v];
   }
   return out;
 }
 
-Output runPlan(const Plan& p, Precision precision) {
-  return finish(p, {runTiles(p, 0, static_cast<std::size_t>(p.jobs) * p.workgroups(), precision)});
+// The words a dispatch wrote, as runs [offset, values...].
+Value writtenRuns(const gpu::Buffer& b) {
+  Value runs = Value::array();
+  const std::size_t n = b.words.size();
+  std::size_t i = 0;
+  while (i < n) {
+    if (!b.written[i]) {
+      ++i;
+      continue;
+    }
+    std::vector<double> run = {static_cast<double>(i)};
+    for (; i < n && b.written[i]; ++i) run.push_back(static_cast<double>(gpu::asFloat(b.words[i])));
+    runs.push(Value::Numbers(std::move(run)));
+  }
+  return runs;
 }
 
-Value run(const std::string& name, const Value& spec, Precision precision) {
+void applyRuns(gpu::Buffer& b, const Value& runs) {
+  if (!runs.isArray()) return;
+  for (const auto& r : runs.asArray()) {
+    const auto& v = r.asNumbers();
+    if (v.empty()) continue;
+    const auto at = static_cast<std::size_t>(v[0]);
+    if (at + v.size() - 1 > b.words.size()) throw std::invalid_argument("analyseSlices: a slice does not fit its buffer");
+    for (std::size_t k = 1; k < v.size(); ++k) b.words[at + k - 1] = gpu::asWord(static_cast<float>(v[k]));
+  }
+}
+
+}  // namespace
+
+Output simulate(const Plan& p) {
+  const Model& m = model(p.model);
+  validate(p, m);
+  const Shaders sh = shaders(m);
+  Buffers b = buffers(p, false);
+  agents(p, sh, b, 0, static_cast<std::size_t>(p.jobs) * p.workgroups());
+  return finishPlan(p, sh, b);
+}
+
+Value run(const std::string& name, const Value& spec) {
   const Model& m = model(name);
   const auto plans = m.compile(spec);
   std::vector<Output> outputs;
-  for (const auto& p : plans) outputs.push_back(runPlan(p, precision));
+  for (const auto& p : plans) outputs.push_back(simulate(p));
   return m.summarise(spec, plans, outputs);
 }
 
-Value runSlices(const std::string& name, const Value& spec, std::size_t part, std::size_t parts) {
-  if (parts == 0 || part >= parts) throw std::invalid_argument("runSlices: bad part");
+Value simulateSlices(const std::string& name, const Value& spec, std::size_t part, std::size_t parts) {
+  if (parts == 0 || part >= parts) throw std::invalid_argument("simulateSlices: bad part");
   const Model& m = model(name);
   const auto plans = m.compile(spec);
   Value out = Value::array();
   for (const auto& p : plans) {
+    validate(p, m);
     const std::size_t total = static_cast<std::size_t>(p.jobs) * p.workgroups();
-    const std::size_t begin = total * part / parts, end = total * (part + 1) / parts;
-    const Slice s = runTiles(p, begin, end, Precision::F32);
+    Buffers b = buffers(p, true);
+    agents(p, shaders(m), b, total * part / parts, total * (part + 1) / parts);
     Value v = Value::object();
-    v.set("tileBegin", static_cast<double>(s.tileBegin));
-    v.set("tileEnd", static_cast<double>(s.tileEnd));
-    v.set("partials", Value::Numbers(s.partials));
-    v.set("scratch", Value::Numbers(s.scratch.begin(), s.scratch.end()));
+    v.set("scratch", writtenRuns(b.scratch));
+    v.set("partials", writtenRuns(b.partials));
     out.push(std::move(v));
   }
   return out;
@@ -221,18 +199,16 @@ Value analyseSlices(const std::string& name, const Value& spec, const std::vecto
   const auto plans = m.compile(spec);
   std::vector<Output> outputs;
   for (std::size_t i = 0; i < plans.size(); ++i) {
-    std::vector<Slice> slices;
+    const Plan& p = plans[i];
+    validate(p, m);
+    Buffers b = buffers(p, false);
     for (const auto& part : parts) {
-      const Value& v = part[i];
-      Slice s;
-      s.tileBegin = static_cast<std::size_t>(v.num("tileBegin", 0));
-      s.tileEnd = static_cast<std::size_t>(v.num("tileEnd", 0));
-      s.partials = v.nums("partials", {});
-      const auto scratch = v.nums("scratch", {});
-      s.scratch.assign(scratch.begin(), scratch.end());
-      if (s.tileEnd > s.tileBegin) slices.push_back(std::move(s));
+      if (i >= part.size()) throw std::invalid_argument("analyseSlices: a worker returned too few plans");
+      const Value slice = part[i];
+      applyRuns(b.scratch, slice.at("scratch"));
+      applyRuns(b.partials, slice.at("partials"));
     }
-    outputs.push_back(finish(plans[i], slices));
+    outputs.push_back(finishPlan(p, shaders(m), b));
   }
   return m.summarise(spec, plans, outputs);
 }
@@ -275,18 +251,13 @@ fn pcg(v : u32) -> u32 {
   let word = ((state >> ((state >> 28u) + 4u)) ^ state) * 277803737u;
   return (word >> 22u) ^ word;
 }
+// A uniform in (0, 1): 23 bits, so that it stays strictly inside the interval in f32
+// (with 24 bits, (2^24 − 1 + ½) rounds to 2^24 and the draw would be exactly 1).
 fn draw(s : u32, a : u32, k : u32) -> f32 {
   let h = pcg(s ^ pcg((a * 2654435769u) ^ pcg(k)));
-  return (f32(h >> 8u) + 0.5) / 16777216.0;
+  return (f32(h >> 9u) + 0.5) / 8388608.0;
 }
 )wgsl";
-
-// The agent source is C++-compatible WGSL; translate the one construct that differs.
-std::string toWgsl(const std::string& src) {
-  static const std::regex arr(R"(ARR\s*\(\s*([A-Za-z_][A-Za-z0-9_]*)\s*,\s*([A-Za-z0-9_]+)\s*,\s*([0-9]+u?)\s*\))");
-  std::string s = std::regex_replace(src, arr, "var $1 : array<$2, $3>");
-  return s;
-}
 
 }  // namespace
 
@@ -303,7 +274,7 @@ std::string agentKernel(const Model& m) {
   s += space::spaceWgsl();
   s += "\nconst MAXS : u32 = " + std::to_string(m.maxStats) + "u;\n";
   s += R"wgsl(
-var<private> S : array<f32, MAXS>;
+var<private> S : array<f32, MAXS>;    // zero at the start of every invocation (WGSL private memory)
 var<private> A : u32;
 var<private> JOB : u32;
 var<private> NA : u32;
@@ -311,11 +282,12 @@ var<private> SEED : u32;
 fn P(i : u32) -> f32 { return C[i]; }
 fn J(i : u32) -> f32 { return C[H.nParams + JOB * H.stride + i]; }
 fn U(k : u32) -> f32 { return draw(SEED, A, k); }
+fn jobDraw(s : u32, i : u32, k : u32) -> f32 { return draw(SEED ^ s, i, k); }
 fn stat(i : u32, v : f32) { S[i] = S[i] + v; }
 fn quant(q : u32, v : f32) { SCRATCH[(JOB * H.agents + A) * H.quant + q] = v; }
 )wgsl";
   s += m.helpersWgsl;
-  s += "\nfn agent() {\n" + toWgsl(m.agentSource) + "\n}\n";
+  s += "\nfn agent() {\n" + std::string(m.agentSource) + "\n}\n";
   s += R"wgsl(
 var<workgroup> RED : array<f32, 64>;
 @compute @workgroup_size(64)
@@ -325,7 +297,6 @@ fn main(@builtin(local_invocation_id) lid : vec3<u32>, @builtin(workgroup_id) wi
   JOB = wid.y;
   NA = H.agents;
   SEED = SEEDS[wid.y];
-  for (var k = 0u; k < MAXS; k = k + 1u) { S[k] = 0.0; }
   if (a < H.agents) { agent(); }
   if (H.quant > 0x7fffffffu) { SCRATCH[0] = 0.0; }  // keeps the binding in the 'auto' layout of every model
   for (var k = 0u; k < H.stats; k = k + 1u) {

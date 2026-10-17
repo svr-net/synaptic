@@ -102,7 +102,7 @@ export async function gpuStatus() {
   if (!('gpu' in navigator)) return { ok: false, text: 'not available' };
   try {
     const adapter = await navigator.gpu.requestAdapter();
-    if (!adapter) return { ok: false, text: 'no adapter (CPU kernels)' };
+    if (!adapter) return { ok: false, text: 'no adapter (software GPU)' };
     const info = adapter.info || {};
     return { ok: true, text: [info.vendor, info.architecture].filter(Boolean).join(' ') || 'available' };
   } catch (e) {

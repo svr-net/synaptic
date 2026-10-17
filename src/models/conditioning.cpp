@@ -11,9 +11,9 @@
 //   3  Watson: a white rat paired with a loud noise; fear generalises to stimuli by the similarity
 //      of their points, 1 + ½·X·Y = cos²(θ/2), θ the angle between the stimuli on the sphere.
 #include "syn/models/models.hpp"
-#include "syn/kernel/agent.hpp"
 
-SYN_AGENT(conditioning_agent,
+// The agent program, in WGSL.
+constexpr const char* conditioning_agent = R"wgsl(
   let kind = J(0u);
   let alpha = J(1u);
   let n1 = u32(J(2u));
@@ -58,7 +58,7 @@ SYN_AGENT(conditioning_agent,
       stat(8u + k, f32(2) * acos(sqrt(clamp(sim, f32(0), f32(1)))));
     }
   }
-)
+)wgsl";
 
 namespace syn::models {
 
@@ -68,7 +68,7 @@ const kernel::Model* conditioningModel() {
     m.name = "conditioning";
     m.title = "Rescorla–Wagner conditioning: Pavlov, Kamin blocking, Watson's generalised fear";
     m.maxStats = 128;
-    SYN_USE_AGENT(m, conditioning_agent);
+    m.agentSource = conditioning_agent;
     m.compile = [](const Value& spec) {
       const Value& c = spec.sub("conditioning");
       const double salience = c.num("salience", 0.3);

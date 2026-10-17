@@ -1,6 +1,6 @@
 import { barChart, fmt, lineChart } from '../charts.js';
-import { modelButton, runModels } from '../engine/run.js';
-import { callout, card, grid, initPage, table, tiles, toolbarNumber } from '../ui.js';
+import { runModels } from '../engine/run.js';
+import { callout, card, grid, initPage, runButton, table, tiles, toolbarNumber } from '../ui.js';
 
 const page = initPage({
   id: 'audience',
@@ -18,7 +18,7 @@ const page = initPage({
 const classSize = toolbarNumber(page, 'class size', 25, { step: 1, width: 60 });
 const minutes = toolbarNumber(page, 'session (min)', 50, { step: 5, width: 60 });
 
-modelButton(page, 'Run', async (spec) => {
+runButton(page, 'Run', async (spec) => {
   const { results: [one, community, isp], note } = await runModels([
     ['audience', { ...spec, audience: { classSize: classSize(), sessionMinutes: minutes() } }],
     ['community', spec],

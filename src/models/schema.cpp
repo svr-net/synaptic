@@ -9,14 +9,14 @@
 // Recalling AND from a cue is the chance of the equator point dilated by
 // gain · (activation of AND − threshold). Jobs: (plain, primed) × the cue concept.
 #include "syn/models/models.hpp"
-#include "syn/kernel/agent.hpp"
 
-SYN_AGENT(schema_agent,
+// The agent program, in WGSL.
+constexpr const char* schema_agent = R"wgsl(
   let primed = J(0u) > f32(0.5);
   let cue = u32(J(1u));
-  ARR(w, f32, 121);
+  var w : array<f32, 121>;
   for (var i = 0u; i < 100u; i = i + 1u) { w[(i / 10u) * 11u + i % 10u] = P(i); }
-  ARR(act, V5, 11);
+  var act : array<V5, 11>;
   var degree = f32(0);
   for (var phase = 0u; phase < 2u; phase = phase + 1u) {
     for (var i = 0u; i < 11u; i = i + 1u) { act[i] = atChance(f32(0), kA); }
@@ -55,7 +55,7 @@ SYN_AGENT(schema_agent,
   stat(0u, chance(shift(equator(kA), P(104u) * (chance(act[10]) - P(103u)))));
   for (var j = 0u; j < 10u; j = j + 1u) { stat(1u + j, w[110u + j]); }
   stat(11u, degree);
-)
+)wgsl";
 
 namespace syn::models {
 
@@ -70,7 +70,7 @@ const kernel::Model* schemaModel() {
     m.name = "schema";
     m.title = "Schemas: spreading activation and encoding a new concept with prior knowledge";
     m.maxStats = 12;
-    SYN_USE_AGENT(m, schema_agent);
+    m.agentSource = schema_agent;
     m.compile = [](const Value& spec) {
       const Value& c = spec.sub("schema");
       std::vector<double> params(105, 0.0);

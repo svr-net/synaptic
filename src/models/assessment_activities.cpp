@@ -13,9 +13,9 @@
 #include <string>
 
 #include "syn/models/models.hpp"
-#include "syn/kernel/agent.hpp"
 
-SYN_AGENT(activities_agent,
+// The agent program, in WGSL.
+constexpr const char* activities_agent = R"wgsl(
   if (J(0u) < f32(0.5)) {
     let outcome = J(1u);
     let writing = J(2u);
@@ -54,7 +54,7 @@ SYN_AGENT(activities_agent,
     let satisfaction = f32(0.25) * l + kLogisticUnit * logisticOf(U(7u));
     stat(0u, l);
     stat(1u, l * l);
-    ARR(signals, f32, 4);
+    var signals : array<f32, 4>;
     signals[0] = direct;
     signals[1] = grade;
     signals[2] = report;
@@ -65,7 +65,7 @@ SYN_AGENT(activities_agent,
       stat(4u + 3u * k, signals[k] * l);
     }
   }
-)
+)wgsl";
 
 namespace syn::models {
 
@@ -105,7 +105,7 @@ const kernel::Model* assessmentActivitiesModel() {
     m.name = "assessmentActivities";
     m.title = "Choosing assessment activities by alignment, audience and time; assessment vs grades, self-report and satisfaction";
     m.maxStats = 14;
-    SYN_USE_AGENT(m, activities_agent);
+    m.agentSource = activities_agent;
     m.compile = [](const Value& spec) {
       const Value& c = spec.sub("assessment");
       const double minutes = c.num("minutes", 45.0);

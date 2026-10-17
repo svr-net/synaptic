@@ -1,6 +1,6 @@
 import { barChart, fmt, lineChart } from '../charts.js';
-import { modelButton, runModels } from '../engine/run.js';
-import { card, grid, initPage, table, tiles } from '../ui.js';
+import { runModels } from '../engine/run.js';
+import { card, grid, initPage, runButton, table, tiles } from '../ui.js';
 
 const page = initPage({
   id: 'motivation',
@@ -13,7 +13,7 @@ const page = initPage({
     ' <i>In the space:</i> value, self-efficacy and mindset are points; success is a cap test of a dilated attempt; efficacy follows experience by a mixture.',
 });
 
-modelButton(page, 'Run', async (spec) => {
+runButton(page, 'Run', async (spec) => {
   const { results: [r], note } = await runModels([['motivation', spec]], page);
   const none = r.terms[0], all = r.terms[r.terms.length - 1];
   const [ability, , process] = r.mindset;

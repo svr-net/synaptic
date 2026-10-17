@@ -8,16 +8,16 @@
 // Blocked practice only chooses at the first problem of each block. Jobs: blocked, interleaved
 // (the same learners: common random numbers); agents: learners with log-logistic rates.
 #include "syn/models/models.hpp"
-#include "syn/kernel/agent.hpp"
 
-SYN_AGENT(interleaving_agent,
+// The agent program, in WGSL.
+constexpr const char* interleaving_agent = R"wgsl(
   let categories = u32(P(0u));
   let per = u32(P(1u));
   let interleaved = J(0u) > f32(0.5);
   let eta = min(f32(1), P(3u) * exp(P(5u) * kLogisticUnit * logisticOf(U(0u))));
   let delta = P(4u) * exp(P(5u) * kLogisticUnit * logisticOf(U(1u)));
   let guess = f32(1) / f32(categories);
-  ARR(skill, V5, 8);
+  var skill : array<V5, 8>;
   for (var k = 0u; k < categories; k = k + 1u) { skill[k] = atChance(P(2u), kA); }
   var discrimination = atChance(f32(0), kA);
   let n = categories * per;
@@ -35,7 +35,7 @@ SYN_AGENT(interleaving_agent,
   stat(64u, pickTest);
   stat(65u, execution);
   stat(66u, pickTest * execution);
-)
+)wgsl";
 
 namespace syn::models {
 
@@ -45,7 +45,7 @@ const kernel::Model* interleavingModel() {
     m.name = "interleaving";
     m.title = "Blocked and interleaved practice: execution and discrimination as mixtures";
     m.maxStats = 67;
-    SYN_USE_AGENT(m, interleaving_agent);
+    m.agentSource = interleaving_agent;
     m.compile = [](const Value& spec) {
       const Value& c = spec.sub("interleaving");
       const int k = std::max(2, std::min(8, c.integer("categories", 3)));

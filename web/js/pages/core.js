@@ -1,6 +1,6 @@
 import { barChart, fmt, lineChart } from '../charts.js';
-import { modelButton, runModels } from '../engine/run.js';
-import { card, grid, initPage, passFail, table, tiles } from '../ui.js';
+import { runModels } from '../engine/run.js';
+import { card, grid, initPage, passFail, runButton, table, tiles } from '../ui.js';
 
 const page = initPage({
   id: 'core',
@@ -11,11 +11,11 @@ const page = initPage({
     '<b>Scalars are the miniature basis</b>: a probability is not stored but read off a point, chance(X) = 1 + ½·X·L = cos²(φ/2) against the ' +
     'learner L = N + e, so the point of logit x has chance σ(x). Effects that add on the logit scale are <b>dilation versors</b> about the learner; ' +
     'learning-rate updates are <b>mixtures</b> (the reading is linear in them); rotors move content between channels; thresholds and zones are ' +
-    '<b>caps</b>; random quantities are random points. Every model runs as a <b>fused kernel</b> — WebGPU, the same kernel on the CPU in 32-bit ' +
-    'floats, or WebAssembly in 64-bit floats — with the same random numbers, so the engines agree to rounding.',
+    '<b>caps</b>; random quantities are random points. Every model runs as a <b>fused kernel</b> written once in WGSL: on WebGPU, or — with no ' +
+    'GPU — on the library\'s software GPU, which executes the same WGSL on the CPU.',
 });
 
-modelButton(page, 'Run', async (spec) => {
+runButton(page, 'Run', async (spec) => {
   const { results: [r], note } = await runModels([['space', { ...spec, space: { samples: 20000 } }]], page);
   const c = r.checks;
   tiles(page.content, [

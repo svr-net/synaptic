@@ -9,13 +9,13 @@
 // Jobs: 41 levels of safety and belonging (readiness with and without a supportive climate), then
 // one student (as specified) without and with the climate.
 #include "syn/models/models.hpp"
-#include "syn/kernel/agent.hpp"
 
-SYN_AGENT(maslow_agent,
+// The agent program, in WGSL.
+constexpr const char* maslow_agent = R"wgsl(
   let threshold = P(0u);
   let width = P(1u);
   let climate = J(6u);
-  ARR(need, V5, 5);
+  var need : array<V5, 5>;
   for (var k = 0u; k < 5u; k = k + 1u) { need[k] = atChance(J(k), kB); }
   need[1] = raise(need[1], climate * J(7u));
   need[2] = raise(need[2], climate * J(8u));
@@ -30,7 +30,7 @@ SYN_AGENT(maslow_agent,
     if (dominant > f32(4.5) && !inside(need[k], chanceCap(threshold))) { dominant = f32(k); }
   }
   stat(10u, dominant);
-)
+)wgsl";
 
 namespace syn::models {
 
@@ -40,7 +40,7 @@ const kernel::Model* maslowModel() {
     m.name = "maslow";
     m.title = "Maslow's prepotent needs: gates, readiness and a supportive classroom climate";
     m.maxStats = 11;
-    SYN_USE_AGENT(m, maslow_agent);
+    m.agentSource = maslow_agent;
     m.compile = [](const Value& spec) {
       const Value& c = spec.sub("humanism");
       std::vector<std::vector<double>> rows;

@@ -11,9 +11,9 @@
 #include <string>
 
 #include "syn/models/models.hpp"
-#include "syn/kernel/agent.hpp"
 
-SYN_AGENT(memory_agent,
+// The agent program, in WGSL.
+constexpr const char* memory_agent = R"wgsl(
   let horizon = u32(P(0u));
   let testDay = P(1u);
   let restudyFloor = P(3u);
@@ -66,7 +66,7 @@ SYN_AGENT(memory_agent,
       stat(65u, stability);
     }
   }
-)
+)wgsl";
 
 namespace syn::models {
 
@@ -122,7 +122,7 @@ const kernel::Model* memoryModel() {
     m.name = "memory";
     m.title = "Forgetting, retrieval practice and spacing: memory traces turned by rotors";
     m.maxStats = 68;
-    SYN_USE_AGENT(m, memory_agent);
+    m.agentSource = memory_agent;
     m.compile = [](const Value& spec) {
       const Value& c = spec.sub("memory");
       const int horizon = std::min(63, static_cast<int>(std::ceil(c.num("horizon", 45))));

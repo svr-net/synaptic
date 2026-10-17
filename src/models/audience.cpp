@@ -15,9 +15,9 @@
 #include <string>
 
 #include "syn/models/models.hpp"
-#include "syn/kernel/agent.hpp"
 
-SYN_AGENT(audience_agent,
+// The agent program, in WGSL.
+constexpr const char* audience_agent = R"wgsl(
   let classMinutes = J(0u);
   let readTime = J(1u);
   let noise = J(2u);
@@ -50,9 +50,9 @@ SYN_AGENT(audience_agent,
   let m0 = community + priorBias;
   let s02 = priorSd * priorSd;
   let mu = logit(sampleLevel(U(0u), community, P(1u), kA));
-  ARR(theta, f32, 128);
-  ARR(response, f32, 128);
-  ARR(read, u32, 128);
+  var theta : array<f32, 128>;
+  var response : array<f32, 128>;
+  var read : array<u32, 128>;
   var nRead = 0u;
   for (var i = 0u; i < n; i = i + 1u) {
     theta[i] = logit(sampleLevel(U(1u + 3u * i), mu, within, kA));
@@ -80,7 +80,7 @@ SYN_AGENT(audience_agent,
   }
   stat(3u, (estimate - mu) * (estimate - mu));
   stat(4u, abs(estimate - mu));
-  ARR(level, f32, 128);
+  var level : array<f32, 128>;
   for (var i = 0u; i < n; i = i + 1u) { level[i] = estimate + offset; }
   var used = 1u;
   if (individual && groups > 1u && nRead >= groups) {
@@ -121,7 +121,7 @@ SYN_AGENT(audience_agent,
   stat(1u, plainGain / f32(n));
   stat(2u, proximal / f32(n));
   stat(6u, teaching);
-)
+)wgsl";
 
 namespace syn::models {
 
@@ -161,7 +161,7 @@ const kernel::Model* audienceModel() {
     m.name = "audience";
     m.title = "Identifying audience needs: priors, pre-assessment instruments and a one-shot session pitched at the ZPD";
     m.maxStats = 7;
-    SYN_USE_AGENT(m, audience_agent);
+    m.agentSource = audience_agent;
     m.compile = [](const Value& spec) {
       const Value& c = spec.sub("audience");
       const int size = std::max(1, std::min(120, c.integer("classSize", 25)));

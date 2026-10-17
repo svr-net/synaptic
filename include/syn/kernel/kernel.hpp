@@ -9,12 +9,10 @@
 // partials are summed per job, and the model turns the per-job means into its result. Many jobs
 // (designs, seeds, conditions, populations) run in one dispatch.
 //
-// The agent is written once (syn/kernel/agent.hpp) and runs on three engines:
-//   WebGPU        the WGSL kernel on the GPU (32-bit floats);
-//   CPU kernels   the same program compiled as C++ in 32-bit floats, tiles split across workers;
-//   WebAssembly   the same program compiled as C++ in 64-bit floats.
-// All three use the same random numbers (a PCG hash of seed, agent and draw index), so they agree
-// to rounding, not just within Monte Carlo error.
+// The agent is written once, in WGSL, and there is no other implementation of it. Three WGSL
+// kernels (agent, reduce, quantile; see agentKernel) run on a GPU through WebGPU, or — where there
+// is none, and in the native build and its tests — on the software GPU (syn/gpu/software_gpu.hpp),
+// which executes the same WGSL as a GPU does.
 //
 // Kernel limits (WebGPU compatibility mode): 4 storage buffers per stage, 64 invocations per
 // workgroup for the agents, 128 for the quantile kernel, at most kMaxStats statistics per agent.
@@ -69,28 +67,12 @@ struct Output {
   std::vector<double> range(const Plan& p, std::uint32_t job, std::uint32_t first, std::uint32_t n) const;
 };
 
-/** What an agent program sees (the C++ engines; the WGSL driver provides the same names). */
-template <class T>
-struct Ctx {
-  const Plan* plan = nullptr;
-  const float* params = nullptr;
-  const float* row = nullptr;
-  std::uint32_t seed = 0, job = 0, agent = 0;
-  T* stats = nullptr;
-  T* quants = nullptr;
-};
-
-using Agent32 = void (*)(Ctx<float>&);
-using Agent64 = void (*)(Ctx<double>&);
-
-/** A model: how to compile a specification, the agent program and how to read the result. */
+/** A model: how to compile a specification, the agent program (WGSL) and how to read the result. */
 struct Model {
   std::string name;
   std::string title;              ///< one line for the GPU page
   std::uint32_t maxStats = 0;     ///< size of the agent's private statistics array
-  Agent32 agent32 = nullptr;
-  Agent64 agent64 = nullptr;
-  const char* agentSource = nullptr;  ///< the agent program as written (stringified)
+  const char* agentSource = nullptr;  ///< the agent program: the body of fn agent() in WGSL
   std::string helpersWgsl;        ///< model-specific WGSL helper functions (optional)
   std::function<std::vector<Plan>(const Value& spec)> compile;
   std::function<Value(const Value& spec, const std::vector<Plan>& plans, const std::vector<Output>& outputs)> summarise;
@@ -102,39 +84,38 @@ std::vector<const Model*> allModels();
 const std::vector<const Model*>& models();
 const Model& model(const std::string& name);
 
-// ---------------------------------------------------------------- engines
+// ---------------------------------------------------------------- the software GPU
 
-enum class Precision { F32, F64 };
-
-/** The partial sums of a range of (job, workgroup) tiles, as one worker computes them. */
-struct Slice {
-  std::size_t tileBegin = 0, tileEnd = 0;  ///< tile = job · workgroups + workgroup
-  std::vector<double> partials;            ///< [tile − tileBegin][stat]
-  std::vector<float> scratch;              ///< [tile − tileBegin][agent in tile][quantile value]
-};
-
-Slice runTiles(const Plan& plan, std::size_t tileBegin, std::size_t tileEnd, Precision precision);
-/** The reduce and quantile kernels over slices that cover every tile in order. */
-Output finish(const Plan& plan, const std::vector<Slice>& slices);
-/** A whole plan on the CPU. */
-Output runPlan(const Plan& plan, Precision precision);
-
-/** Compile, run every plan on the CPU and summarise. */
-Value run(const std::string& name, const Value& spec, Precision precision = Precision::F64);
-/** The tiles of every plan of a model's specification that worker `part` of `parts` runs. */
-Value runSlices(const std::string& name, const Value& spec, std::size_t part, std::size_t parts);
-/** Summarises slices from runSlices (one array per worker, in worker order). */
+/** One plan on the software GPU: the agent, reduce and quantile kernels, as WebGPU runs them. */
+Output simulate(const Plan& plan);
+/** Compile a model's specification, run every plan on the software GPU and summarise. */
+Value run(const std::string& name, const Value& spec);
+/**
+ * Worker `part` of `parts`: the agent kernel over its share of the workgroups of every plan, on
+ * the software GPU. Returns, per plan, the words it wrote: { scratch, partials } as runs
+ * [offset, values...].
+ */
+Value simulateSlices(const std::string& name, const Value& spec, std::size_t part, std::size_t parts);
+/** Merges the workers' slices (in any order), runs the reduce and quantile kernels and summarises. */
 Value analyseSlices(const std::string& name, const Value& spec, const std::vector<Value>& parts);
 /**
- * Summarises GPU read-backs: one Output per plan (means and quantiles); when a plan keeps agents,
- * `scratch` holds its whole agent-values buffer, [job][agent][value].
+ * Summarises WebGPU read-backs: one Output per plan (means and quantiles); when a plan keeps
+ * agents, `scratch` holds its whole agent-values buffer, [job][agent][value].
  */
 Value analyseOutputs(const std::string& name, const Value& spec, std::vector<Output> outputs,
                      const std::vector<std::vector<double>>& scratch = {});
 
 // ---------------------------------------------------------------- WGSL
 
-/** The agent kernel of a model: space library, random numbers, the agent, the driver. */
+/**
+ * The agent kernel of a model: the space, the random numbers, the agent interface, the agent and
+ * the driver that reduces each workgroup's statistics. Interface of the agent:
+ *   A, JOB, NA, SEED  the agent, its job, the number of agents, the job's seed (u32)
+ *   P(i), J(i)        a model constant, a value of the job's row (f32)
+ *   U(k)              the k-th uniform in (0, 1) of this agent under the job's seed
+ *   jobDraw(s, i, k)  a uniform shared by every agent of the job (fixed sets: test items, raters)
+ *   stat(i, v)        adds v to statistic i;   quant(q, v) keeps value q (in [0, 1]) for quantiles
+ */
 std::string agentKernel(const Model& m);
 /** Sums the workgroup partials of every (job, stat) and divides by the agents. */
 const std::string& reduceKernel();

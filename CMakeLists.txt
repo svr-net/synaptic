@@ -23,8 +23,10 @@ add_library(syn
   src/core/multivector.cpp
   src/core/elliptic_cga.cpp
   src/core/value.cpp
-  src/space/space_wgsl.cpp
+  src/space/space.cpp
   src/kernel/kernel.cpp
+  src/gpu/wgsl_compiler.cpp
+  src/gpu/software_gpu.cpp
   ${SYN_MODEL_SOURCES}
 )
 add_library(syn::syn ALIAS syn)
@@ -71,6 +73,7 @@ if(SYN_BUILD_TESTS)
     tests/test_main.cpp
     tests/test_cga.cpp
     tests/test_space.cpp
+    tests/test_software_gpu.cpp
     tests/test_models.cpp
   )
   target_link_libraries(syn_tests PRIVATE syn)

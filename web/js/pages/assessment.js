@@ -1,6 +1,6 @@
 import { barChart, fmt, lineChart } from '../charts.js';
-import { modelButton, runModels } from '../engine/run.js';
-import { callout, card, grid, initPage, table, tiles, toolbarNumber, toolbarSelect } from '../ui.js';
+import { runModels } from '../engine/run.js';
+import { callout, card, grid, initPage, runButton, table, tiles, toolbarNumber, toolbarSelect } from '../ui.js';
 
 const page = initPage({
   id: 'assessment',
@@ -18,7 +18,7 @@ const AUDIENCES = ['undergraduates', 'high school students', 'older adults (publ
 const minutes = toolbarNumber(page, 'session (min)', 45, { step: 5, width: 60 });
 const audience = toolbarSelect(page, 'audience', AUDIENCES, AUDIENCES[0]);
 
-modelButton(page, 'Run', async (spec) => {
+runButton(page, 'Run', async (spec) => {
   const { results: [activities, sessions, rubrics], note } = await runModels([
     ['assessmentActivities', { ...spec, assessment: { minutes: minutes() } }],
     ['assessmentSession', { ...spec, assessment: { minutes: minutes() } }],

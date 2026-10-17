@@ -1,6 +1,6 @@
 import { barChart, fmt, lineChart } from '../charts.js';
-import { modelButton, runModels } from '../engine/run.js';
-import { callout, card, grid, initPage, table, tiles, toolbarNumber } from '../ui.js';
+import { runModels } from '../engine/run.js';
+import { callout, card, grid, initPage, runButton, table, tiles, toolbarNumber } from '../ui.js';
 
 const page = initPage({
   id: 'behaviorism',
@@ -16,7 +16,7 @@ const page = initPage({
 const salience = toolbarNumber(page, 'CS salience α', 0.3, { step: 0.05 });
 const ratio = toolbarNumber(page, 'schedule ratio / interval', 5, { step: 1 });
 
-modelButton(page, 'Run experiments', async (spec) => {
+runButton(page, 'Run experiments', async (spec) => {
   const { results: [c, o, t], note } = await runModels([
     ['conditioning', { ...spec, conditioning: { salience: salience() } }],
     ['operant', { ...spec, operant: { ratio: ratio(), learners: 200 } }],

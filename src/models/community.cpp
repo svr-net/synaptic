@@ -10,9 +10,9 @@
 #include <string>
 
 #include "syn/models/models.hpp"
-#include "syn/kernel/agent.hpp"
 
-SYN_AGENT(community_agent,
+// The agent program, in WGSL.
+constexpr const char* community_agent = R"wgsl(
   let k = 5u;
   var mask = 0u;
   var effect = f32(0);
@@ -38,7 +38,7 @@ SYN_AGENT(community_agent,
   stat(32u + 3u * mask, f32(1));
   stat(33u + 3u * mask, theta);
   stat(34u + 3u * mask, measured);
-)
+)wgsl";
 
 namespace syn::models {
 
@@ -57,7 +57,7 @@ const kernel::Model* communityModel() {
     m.name = "community";
     m.title = "Community data: labels, intersections and pre-assessment as predictors; minimum cell sizes";
     m.maxStats = 128;
-    SYN_USE_AGENT(m, community_agent);
+    m.agentSource = community_agent;
     m.compile = [](const Value& spec) {
       const Value& c = spec.sub("community");
       std::vector<double> params = {c.num("individualSd", 0.9), c.num("measurementNoise", 0.6)};

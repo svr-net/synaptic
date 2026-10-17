@@ -1,5 +1,5 @@
 import { fmt, histogram, lineChart, scatterChart } from '../charts.js';
-import { engineNote, engineSelector, runModel } from '../engine/run.js';
+import { engineNote, runModel } from '../engine/run.js';
 import { card, grid, initPage, runButton, specEditor, table, tiles } from '../ui.js';
 
 const page = initPage({
@@ -15,11 +15,11 @@ const page = initPage({
 });
 specEditor(page, ['population', 'course', 'design', 'simulation'], { open: true });
 
-const button = runButton(page, 'Run the course', async (spec) => {
+runButton(page, 'Run the course', async (spec) => {
   const t0 = performance.now();
   const runResult = await runModel('classroom', spec);
   const r = runResult.result;
-  window.__synEngineRun = { page: 'classroom', engine: runResult.engine, delayedScore: r.delayedScore, endScore: r.endScore, equityGap: r.equityGap };
+  window.__synEngineRun = { page: 'classroom', engine: runResult.label, delayedScore: r.delayedScore, endScore: r.endScore, equityGap: r.equityGap };
   tiles(page.content, [
     { label: 'Score after the course', value: fmt.num(r.endScore, 3), hint: `day ${fmt.num(r.lastSessionDay + 1)}` },
     { label: 'Score at the delayed test', value: fmt.num(r.delayedScore, 3), hint: `day ${fmt.num(r.delayedTestDay)}; retention ${fmt.pct(r.retention, 0)}` },
@@ -57,4 +57,3 @@ const button = runButton(page, 'Run the course', async (spec) => {
     idx.map((k) => [fmt.num(days[k]), fmt.num(r.score.mean[k], 3), fmt.num(r.score.q10[k], 3), fmt.num(r.score.q50[k], 3), fmt.num(r.score.q90[k], 3), fmt.pct(r.score.atRisk[k], 0), fmt.num(r.recall.mean[k], 3)]));
   return engineNote(runResult, performance.now() - t0);
 });
-engineSelector(page, () => button.click());

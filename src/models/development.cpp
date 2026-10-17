@@ -14,14 +14,14 @@
 #include <string>
 
 #include "syn/models/models.hpp"
-#include "syn/kernel/agent.hpp"
 
-SYN_AGENT(development_agent,
+// The agent program, in WGSL.
+constexpr const char* development_agent = R"wgsl(
   let kind = J(0u);
   if (kind < f32(0.5)) {
     let age = J(1u);
     let spread = P(0u) * kLogisticUnit;
-    ARR(reached, f32, 5);
+    var reached : array<f32, 5>;
     reached[0] = f32(1);
     for (var k = 1u; k < 4u; k = k + 1u) { reached[k] = chance(atLogit((age - P(k)) / spread, kA)); }
     reached[4] = f32(0);
@@ -46,8 +46,8 @@ SYN_AGENT(development_agent,
     let wAuthority = P(16u + 3u * position);
     let wPersonal = P(17u + 3u * position);
     let wEvidence = P(18u + 3u * position);
-    ARR(quality, f32, 8);
-    ARR(judged, f32, 8);
+    var quality : array<f32, 8>;
+    var judged : array<f32, 8>;
     for (var s = 0u; s < 8u; s = s + 1u) {
       let q = sampleLevel(U(4u * s), f32(0), f32(1), kA);
       let z = kLogisticUnit * logisticOf(U(4u * s + 1u));
@@ -68,7 +68,7 @@ SYN_AGENT(development_agent,
     }
     stat(0u, agree / pairs);
   }
-)
+)wgsl";
 
 namespace syn::models {
 
@@ -97,7 +97,7 @@ const kernel::Model* developmentModel() {
     m.name = "development";
     m.title = "Piaget's stages by age and activity fit; Perry's positions and judging sources";
     m.maxStats = 68;
-    SYN_USE_AGENT(m, development_agent);
+    m.agentSource = development_agent;
     m.compile = [](const Value& spec) {
       const Value& c = spec.sub("development");
       const int terms = std::min(15, c.integer("terms", 8));

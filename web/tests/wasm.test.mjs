@@ -1,6 +1,6 @@
-// Node test of the WebAssembly module: every model through the generic entry points, on the
-// pages' default specification, with the checks the chapters make; the GPU plans and read-back
-// path; and the CPU kernel slices against a single WebAssembly run.
+// Node test of the WebAssembly module: every model on the software GPU through the generic entry
+// points, on the pages' default specification, with the checks the chapters make; the plans for
+// WebGPU; and the software GPU split across workers against one run.
 //   node web/tests/wasm.test.mjs
 import createSynModule from '../wasm/syn.js';
 import { THEORY_PRESETS, defaultSpec } from '../js/spec.js';
@@ -37,7 +37,7 @@ const space = model('space', { ...spec, space: { samples: 20000 } });
 if (space) for (const [k, v] of Object.entries(space.checks)) check(v < 1e-2, `space check ${k}: ${v}`);
 const cond = model('conditioning');
 if (cond) {
-  near(cond.pavlov[cond.acquisitionTrials - 1], cond.closedForm[cond.acquisitionTrials - 1], 1e-9, 'Rescorla–Wagner closed form');
+  near(cond.pavlov[cond.acquisitionTrials - 1], cond.closedForm[cond.acquisitionTrials - 1], 1e-6, 'Rescorla–Wagner closed form');
   check(cond.blocking.blockedTone < 0.2 * cond.blocking.controlToneFinal, 'Kamin blocking');
 }
 const op = model('operant');
@@ -117,14 +117,12 @@ if (sens) check(sens.varianceReduction > 5, `CRN variance reduction ${sens.varia
 const plans = call('modelPlans classroom', () => syn.modelPlans({ ...small, model: 'classroom' }));
 if (plans) check(plans.length > 0 && plans.every((p) => p.header.length === 8 && p.seeds.length === p.jobs), 'classroom plans');
 
-// CPU kernels: three workers' slices, summarised, against one WebAssembly run (32- vs 64-bit floats).
+// The software GPU split across three workers (in any order) gives exactly one run's result.
 for (const name of ['classroom', 'memory', 'rubric']) {
-  const parts = [0, 1, 2].map((part) => syn.modelSlices({ ...small, model: name, part, parts: 3 }));
-  const sliced = call(`modelAnalyseSlices ${name}`, () => syn.modelAnalyseSlices({ ...small, model: name, parts }));
+  const parts = [2, 0, 1].map((part) => syn.simulateSlices({ ...small, model: name, part, parts: 3 }));
+  const sliced = call(`analyseSlices ${name}`, () => syn.analyseSlices({ ...small, model: name, parts }));
   const whole = syn.runModel({ ...small, model: name });
-  if (sliced && name === 'classroom') near(sliced.delayedScore, whole.delayedScore, 2e-3, 'CPU kernels vs WebAssembly delayed score');
-  if (sliced && name === 'memory') near(sliced.plans[3].recallAtTest, whole.plans[3].recallAtTest, 2e-3, 'CPU kernels vs WebAssembly recall');
-  if (sliced && name === 'rubric') near(sliced.rubrics[3].private.kappa, whole.rubrics[3].private.kappa, 5e-3, 'CPU kernels vs WebAssembly kappa');
+  if (sliced) check(JSON.stringify(sliced) === JSON.stringify(whole), `${name}: three workers = one run`);
 }
 
 const bad = syn.runModel({ ...spec, model: 'classroom', course: { ...spec.course, sessions: 200 } });

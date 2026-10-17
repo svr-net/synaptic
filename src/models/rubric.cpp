@@ -17,9 +17,9 @@
 #include <string>
 
 #include "syn/models/models.hpp"
-#include "syn/kernel/agent.hpp"
 
-SYN_AGENT(rubric_agent,
+// The agent program, in WGSL.
+constexpr const char* rubric_agent = R"wgsl(
   if (J(0u) < f32(0.5)) {
     let kind = J(1u);
     let sharedRubric = J(2u) > f32(0.5);
@@ -30,14 +30,17 @@ SYN_AGENT(rubric_agent,
     let quality = shift(sampleLevel(U(0u), f32(0), f32(1), kA), select(f32(0), qualityGain, sharedRubric));
     let q = logit(quality);
     let count = max(f32(0), floor(f32(4) + f32(1.2) * (f32(0.35) * q + f32(0.94) * kLogisticUnit * logisticOf(U(1u))) + select(f32(0), countGain, sharedRubric) + f32(0.5)));
-    ARR(level, u32, 4);
+    var level : array<u32, 4>;
     for (var r = 0u; r < 4u; r = r + 1u) {
       let z = kLogisticUnit * logisticOf(U(2u + r));
-      var seen = shift(quality, J(8u + r) + noise * z);
+      // Rater r's severity and level boundaries: fixed draws shared by every work of the job.
+      let severity = J(8u) * kLogisticUnit * logisticOf(jobDraw(0xBA7Eu, r, 0u));
+      var seen = shift(quality, severity + noise * z);
       if (kind > f32(1.5) && kind < f32(2.5)) { seen = atLogit((count - f32(4)) / f32(1.2) + noise * z, kA); }
       var lv = 0u;
-      for (var k = 0u; k + 1u < levels; k = k + 1u) {
-        if (logit(seen) > J(12u + r * 9u + k)) { lv = lv + 1u; }
+      for (var k = 1u; k < levels; k = k + 1u) {
+        let edge = f32(-1.2) + f32(2.4) * f32(k) / f32(levels) + J(9u) * kLogisticUnit * logisticOf(jobDraw(0xBA7Eu, r, 1u + k));
+        if (logit(seen) > edge) { lv = lv + 1u; }
       }
       level[r] = lv;
       stat(6u + r * 10u + lv, f32(1));
@@ -78,7 +81,7 @@ SYN_AGENT(rubric_agent,
       }
     }
   }
-)
+)wgsl";
 
 namespace syn::models {
 
@@ -87,19 +90,10 @@ const char* kKinds[4] = {"no rubric", "vague rubric", "quantified rubric", "prec
 // severity sd, noise, boundary jitter, quality gain when shared, references added when shared
 const double kRaters[4][5] = {{0.5, 0.6, 0.4, 0.0, 0.0}, {0.3, 0.45, 0.35, 0.1, 0.0}, {0.0, 0.05, 0.0, 0.0, 1.5}, {0.1, 0.25, 0.08, 0.3, 0.0}};
 
-// Job row: kind 0, rubric kind, shared, levels, noise, quality gain, count gain, 0, severities (4),
-// boundaries (4 raters × 9).
-std::vector<double> rubricRow(int kind, bool shared, int levels, std::uint32_t seed) {
-  std::vector<double> r = {0, double(kind), shared ? 1.0 : 0.0, double(levels), kRaters[kind][1], kRaters[kind][3], kRaters[kind][4], 0};
-  for (std::uint32_t k = 0; k < 4; ++k) r.push_back(kRaters[kind][0] * logisticDraw(seed ^ 0xBA7Eu, k, 0));
-  for (std::uint32_t k = 0; k < 4; ++k) {
-    std::vector<double> b;
-    for (int j = 1; j < levels; ++j) b.push_back(-1.2 + 2.4 * j / levels + kRaters[kind][2] * logisticDraw(seed ^ 0xBA7Eu, k, 1 + j));
-    std::sort(b.begin(), b.end());
-    b.resize(9, 1e6);
-    r.insert(r.end(), b.begin(), b.end());
-  }
-  return r;
+// Job row: 0, rubric kind, shared, levels, noise, quality gain when shared, count gain when shared,
+// 0, raters' severity sd, boundary jitter.
+std::vector<double> rubricRow(int kind, bool shared, int levels) {
+  return {0, double(kind), shared ? 1.0 : 0.0, double(levels), kRaters[kind][1], kRaters[kind][3], kRaters[kind][4], 0, kRaters[kind][0], kRaters[kind][2]};
 }
 }  // namespace
 
@@ -109,14 +103,14 @@ const kernel::Model* rubricModel() {
     m.name = "rubric";
     m.title = "Rubrics: rater agreement and validity; self-assessment and feedback";
     m.maxStats = 84;
-    SYN_USE_AGENT(m, rubric_agent);
+    m.agentSource = rubric_agent;
     m.compile = [](const Value& spec) {
       const Value& c = spec.sub("rubric");
       const std::uint32_t seed = seedOf(spec);
       std::vector<std::vector<double>> rows;
       for (int kind = 0; kind < 4; ++kind)
-        for (bool shared : {false, true}) rows.push_back(rubricRow(kind, shared, 3, seed));
-      for (int levels = 2; levels <= 6; ++levels) rows.push_back(rubricRow(3, false, levels, seed));
+        for (bool shared : {false, true}) rows.push_back(rubricRow(kind, shared, 3));
+      for (int levels = 2; levels <= 6; ++levels) rows.push_back(rubricRow(3, false, levels));
       std::vector<std::vector<double>> self;
       for (double f : {0.0, 1.0}) {
         std::vector<double> r(rows[0].size(), 0.0);

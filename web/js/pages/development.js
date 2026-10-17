@@ -1,6 +1,6 @@
 import { barChart, fmt, lineChart } from '../charts.js';
-import { modelButton, runModels } from '../engine/run.js';
-import { card, el, grid, initPage, table, tiles, toolbarNumber } from '../ui.js';
+import { runModels } from '../engine/run.js';
+import { card, el, grid, initPage, runButton, table, tiles, toolbarNumber } from '../ui.js';
 
 const page = initPage({
   id: 'development',
@@ -15,7 +15,7 @@ const page = initPage({
 
 const onsetSd = toolbarNumber(page, 'stage onset spread (years)', 0.9, { step: 0.1 });
 
-modelButton(page, 'Run', async (spec) => {
+runButton(page, 'Run', async (spec) => {
   const { results: [r], note } = await runModels([['development', { ...spec, development: { onsetSd: onsetSd() } }]], page);
   const ages = Array.from(r.ages);
   const at = (age) => ages.findIndex((a) => Math.abs(a - age) < 1e-9);

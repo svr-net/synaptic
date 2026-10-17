@@ -8,9 +8,9 @@
 // towards zero: the undermining effect); unrewarded engagement after the points stop lowers the
 // habit. Agents: students; one job.
 #include "syn/models/models.hpp"
-#include "syn/kernel/agent.hpp"
 
-SYN_AGENT(token_agent,
+// The agent program, in WGSL.
+constexpr const char* token_agent = R"wgsl(
   let days = u32(P(0u));
   let start = u32(P(1u));
   let stop = u32(P(2u));
@@ -41,7 +41,7 @@ SYN_AGENT(token_agent,
     stat(192u + d, logit(interest));
   }
   stat(256u, f32(high));
-)
+)wgsl";
 
 namespace syn::models {
 
@@ -51,7 +51,7 @@ const kernel::Model* tokenEconomyModel() {
     m.name = "tokenEconomy";
     m.title = "A classroom point system: engagement, habit and the undermining of intrinsic interest";
     m.maxStats = 257;
-    SYN_USE_AGENT(m, token_agent);
+    m.agentSource = token_agent;
     m.compile = [](const Value& spec) {
       const Value& c = spec.sub("tokens");
       const int days = std::min(64, c.integer("days", 60));

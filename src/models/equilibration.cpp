@@ -8,13 +8,14 @@
 // unless the learner avoids the discomfort; past a threshold the learner accommodates, building
 // a new schema at the centre of the conflicting experiences (the direction of the sum of their
 // null vectors), named by the feedback received. Jobs: feedback and avoidance conditions;
-// agents: children; accuracy on a fixed test set of 100 dogs and cats after each observation.
+// agents: children; accuracy on a fixed test set of 100 dogs and cats (drawn in the kernel, the same
+// for every agent) after each observation.
 #include <cmath>
 
 #include "syn/models/models.hpp"
-#include "syn/kernel/agent.hpp"
 
-SYN_AGENT(equilibration_agent,
+// The agent program, in WGSL.
+constexpr const char* equilibration_agent = R"wgsl(
   let n = u32(P(0u));
   let catsFrom = u32(P(1u));
   let catShare = P(2u);
@@ -26,15 +27,22 @@ SYN_AGENT(equilibration_agent,
   let threshold = P(8u);
   let feedback = J(0u);
   let avoidance = J(1u);
-  ARR(test, V5, 100);
-  for (var k = 0u; k < 100u; k = k + 1u) { test[k] = lift(P(16u + 4u * k), P(17u + 4u * k), P(18u + 4u * k), scale); }
-  ARR(proto, V5, 8);
-  ARR(label, f32, 8);
+  var test : array<V5, 100>;
+  // A fixed test set of 50 dogs and 50 cats (odd items), the same for every agent and job.
+  for (var k = 0u; k < 100u; k = k + 1u) {
+    let cat = (k % 2u) == 1u;
+    let kind = select(f32(0), f32(1), cat);
+    test[k] = lift(select(f32(1), f32(0.3), cat) + noise * kLogisticUnit * logisticOf(jobDraw(0x7e57u, k, 0u)),
+                   kind + noise * kLogisticUnit * logisticOf(jobDraw(0x7e57u, k, 1u)),
+                   kind + noise * kLogisticUnit * logisticOf(jobDraw(0x7e57u, k, 2u)), scale);
+  }
+  var proto : array<V5, 8>;
+  var label : array<f32, 8>;
   proto[0] = lift(f32(1), f32(0), f32(0), scale);
   label[0] = f32(0);
   var count = 1u;
-  ARR(sums, V5, 3);
-  ARR(votes, f32, 3);
+  var sums : array<V5, 3>;
+  var votes : array<f32, 3>;
   for (var k = 0u; k < 3u; k = k + 1u) { sums[k] = v5(f32(0), f32(0), f32(0), f32(0), f32(0)); }
   var d = f32(0);
   for (var t = 0u; t < n; t = t + 1u) {
@@ -102,14 +110,14 @@ SYN_AGENT(equilibration_agent,
         let dd = dot5(test[k], proto[i]);
         if (dd > top) { top = dd; nearest = i; }
       }
-      if (label[nearest] == P(19u + 4u * k)) { correct = correct + f32(1); }
+      if (label[nearest] == f32(k % 2u)) { correct = correct + f32(1); }
     }
     stat(t, d);
     stat(128u + t, correct / f32(100));
     stat(256u + t, f32(count));
     stat(384u + t, f32(named));
   }
-)
+)wgsl";
 
 namespace syn::models {
 
@@ -119,23 +127,13 @@ const kernel::Model* equilibrationModel() {
     m.name = "equilibration";
     m.title = "Piaget's equilibration: assimilation by rotors, accommodation at the centre of conflicts";
     m.maxStats = 516;
-    SYN_USE_AGENT(m, equilibration_agent);
+    m.agentSource = equilibration_agent;
     m.compile = [](const Value& spec) {
       const Value& c = spec.sub("equilibration");
       const int n = std::min(128, c.integer("observations", 120));
       const double noise = c.num("noise", 0.35);
       std::vector<double> params = {double(n), double(c.integer("catsFrom", 20)), c.num("catShare", 0.5), noise, c.num("featureScale", 2.0),
                                     c.num("radius", 1.25), c.num("learningRate", 0.08), c.num("persistence", 0.7), c.num("threshold", 0.45)};
-      params.resize(16, 0.0);
-      // A fixed test set of 50 dogs and 50 cats.
-      const std::uint32_t testSeed = seedOf(spec) ^ 0x7e57u;
-      for (std::uint32_t i = 0; i < 100; ++i) {
-        const bool cat = i % 2 == 1;
-        params.push_back((cat ? 0.3 : 1.0) + noise * logisticDraw(testSeed, i, 0));
-        params.push_back((cat ? 1.0 : 0.0) + noise * logisticDraw(testSeed, i, 1));
-        params.push_back((cat ? 1.0 : 0.0) + noise * logisticDraw(testSeed, i, 2));
-        params.push_back(cat ? 1.0 : 0.0);
-      }
       const double feedback = c.num("feedback", 0.3);
       const std::vector<std::vector<double>> rows = {{0.0, 0.0}, {feedback, 0.0}, {1.0, 0.0}, {feedback, c.num("avoidance", 0.7)}};
       return std::vector<Plan>{makePlan("equilibration", static_cast<std::uint32_t>(c.integer("learners", 200)), 516, params, rows, seedOf(spec))};

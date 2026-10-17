@@ -8,9 +8,9 @@
 // deepens the explainer's own understanding — all mixtures of their points. Jobs: grouping ×
 // inclusivity; agents: classes.
 #include "syn/models/models.hpp"
-#include "syn/kernel/agent.hpp"
 
-SYN_AGENT(dialogue_agent,
+// The agent program, in WGSL.
+constexpr const char* dialogue_agent = R"wgsl(
   let n = 32u;
   let size = u32(P(0u));
   let sessions = u32(P(1u));
@@ -20,10 +20,10 @@ SYN_AGENT(dialogue_agent,
   let penalty = P(5u);
   let grouping = J(0u);
   let inclusion = clamp(J(1u), f32(0), f32(1));
-  ARR(u, V5, 32);
-  ARR(capital, V5, 32);
-  ARR(high, f32, 32);
-  ARR(sorted, f32, 32);
+  var u : array<V5, 32>;
+  var capital : array<V5, 32>;
+  var high : array<f32, 32>;
+  var sorted : array<f32, 32>;
   for (var i = 0u; i < n; i = i + 1u) {
     capital[i] = sampleShare(U(2u * i), P(8u), P(9u), kC);
     u[i] = atChance(P(6u) + P(7u) * chance(capital[i]) + f32(0.08) * kLogisticUnit * logisticOf(U(2u * i + 1u)), kA);
@@ -41,8 +41,8 @@ SYN_AGENT(dialogue_agent,
     high[i] = select(f32(0), f32(1), chance(capital[i]) > median);
     nHigh = nHigh + high[i];
   }
-  ARR(order, u32, 32);
-  ARR(group, u32, 32);
+  var order : array<u32, 32>;
+  var group : array<u32, 32>;
   for (var s = 0u; s <= sessions; s = s + 1u) {
     if (s > 0u) {
       var before = u;
@@ -103,7 +103,7 @@ SYN_AGENT(dialogue_agent,
     stat(64u + s, select(f32(0), (total - hi) / (f32(n) - nHigh), nHigh < f32(n)));
     stat(96u + s, sqrt(max(f32(0), (sq - f32(n) * mean * mean) / f32(n - 1u))));
   }
-)
+)wgsl";
 
 namespace syn::models {
 
@@ -113,7 +113,7 @@ const kernel::Model* dialogueModel() {
     m.name = "dialogue";
     m.title = "Peer dialogue and cultural capital: classes of learners moved by mixtures";
     m.maxStats = 128;
-    SYN_USE_AGENT(m, dialogue_agent);
+    m.agentSource = dialogue_agent;
     m.compile = [](const Value& spec) {
       const Value& c = spec.sub("dialogue");
       const int sessions = std::min(31, c.integer("sessions", 20));

@@ -3,11 +3,12 @@
 //   version()             { library, models }
 //   models()              [{ name, title }]
 //   kernelSources({model}) { agent, reduce, quantile }   WGSL sources
-//   runModel({model, ...}) the result, on WebAssembly (64-bit floats)
-//   modelPlans({model, ...})  the GPU plans: buffers, dispatch sizes, buffer sizes
-//   modelAnalyse({model, ..., outputs: [{means, quantiles}]})   the result from GPU read-backs
-//   modelSlices({model, ..., part, parts})                     CPU kernel tiles (32-bit floats)
-//   modelAnalyseSlices({model, ..., parts: [slices of every worker]})
+//   modelPlans({model, ...})  the plans for WebGPU: buffers, dispatch sizes, buffer sizes
+//   modelAnalyse({model, ..., outputs: [{means, quantiles}]})   the result from WebGPU read-backs
+// and, where there is no GPU, the same kernels on the software GPU:
+//   simulateSlices({model, ..., part, parts})  worker `part`'s share of the agent kernel
+//   analyseSlices({model, ..., parts: [slices of every worker]})  reduce, quantiles, summary
+//   runModel({model, ...})  all of it in one call (one worker)
 // Specifications and results are syn::Value trees converted to and from plain JavaScript.
 // Errors are returned as { error } rather than thrown across the boundary.
 
@@ -123,7 +124,7 @@ val kernelSources(val spec) {
 val runModel(val spec) {
   try {
     const Value s = fromJs(spec);
-    return toJs(syn::kernel::run(modelName(s), s, syn::kernel::Precision::F64));
+    return toJs(syn::kernel::run(modelName(s), s));
   } catch (const std::exception& e) {
     return errorOf(e.what());
   }
@@ -182,16 +183,16 @@ val modelAnalyse(val spec) {
   }
 }
 
-val modelSlices(val spec) {
+val simulateSlices(val spec) {
   try {
     const Value s = fromJs(spec);
-    return toJs(syn::kernel::runSlices(modelName(s), s, static_cast<std::size_t>(s.num("part", 0)), static_cast<std::size_t>(s.num("parts", 1))));
+    return toJs(syn::kernel::simulateSlices(modelName(s), s, static_cast<std::size_t>(s.num("part", 0)), static_cast<std::size_t>(s.num("parts", 1))));
   } catch (const std::exception& e) {
     return errorOf(e.what());
   }
 }
 
-val modelAnalyseSlices(val spec) {
+val analyseSlices(val spec) {
   try {
     const Value s = fromJs(spec);
     std::vector<Value> parts;
@@ -218,6 +219,6 @@ EMSCRIPTEN_BINDINGS(syn) {
   emscripten::function("runModel", &runModel);
   emscripten::function("modelPlans", &modelPlans);
   emscripten::function("modelAnalyse", &modelAnalyse);
-  emscripten::function("modelSlices", &modelSlices);
-  emscripten::function("modelAnalyseSlices", &modelAnalyseSlices);
+  emscripten::function("simulateSlices", &simulateSlices);
+  emscripten::function("analyseSlices", &analyseSlices);
 }

@@ -12,9 +12,9 @@
 #include <string>
 
 #include "syn/models/models.hpp"
-#include "syn/kernel/agent.hpp"
 
-SYN_AGENT(andragogy_agent,
+// The agent program, in WGSL.
+constexpr const char* andragogy_agent = R"wgsl(
   if (J(0u) < f32(0.5)) {
     let learner = u32(J(1u));
     let mixing = J(2u);
@@ -33,8 +33,8 @@ SYN_AGENT(andragogy_agent,
     let objectives = u32(P(44u));
     let input = clamp(J(1u), f32(0), f32(1));
     let noise = P(45u) * (f32(1) - f32(0.6) * input) * (f32(1) - f32(0.4) * input);
-    ARR(gap, V5, 8);
-    ARR(diagnosed, f32, 8);
+    var gap : array<V5, 8>;
+    var diagnosed : array<f32, 8>;
     var total = f32(0);
     for (var j = 0u; j < competencies; j = j + 1u) {
       let g = max(f32(0), f32(1) + f32(0.6) * kLogisticUnit * logisticOf(U(j)));
@@ -47,7 +47,7 @@ SYN_AGENT(andragogy_agent,
         diagnosed[j] = f32(4) * chance(gap[j]) + noise * kLogisticUnit * logisticOf(U(100u + c * 16u + j));
       }
       var hits = f32(0);
-      ARR(chosen, u32, 8);
+      var chosen : array<u32, 8>;
       for (var a = 0u; a < objectives; a = a + 1u) {
         var best = 0u;
         var top = f32(-1e30);
@@ -71,7 +71,7 @@ SYN_AGENT(andragogy_agent,
       stat(9u + c, sum / f32(competencies));
     }
   }
-)
+)wgsl";
 
 namespace syn::models {
 
@@ -90,7 +90,7 @@ const kernel::Model* andragogyModel() {
     m.name = "andragogy";
     m.title = "Andragogy: engagement as dilations by assumptions × design; the needs-diagnosis cycle";
     m.maxStats = 24;
-    SYN_USE_AGENT(m, andragogy_agent);
+    m.agentSource = andragogy_agent;
     m.compile = [](const Value& spec) {
       const Value& c = spec.sub("andragogy");
       std::vector<double> params = {0.4, 0.05, 0.05, 0.1, 0.05, 0.0, 0.25, 0.45, 0.3, 0.35, 0.35, 0.35, 0.25};

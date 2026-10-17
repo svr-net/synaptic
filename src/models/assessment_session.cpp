@@ -16,9 +16,9 @@
 #include <string>
 
 #include "syn/models/models.hpp"
-#include "syn/kernel/agent.hpp"
 
-SYN_AGENT(session_agent,
+// The agent program, in WGSL.
+constexpr const char* session_agent = R"wgsl(
   let isCycle = J(0u) > f32(0.5);
   let formative = select(J(1u), f32(0), isCycle);
   let summative = !isCycle && J(2u) > f32(0.5);
@@ -43,14 +43,14 @@ SYN_AGENT(session_agent,
   let checkMinutes = select(select(f32(0), f32(1), checking), f32(2), formative > f32(1.5));
   let assessMinutes = checkMinutes * f32(chunks) + select(f32(0), f32(5), summative);
   let nominal = minutes / f32(chunks);
-  ARR(clarity, f32, 8);
+  var clarity : array<f32, 8>;
   for (var j = 0u; j < chunks; j = j + 1u) { clarity[j] = P(24u + j); }
   var difficulty = P(9u);
-  ARR(theta, f32, 32);
-  ARR(prev, f32, 32);
-  ARR(m, f32, 32);
-  ARR(c, f32, 8);
-  ARR(chunkMet, f32, 8);
+  var theta : array<f32, 32>;
+  var prev : array<f32, 32>;
+  var m : array<f32, 32>;
+  var c : array<f32, 8>;
+  var chunkMet : array<f32, 8>;
   for (var o = 0u; o < offerings; o = o + 1u) {
     for (var j = 0u; j < chunks; j = j + 1u) { chunkMet[j] = f32(0); }
     var metSum = f32(0);
@@ -149,7 +149,7 @@ SYN_AGENT(session_agent,
       let k0 = 900000u + o * 16u;
       var estMet = f32(-1);
       if (evidence > f32(0.5)) {
-        ARR(measured, f32, 8);
+        var measured : array<f32, 8>;
         for (var j = 0u; j < chunks; j = j + 1u) {
           let z = kLogisticUnit * logisticOf(U(k0 + j));
           var x = chunkMet[j] + f32(0.03) * z;
@@ -170,7 +170,7 @@ SYN_AGENT(session_agent,
       stat(64u + o, estMet);
     }
   }
-)
+)wgsl";
 
 namespace syn::models {
 
@@ -180,7 +180,7 @@ const kernel::Model* assessmentSessionModel() {
     m.name = "assessmentSession";
     m.title = "Formative and summative assessment in a session; the assessment cycle over offerings";
     m.maxStats = 80;
-    SYN_USE_AGENT(m, session_agent);
+    m.agentSource = session_agent;
     m.compile = [](const Value& spec) {
       const Value& c = spec.sub("assessment");
       const int size = std::max(2, std::min(32, c.integer("classSize", 25)));

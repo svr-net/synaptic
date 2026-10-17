@@ -34,9 +34,9 @@
 #include <string>
 
 #include "syn/models/models.hpp"
-#include "syn/kernel/agent.hpp"
 
-SYN_AGENT(classroom_agent,
+// The agent program, in WGSL.
+constexpr const char* classroom_agent = R"wgsl(
   let nS = u32(P(36u));
   let nD = u32(P(37u));
   let endIdx = u32(P(38u));
@@ -79,9 +79,9 @@ SYN_AGENT(classroom_agent,
   var persistence = atChance(f32(0.6), kB);
   var discrimination = atChance(f32(1) - exp(f32(-0.6)), kA);
   var engaged = true;
-  ARR(learned, V5, 16);
-  ARR(stab, f32, 16);
-  ARR(last, f32, 16);
+  var learned : array<V5, 16>;
+  var stab : array<f32, 16>;
+  var last : array<f32, 16>;
   var units = 0u;
   var nextDay = 0u;
   var endScore = f32(0);
@@ -222,7 +222,7 @@ SYN_AGENT(classroom_agent,
     quant(nD + 1u, delayed);
     quant(nD + 2u, chance(atLogit(f32(0.5) * (logit(ability) - start), kA)));
   }
-)
+)wgsl";
 
 namespace syn::models {
 
@@ -494,7 +494,7 @@ Allocation allocationOf(const Value& spec) {
     std::vector<int> order(m);
     std::iota(order.begin(), order.end(), 0);
     for (int i = static_cast<int>(m) - 1; i > 0; --i)
-      std::swap(order[i], order[std::min(i, static_cast<int>(kernel::uniform<double>(7u, static_cast<std::uint32_t>(p), static_cast<std::uint32_t>(i)) * (i + 1)))]);
+      std::swap(order[i], order[std::min(i, static_cast<int>(hostUniform(7u, static_cast<std::uint32_t>(p), static_cast<std::uint32_t>(i)) * (i + 1)))]);
     std::uint64_t mask = 0ULL;
     for (int j : order) need(mask |= 1ULL << j);
     q.orders.push_back(order);
@@ -513,7 +513,7 @@ Allocation allocationOf(const Value& spec) {
 }
 
 // ---- sensitivity: lever bumps with common random numbers and independent seeds.
-std::uint32_t streamSeed(std::uint32_t base, std::uint32_t stream) { return kernel::pcg(base ^ kernel::pcg(stream * 0x9e3779b9u)); }
+std::uint32_t streamSeed(std::uint32_t base, std::uint32_t stream) { return hash32(base ^ hash32(stream * 0x9e3779b9u)); }
 
 struct Sensitivity {
   Design design;
@@ -554,7 +554,7 @@ kernel::Model base(const char* name, const char* title) {
   m.name = name;
   m.title = title;
   m.maxStats = kMaxStats;
-  SYN_USE_AGENT(m, classroom_agent);
+  m.agentSource = classroom_agent;
   return m;
 }
 

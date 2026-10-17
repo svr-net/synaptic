@@ -11,9 +11,9 @@
 #include <cmath>
 
 #include "syn/models/models.hpp"
-#include "syn/kernel/agent.hpp"
 
-SYN_AGENT(zpd_agent,
+// The agent program, in WGSL.
+constexpr const char* zpd_agent = R"wgsl(
   let pHi = P(0u);
   let pLo = P(1u);
   let scaffold = P(2u);
@@ -66,7 +66,7 @@ SYN_AGENT(zpd_agent,
     }
     stat(256u, logit(ability) - start);
   }
-)
+)wgsl";
 
 namespace syn::models {
 
@@ -84,7 +84,7 @@ const kernel::Model* zpdModel() {
     m.name = "zpd";
     m.title = "The Zone of Proximal Development: tasks as points, scaffolds as dilations, zones as caps";
     m.maxStats = 257;
-    SYN_USE_AGENT(m, zpd_agent);
+    m.agentSource = zpd_agent;
     m.compile = [](const Value& spec) {
       const Value& c = spec.sub("zpd");
       const double pHi = c.num("independent", 0.8), pLo = c.num("assisted", 0.5), s = c.num("scaffold", 1.5), theta = c.num("theta", 0.0);

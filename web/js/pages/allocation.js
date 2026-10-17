@@ -1,5 +1,5 @@
 import { barChart, fmt } from '../charts.js';
-import { engineNote, engineSelector, runModel } from '../engine/run.js';
+import { engineNote, runModel } from '../engine/run.js';
 import { THEORY_PRESETS } from '../spec.js';
 import { card, grid, initPage, passFail, runButton, specEditor, table, tiles, toolbarNumber, toolbarSelect } from '../ui.js';
 
@@ -18,11 +18,11 @@ specEditor(page, ['population', 'course', 'design', 'simulation']);
 const baseline = toolbarSelect(page, 'baseline', Object.keys(THEORY_PRESETS), 'banking lecture');
 const permutations = toolbarNumber(page, 'orders', 12, { step: 1, width: 60 });
 
-const button = runButton(page, 'Allocate', async (spec) => {
+runButton(page, 'Allocate', async (spec) => {
   const t0 = performance.now();
   const runResult = await runModel('allocation', { ...spec, allocation: { baseline: THEORY_PRESETS[baseline()], permutations: permutations() } });
   const r = runResult.result;
-  window.__synEngineRun = { page: 'allocation', engine: runResult.engine, totalGain: r.totalGain, shapleySum: r.shapleySum };
+  window.__synEngineRun = { page: 'allocation', engine: runResult.label, totalGain: r.totalGain, shapleySum: r.shapleySum };
   const sum = (k) => r.levers.reduce((s, l) => s + l[k], 0);
   tiles(page.content, [
     { label: 'Design score', value: fmt.num(r.designScore, 3), hint: `baseline (${baseline()}): ${fmt.num(r.baselineScore, 3)}` },
@@ -44,4 +44,3 @@ const button = runButton(page, 'Allocate', async (spec) => {
   ]);
   return engineNote(runResult, performance.now() - t0);
 });
-engineSelector(page, () => button.click());

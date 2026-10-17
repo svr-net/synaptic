@@ -14,9 +14,9 @@
 #include <string>
 
 #include "syn/models/models.hpp"
-#include "syn/kernel/agent.hpp"
 
-SYN_AGENT(motivation_agent,
+// The agent program, in WGSL.
+constexpr const char* motivation_agent = R"wgsl(
   if (J(0u) < f32(0.5)) {
     let weeks = u32(P(0u));
     let relevance = J(1u);
@@ -62,7 +62,7 @@ SYN_AGENT(motivation_agent,
     let standards = J(3u) > f32(0.5);
     var growth = sampleShare(U(0u), P(10u), P(11u), kB);
     let startsGrowth = chance(growth) >= f32(0.5);
-    ARR(quality, f32, 4);
+    var quality : array<f32, 4>;
     for (var k = 0u; k < 4u; k = k + 1u) { quality[k] = f32(0.2) + f32(0.8) * U(1u + k); }
     var strategy = 0u;
     var skill = atLogit(f32(0), kA);
@@ -99,7 +99,7 @@ SYN_AGENT(motivation_agent,
     stat(160u, f32(startsGrowth));
     stat(161u, logit(skill));
   }
-)
+)wgsl";
 
 namespace syn::models {
 
@@ -109,7 +109,7 @@ const kernel::Model* motivationModel() {
     m.name = "motivation";
     m.title = "Expectancy × value with five levers; growth and fixed mindsets under three kinds of feedback";
     m.maxStats = 162;
-    SYN_USE_AGENT(m, motivation_agent);
+    m.agentSource = motivation_agent;
     m.compile = [](const Value& spec) {
       const Value& c = spec.sub("motivation");
       const int weeks = std::min(16, c.integer("weeks", 15)), mweeks = std::min(32, c.integer("mindsetWeeks", 30));

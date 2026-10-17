@@ -1,12 +1,13 @@
-// Cross-engine check of every model's fused kernel in headless Chromium (Playwright).
+// Every model's fused kernel on two devices, in headless Chromium (Playwright).
 //
 //   node web/tests/kernels.mjs [model-filter]
 //
-// For every model of the library (syn.models()), runs the same specification on WebGPU (WGSL on
-// SwiftShader), on the CPU kernels (32-bit floats in workers) and on WebAssembly (64-bit floats),
-// and compares every number of the three results. The engines share their random numbers, so
-// they must agree to rounding: the tolerance is relative, 2·10⁻³ (32- vs 64-bit floats through
-// a whole simulation), plus an absolute 2·10⁻³ for values near zero.
+// For every model of the library (syn.models()), runs the same specification on WebGPU (the WGSL
+// on SwiftShader) and on the library's software GPU (the same WGSL, executed by the library in
+// WebAssembly across workers), and compares every number of the two results. Both run the same
+// kernels with the same random numbers in 32-bit floats, so they must agree to rounding: the
+// tolerance is relative, 2·10⁻³ (rounding through a whole simulation), plus an absolute 2·10⁻³
+// for values near zero.
 // Environment: PLAYWRIGHT_MODULE (path to playwright's index.mjs), CHROMIUM_PATH.
 import http from 'node:http';
 import fs from 'node:fs';
@@ -51,13 +52,13 @@ const SPECS = {
 
 const report = await page.evaluate(async ({ specs, filter }) => {
   const { run } = await import('/js/syn-client.js');
-  const { runOnGpu, runOnCpuKernels, runOnWasm } = await import('/js/engine/run.js');
+  const { runOnGpu, runOnSoftwareGpu } = await import('/js/engine/run.js');
   const models = await run('models', {});
   const out = [];
   const leaves = (v, p, acc) => {
     if (typeof v === 'number') acc.push([p, v]);
     else if (ArrayBuffer.isView(v) || Array.isArray(v)) Array.from(v).forEach((x, i) => leaves(x, `${p}[${i}]`, acc));
-    else if (v && typeof v === 'object') for (const k of Object.keys(v)) if (!['engineMs', 'adapter', 'kernelPlans', 'kernelJobs', 'workers'].includes(k)) leaves(v[k], `${p}.${k}`, acc);
+    else if (v && typeof v === 'object') for (const k of Object.keys(v)) if (!['engineMs', 'adapter'].includes(k)) leaves(v[k], `${p}.${k}`, acc);
     return acc;
   };
   for (const { name } of models) {
@@ -65,25 +66,23 @@ const report = await page.evaluate(async ({ specs, filter }) => {
     const { spec, flips = 0, relative = 2e-3 } = specs[name] || specs.default;
     const row = { name };
     try {
-      const t0 = performance.now();
       const gpu = await runOnGpu(name, spec);
-      const t1 = performance.now();
-      const cpu = await runOnCpuKernels(name, spec);
-      const wasm = await runOnWasm(name, spec);
-      row.gpuMs = Math.round(t1 - t0);
-      const L = { gpu: leaves(gpu, '', []), cpu: leaves(cpu, '', []), wasm: leaves(wasm, '', []) };
-      row.values = L.wasm.length;
-      row.worst = {};
-      for (const e of ['gpu', 'cpu']) {
-        if (L[e].length !== L.wasm.length) { row.error = `${e}: ${L[e].length} values vs ${L.wasm.length}`; break; }
+      const soft = await runOnSoftwareGpu(name, spec);
+      row.gpuMs = Math.round(gpu.engineMs);
+      row.softMs = Math.round(soft.engineMs);
+      const G = leaves(gpu, '', []), S = leaves(soft, '', []);
+      row.values = S.length;
+      if (G.length !== S.length) {
+        row.error = `WebGPU: ${G.length} values vs ${S.length}`;
+      } else {
         let worst = { excess: 0 };
-        L[e].forEach(([p, x], i) => {
-          const y = L.wasm[i][1];
+        G.forEach(([p, x], i) => {
+          const y = S[i][1];
           if (!Number.isFinite(x) || !Number.isFinite(y)) { if (Number.isFinite(x) !== Number.isFinite(y)) worst = { excess: Infinity, path: p, x, y }; return; }
           const excess = Math.abs(x - y) / (2e-3 + flips + relative * Math.abs(y));
           if (excess > worst.excess) worst = { excess, path: p, x, y };
         });
-        row.worst[e] = worst;
+        row.worst = worst;
       }
     } catch (e) {
       row.error = String(e.message || e);
@@ -95,14 +94,14 @@ const report = await page.evaluate(async ({ specs, filter }) => {
 
 let failed = 0;
 for (const r of report) {
-  const bad = r.error || Object.values(r.worst || {}).some((w) => w.excess > 1);
+  const bad = r.error || !r.worst || r.worst.excess > 1;
   if (bad) failed++;
-  const w = r.worst || {};
+  const w = r.worst;
   const fmt = (x) => (x && x.excess > 0 ? `${x.excess.toFixed(2)} at ${x.path} (${x.x} vs ${x.y})` : 'exact');
-  console.log(`${bad ? 'FAIL' : 'ok  '} ${r.name.padEnd(20)} ${r.error ? r.error : `${String(r.values).padStart(6)} values  gpu ${fmt(w.gpu)}  cpu ${fmt(w.cpu)}  (${r.gpuMs} ms)`}`);
+  console.log(`${bad ? 'FAIL' : 'ok  '} ${r.name.padEnd(20)} ${r.error ? r.error : `${String(r.values).padStart(6)} values  ${fmt(w)}  (WebGPU ${r.gpuMs} ms, software GPU ${r.softMs} ms)`}`);
 }
 if (logs.length) console.log(logs.slice(0, 10).join('\n'));
 await browser.close();
 server.close();
 if (failed) { console.log(`\n${failed} model(s) failed`); process.exit(1); }
-console.log('\nall models agree across engines');
+console.log('\nall models agree on WebGPU and the software GPU');

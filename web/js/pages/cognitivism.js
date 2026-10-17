@@ -1,6 +1,6 @@
 import { barChart, fmt, lineChart } from '../charts.js';
-import { modelButton, runModels } from '../engine/run.js';
-import { callout, card, grid, initPage, specEditor, table, tiles, toolbarNumber } from '../ui.js';
+import { runModels } from '../engine/run.js';
+import { callout, card, grid, initPage, runButton, specEditor, table, tiles, toolbarNumber } from '../ui.js';
 
 const page = initPage({
   id: 'cognitivism',
@@ -17,7 +17,7 @@ specEditor(page, ['population', 'course', 'simulation']);
 const testDay = toolbarNumber(page, 'test on day', 30, { step: 1 });
 const gap = toolbarNumber(page, 'spacing gap (days)', 3, { step: 1 });
 
-modelButton(page, 'Run', async (spec) => {
+runButton(page, 'Run', async (spec) => {
   const { results: [memory, interleaving, schema, gagne], note } = await runModels([
     ['memory', { ...spec, memory: { testDay: testDay(), gap: gap(), horizon: Math.max(45, testDay() + 10) } }],
     ['interleaving', spec],
