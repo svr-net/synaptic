@@ -2157,6 +2157,10 @@ class Compiler {
       case Sk::For:
       case Sk::While:
       case Sk::Loop: {
+        if (s.k == Sk::For && unrolled(s)) {
+          next_ = mark;
+          return;
+        }
         scopes_.emplace_back();
         if (s.first) stmt(*s.first);
         const std::uint32_t loopMark = next_;
@@ -2217,6 +2221,111 @@ class Compiler {
         return;
       }
     }
+  }
+
+  // ---------------------------------------------------------------- loop unrolling
+  //
+  // for (var i = c0; i < c1; i = i + c2) { body } with constant bounds, a body that never assigns i,
+  // breaks or continues this loop, and a small trip count × body is unrolled: every iteration is
+  // the body with i bound to a constant, so indices into arrays fold to fixed offsets and the
+  // loop's compare, branch and increment disappear.
+
+  // A constant value of an expression, or nothing (any code it emitted is discarded).
+  bool constantOf(const Expr& e, Val& out) {
+    const std::size_t codeMark = code_.size(), label = lastLabel_;
+    const std::uint32_t slotMark = next_;
+    Val v = expr(e);
+    if (v.isConst) {
+      out = v;
+      return true;
+    }
+    code_.resize(codeMark);
+    lastLabel_ = label;
+    next_ = slotMark;
+    return false;
+  }
+
+  static bool isIdent(const ExprP& e, const std::string& n) { return e && e->k == Ek::Ident && e->s == n; }
+
+  static std::size_t weight(const Expr& e) {
+    std::size_t w = e.k == Ek::Call ? 24 : 1;
+    for (const auto& a : e.args) w += weight(*a);
+    if (e.a) w += weight(*e.a);
+    if (e.b) w += weight(*e.b);
+    return w;
+  }
+
+  // Whether a statement assigns `n`, or breaks or continues the loop it is in; and its size.
+  static bool blocks(const Stmt& s, const std::string& n, bool nested, std::size_t& w) {
+    const auto exprW = [&](const ExprP& e) {
+      if (e) w += weight(*e);
+    };
+    exprW(s.init);
+    exprW(s.lhs);
+    exprW(s.cond);
+    ++w;
+    if ((s.k == Sk::Assign || s.k == Sk::IncDec) && s.lhs) {
+      const Expr* root = s.lhs.get();
+      while (root->k == Ek::Member || root->k == Ek::Index) root = root->a.get();
+      if (root->k == Ek::Ident && root->s == n) return true;
+    }
+    if ((s.k == Sk::Var || s.k == Sk::Let || s.k == Sk::Const) && s.name == n) return true;  // shadowing
+    if (!nested && (s.k == Sk::Break || s.k == Sk::Continue)) return true;
+    const bool inner = nested || s.k == Sk::For || s.k == Sk::While || s.k == Sk::Loop;
+    for (const auto& x : s.body)
+      if (blocks(*x, n, inner, w)) return true;
+    for (const StmtP* x : {&s.then, &s.els, &s.first, &s.update})
+      if (*x && blocks(**x, n, inner, w)) return true;
+    return false;
+  }
+
+  bool unrolled(const Stmt& s) {
+    if (!s.first || s.first->k != Sk::Var || !s.first->init || !s.cond || !s.update || !s.then) return false;
+    const std::string& n = s.first->name;
+    // i < c1, i <= c1, i != c1
+    const Expr& c = *s.cond;
+    if (c.k != Ek::Binary || !isIdent(c.a, n) || (c.s != "<" && c.s != "<=" && c.s != "!=")) return false;
+    // i = i + c2, i += c2, i++
+    ExprP stepExpr;
+    const Stmt& u = *s.update;
+    if (u.k == Sk::IncDec && u.op == "++" && isIdent(u.lhs, n)) {
+      stepExpr = nullptr;
+    } else if (u.k == Sk::Assign && isIdent(u.lhs, n) && u.op == "+=") {
+      stepExpr = u.init;
+    } else if (u.k == Sk::Assign && isIdent(u.lhs, n) && u.op == "=" && u.init->k == Ek::Binary && u.init->s == "+" && isIdent(u.init->a, n)) {
+      stepExpr = u.init->b;
+    } else {
+      return false;
+    }
+    std::size_t w = 0;
+    if (blocks(*s.then, n, false, w)) return false;
+    Val v0, v1, vs;
+    if (!constantOf(*s.first->init, v0) || !constantOf(*c.b, v1)) return false;
+    if (stepExpr && !constantOf(*stepExpr, vs)) return false;
+    const Ty* t = s.first->hasType ? resolve(s.first->type) : concretize(v0).t;
+    if (t->k != K::U32 && t->k != K::I32) return false;
+    auto value = [&](const Val& v) -> std::int64_t {
+      const Val x = convert(v, t, s.line);
+      return t->k == K::U32 ? static_cast<std::int64_t>(x.w[0]) : static_cast<std::int64_t>(static_cast<std::int32_t>(x.w[0]));
+    };
+    const std::int64_t from = value(v0), to = value(v1), step = stepExpr ? value(vs) : 1;
+    if (step <= 0) return false;
+    std::vector<std::int64_t> values;
+    for (std::int64_t i = from; c.s == "<" ? i < to : (c.s == "<=" ? i <= to : i != to); i += step) {
+      values.push_back(i);
+      if (values.size() > 128) return false;
+    }
+    if (values.size() * w > 6000) return false;
+    for (std::int64_t i : values) {
+      scopes_.emplace_back();
+      Binding b;
+      b.kind = Binding::Const;
+      b.v = constant(t, {static_cast<std::uint32_t>(i)});
+      scopes_.back()[n] = b;
+      scoped(*s.then);
+      scopes_.pop_back();
+    }
+    return true;
   }
 
   void scoped(const Stmt& s) {
