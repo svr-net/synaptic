@@ -106,6 +106,26 @@ int main(int argc, char** argv) {
   const double found = scores.num("openBookFoundPassage", 0);
   md << "\nOpen book: the reader's answer came from the question's own passage for " << std::round(1000 * found) / 10 << "% of the questions.\n";
   metrics.set("openBookFoundPassage", found);
+  // The reader as a student: lessons from train.tsv (other passages), the same test questions.
+  if (std::ifstream(dir + "/train.tsv")) {
+    Value train = Value::array(), test = Value::array();
+    for (const auto& r : readTsv(dir + "/train.tsv"))
+      if (r.size() >= 4) train.push(Value::object().set("question", r[1]).set("golden", r[2]).set("passage", r[3]));
+    for (const auto& r : qa)
+      if (r.size() >= 4) test.push(Value::object().set("question", r[1]).set("golden", r[2]).set("passage", r[3]));
+    Value sspec = Value::object();
+    sspec.set("readingStudent", Value::object().set("train", train).set("test", test));
+    sspec.set("sim", Value::object().set("seed", 2026));
+    const Value st = syn::kernel::run("readingStudent", sspec);
+    md << "\n## The reader as a student\n\n" << st.num("lessons", 0) << " lessons (golden questions about other passages), " << st.num("tests", 0)
+       << " test questions, " << st.num("students", 0) << " students per design. Candidates: one sentence or two adjacent ones; the best of them "
+       << "scores " << std::round(1000 * st.num("oracle", 0)) / 1000 << ".\n\n| study design | test F1 | lessons F1 | two-sentence answers |\n|---|---:|---:|---:|\n";
+    for (const auto& d : st.at("designs").asArray()) {
+      md << "| " << d.at("name").asString() << " | " << std::round(1000 * d.num("test", 0)) / 1000 << " | " << std::round(1000 * d.num("lessons", 0)) / 1000
+         << " | " << std::round(1000 * d.num("twoSentences", 0)) / 10 << "% |\n";
+    }
+    metrics.set("student", st.at("designs").asArray()[1].num("test", 0));
+  }
   std::ofstream(dir + "/report.md") << md.str();
   std::cout << md.str();
 
@@ -115,7 +135,7 @@ int main(int argc, char** argv) {
     std::ifstream in(baselineIn);
     std::string text((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
     bool failed = false;
-    for (const char* k : {"reading", "openBook", "openBookFoundPassage"}) {
+    for (const char* k : {"reading", "openBook", "openBookFoundPassage", "student"}) {
       const auto at = text.find(std::string("\"") + k + "\":");
       if (at == std::string::npos) continue;
       const double recorded = std::stod(text.substr(at + std::string(k).size() + 3));

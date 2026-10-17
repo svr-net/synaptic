@@ -48,7 +48,7 @@ bool finiteEverywhere(const Value& v) {
 }  // namespace
 
 TEST(every_model_runs_and_is_finite) {
-  CHECK(kernel::models().size() == 39);
+  CHECK(kernel::models().size() == 40);
   for (const kernel::Model* m : kernel::models()) {
     const Value r = run(m->name, spec(200));
     if (!finiteEverywhere(r)) ::syntest::fail("non-finite value in " + m->name, __FILE__, __LINE__);
@@ -473,4 +473,13 @@ TEST(reading_qa_scores_itself_against_the_embedded_golden_answers) {
   CHECK(num(sc, "reading") > num(sc, "randomSentence") + 0.1);
   CHECK(num(sc, "oracle") >= num(sc, "reading"));               // the ceiling of one-sentence answers
   CHECK(num(sc, "openBookFoundPassage") > 0.9);
+}
+
+TEST(reading_student_learns_from_feedback) {
+  const Value r = run("readingStudent", spec(64));  // built-in lessons and golden test questions
+  const auto& d = r.at("designs").asArray();
+  CHECK(d.size() == 6);
+  CHECK(num(d[1], "test") > num(d[0], "test") + 0.005);  // feedback improves the reader
+  CHECK(num(d[1], "lessons") > num(d[0], "lessons"));
+  for (const auto& x : d) CHECK(num(x, "test") <= num(r, "oracle") + 1e-9);
 }

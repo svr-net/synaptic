@@ -18,6 +18,7 @@
 #include <set>
 #include <string>
 
+#include "reading_text.hpp"
 #include "syn/models/models.hpp"
 
 // The agent program, in WGSL.
@@ -58,92 +59,6 @@ namespace syn::models {
 
 namespace {
 
-const std::set<std::string>& stopwords() {
-  static const std::set<std::string> s = {
-      "a", "an", "the", "and", "or", "but", "if", "of", "to", "in", "on", "at", "by", "for", "with", "from", "as", "into", "about", "than",
-      "is", "are", "was", "were", "be", "been", "being", "am", "do", "does", "did", "has", "have", "had", "it", "its", "this", "that",
-      "these", "those", "there", "their", "they", "them", "he", "she", "his", "her", "him", "we", "our", "you", "your", "i", "my", "me",
-      "what", "which", "who", "whom", "whose", "when", "where", "why", "how", "can", "could", "would", "should", "will", "may", "might",
-      "must", "not", "no", "so", "such", "also", "some", "any", "all", "each", "other", "more", "most", "one", "two", "according",
-      "passage", "text", "does", "do", "s", "t"};
-  return s;
-}
-
-// Lower-case words of letters and digits, with a light stemming of plural and verb endings.
-std::vector<std::string> words(const std::string& text, bool content) {
-  std::vector<std::string> out;
-  std::string w;
-  auto flush = [&]() {
-    if (w.empty()) return;
-    if (w.size() > 4 && w.compare(w.size() - 3, 3, "ing") == 0) w.resize(w.size() - 3);
-    else if (w.size() > 3 && w.compare(w.size() - 2, 2, "ed") == 0) w.resize(w.size() - 2);
-    else if (w.size() > 3 && w.compare(w.size() - 2, 2, "es") == 0) w.resize(w.size() - 2);
-    else if (w.size() > 3 && w.back() == 's') w.pop_back();
-    if (!content || !stopwords().count(w)) out.push_back(w);
-    w.clear();
-  };
-  for (char ch : text) {
-    if (std::isalnum(static_cast<unsigned char>(ch))) w += static_cast<char>(std::tolower(static_cast<unsigned char>(ch)));
-    else flush();
-  }
-  flush();
-  return out;
-}
-
-// Sentences: split after . ! ? followed by a space and an upper-case letter, a digit or a quote.
-std::vector<std::string> sentences(const std::string& text) {
-  std::vector<std::string> out;
-  std::string cur;
-  for (std::size_t i = 0; i < text.size(); ++i) {
-    cur += text[i];
-    const bool end = (text[i] == '.' || text[i] == '!' || text[i] == '?') && i + 2 < text.size() && text[i + 1] == ' ' &&
-                     (std::isupper(static_cast<unsigned char>(text[i + 2])) || std::isdigit(static_cast<unsigned char>(text[i + 2])) || text[i + 2] == '"');
-    if (end && words(cur, false).size() >= 4) {
-      out.push_back(cur);
-      cur.clear();
-      ++i;  // the space
-    }
-  }
-  if (!words(cur, false).empty()) {
-    if (!out.empty() && words(cur, false).size() < 4) out.back() += cur;
-    else out.push_back(cur);
-  }
-  for (auto& s : out) {
-    s.erase(0, s.find_first_not_of(" \t\r\n"));
-    s.erase(s.find_last_not_of(" \t\r\n") + 1);
-  }
-  return out;
-}
-
-// SQuAD's token F1: lower case, no punctuation, no articles.
-std::vector<std::string> squadWords(const std::string& text) {
-  std::vector<std::string> out;
-  std::string w;
-  auto flush = [&]() {
-    if (!w.empty() && w != "a" && w != "an" && w != "the") out.push_back(w);
-    w.clear();
-  };
-  for (char ch : text) {
-    if (std::isalnum(static_cast<unsigned char>(ch))) w += static_cast<char>(std::tolower(static_cast<unsigned char>(ch)));
-    else if (std::isspace(static_cast<unsigned char>(ch))) flush();
-  }
-  flush();
-  return out;
-}
-
-double tokenF1(const std::string& prediction, const std::string& golden) {
-  const auto p = squadWords(prediction), g = squadWords(golden);
-  if (p.empty() || g.empty()) return p == g ? 1.0 : 0.0;
-  std::map<std::string, int> count;
-  for (const auto& w : g) count[w]++;
-  int common = 0;
-  for (const auto& w : p)
-    if (count[w]-- > 0) ++common;
-  if (common == 0) return 0.0;
-  const double precision = double(common) / double(p.size()), recall = double(common) / double(g.size());
-  return 2 * precision * recall / (precision + recall);
-}
-
 // The built-in golden set: questions of the QA golden test with their passages and golden answers.
 struct Golden {
   const char* question;
@@ -154,7 +69,9 @@ const Golden kGolden[] = {
 #include "qa_golden_sample.inc"
 };
 
-Value goldenSet(int count) {
+}  // namespace
+
+Value text::goldenSet(int count) {
   Value v = Value::object();
   Value passages = Value::array(), questions = Value::array();
   const int n = std::min<int>(count, static_cast<int>(sizeof(kGolden) / sizeof(kGolden[0])));
@@ -165,6 +82,8 @@ Value goldenSet(int count) {
   v.set("passages", passages).set("questions", questions).set("corpus", Value::array());
   return v;
 }
+
+namespace {
 
 // A small built-in example (written for this model) for when no data is given.
 Value example() {
@@ -185,6 +104,8 @@ Value example() {
 
 }  // namespace
 
+using namespace text;
+
 const kernel::Model* readingQaModel() {
   static const kernel::Model model = [] {
     kernel::Model m;
@@ -195,7 +116,7 @@ const kernel::Model* readingQaModel() {
     m.compile = [](const Value& spec) {
       const Value& given = spec.sub("readingQA");
       const bool golden = given.str("set", "") == "golden";
-      const Value data = golden ? goldenSet(given.integer("questions", 60)) : given.has("questions") ? given : example();
+      const Value data = golden ? text::goldenSet(given.integer("questions", 60)) : given.has("questions") ? given : example();
       // Documents: the passages first, then the corpus. Their sentences, tokenised.
       std::vector<std::string> docs;
       for (const auto& p : data.at("passages").asArray()) docs.push_back(p.asString());
