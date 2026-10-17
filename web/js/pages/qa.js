@@ -1,11 +1,11 @@
-import { barChart, fmt } from '../charts.js';
+import { barChart, fmt, lineChart } from '../charts.js';
 import { runModels } from '../engine/run.js';
 import { callout, card, el, grid, initPage, runButton, table, tiles, toolbarNumber } from '../ui.js';
 
 const page = initPage({
   id: 'qa',
   title: 'Reading for answers (QA)',
-  context: 'model: readingQA · fused kernels in the space Cl(4, 1) · golden answers from FineWeb-Edu',
+  context: 'models: readingQA · readingStudent · fused kernels in the space Cl(4, 1) · golden answers from FineWeb-Edu',
   description: 'A reader reads FineWeb-Edu passages and answers questions about them; its answers are compared with <b>golden answers</b> ' +
     '(<a href="https://huggingface.co/datasets/edededdy/fineweb-edu-grounded-qa">edededdy/fineweb-edu-grounded-qa</a>, ODC-By). The reader ' +
     '<b>learns how informative each word is</b> from everything it reads, weighs every sentence by the question\'s informative words in it ' +
@@ -41,7 +41,10 @@ ask.addEventListener('click', async () => {
 page.content.before(el('section', { class: 'card' }, el('h2', { text: 'Ask the reader' }), passage, question, ask, reply));
 
 runButton(page, 'Run', async (spec) => {
-  const { results: [r], note } = await runModels([['readingQA', { ...spec, readingQA: { set: 'golden', questions: questions() } }]], page);
+  const { results: [r, student], note } = await runModels([
+    ['readingQA', { ...spec, readingQA: { set: 'golden', questions: questions() } }],
+    ['readingStudent', { ...spec, readingStudent: { questions: questions() } }],
+  ], page);
   const s = r.scores, half = r.atLeastHalf;
   tiles(page.content, [
     { label: 'Reader', value: s.reading.toFixed(3), hint: `token F1 against the golden answers (${r.scored} questions)` },
@@ -69,6 +72,23 @@ runButton(page, 'Run', async (spec) => {
   ['question · golden answer · the reader\'s answer', 'F1', 'ceiling'],
   rows.map((a) => [el('div', { style: 'white-space:normal;max-width:900px' }, el('b', { text: a.question }), el('div', { class: 'note', text: `Golden: ${a.golden}` }), el('div', { text: `Reader: ${a.reading}` })),
     a.f1.toFixed(2), a.oracle.toFixed(2)]));
+  // ---- The reader as a student.
+  const sd = student.designs;
+  const g3 = grid(page.content);
+  lineChart(card(g3, 'The reader as a student', `${student.students} students per study design read ${student.lessons} lessons (golden questions about ` +
+    'other passages) three times, seeing the golden answer after each, and answer the test questions at checkpoints along the way. Each design adds ' +
+    'one module of the library to the one before.'), {
+    x: Array.from(sd[0].curve, (_, k) => k + 1), xLabel: 'checkpoint (through three passes of the lessons)', yLabel: 'test F1',
+    series: sd.map((d, i) => ({ name: d.name, y: Array.from(d.curve), colorIndex: i })),
+  });
+  barChart(card(g3, 'What each module adds', `Token F1 on the test questions after the lessons. The best answer among the candidates (one sentence or two) scores ` +
+    `${student.oracle.toFixed(3)}.`), {
+    labels: ['no feedback', 'behaviourism', '+ cognitivism', '+ social constr.', '+ andragogy', '+ reflection'],
+    series: [{ name: 'test F1', values: sd.map((d) => d.test) }, { name: 'answers of two sentences', values: sd.map((d) => d.twoSentences), colorIndex: 1 }],
+    yFormat: (v) => v.toFixed(2),
+  });
+  table(card(g3, 'The habits it learned', 'Weights of the reading habits: before (no feedback) and after reinforcement from feedback.'), ['habit', 'before', 'after'],
+    sd[0].habits.map((h, k) => [h.habit, h.weight.toFixed(2), sd[1].habits[k].weight.toFixed(2)]));
   callout(page.content, 'The belief is a point of the <a href="core.html">space</a>, as everywhere in the library; the reader is lexical — it extracts one sentence and ' +
     'does not paraphrase or reason — which the oracle makes visible. Learning meaning in the algebra is the <a href="fga.html">FGA page</a>.');
   return note;

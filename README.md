@@ -313,6 +313,7 @@ Each model is one file in `src/models/`, and its tests are in `tests/test_models
 | Ch. 14: professional development | `professional_growth.cpp` | Ideas from a community of practice, colleagues, courses and the literature, copied or adapted; the expert blind spot and becoming a student again; efficacy and isolation |
 | FGA: the algebra | `fga_algebra.cpp` | Application by contraction, event binding by the wedge and exact unbinding, type checks by grade and nullity, rotors (elliptic and hyperbolic), polar idempotents, a dot object — each claim measured on random lexicons; binding capacity against holographic reduced representations |
 | FGA: learning | `fga_learning.cpp` | Learners read a text (parsed into name–relation–name sentences) and learn a multivector per word by gradient descent on ⟨S R O⟩₀ with corrupted negatives; typed, untyped, grade prior, flat |
+| The reader as a student | `reading_student.cpp` | A student learns reading habits from golden lessons (expected reward over candidates of one or two sentences) with the library's modules as study designs — behaviourism, spaced retrieval, scaffolding, self-direction, reflection — scored on held-out golden answers |
 | QA golden test | `reading_qa.cpp` | A reader learns word informativeness (idf) from a corpus and believes the sentence that answers a question (BM25 evidence read as a point); reading and open book; scored against golden answers in `tools/qa_golden` |
 | FGA: rotors | `fga_rotors.cpp` | Regular polysemy as a rotor family: a rotor of Cl(4, 1) learned by exact plane steps against a learned 5 × 5 projection, from one to six words |
 | Combining the theories | `classroom.cpp` (`classroom`) | Every theory acting on the same learners over a course; score, recall and risk profiles; equity; per-learner read-back |
@@ -340,6 +341,23 @@ with SQuAD token F1 (`tools/qa_golden/report.md`):
 Open book, the reader's answer comes from the right passage for 96% of the questions, and WebGPU gives the same answer
 as the software GPU for every question. `tools/qa_golden/run.sh /path/to/knowledge` reruns it and fails on a drop below
 `baseline.json`. The reader is lexical: it extracts one sentence, so the oracle bounds it.
+
+**The reader as a student** (`readingStudent`): the reader learns to read for answers with the library's own modules, in the
+order of the book. Lessons are 400 golden questions about other passages; after each answer it sees the golden one and learns
+how to weigh eight reading habits (overlap, position, first sentence, length, being a question, two sentences, holding what is
+asked, coverage). Each study design adds a module; test F1 on the 200 held-out questions:
+
+| study design | test F1 |
+|---|---:|
+| no feedback (the lexical reader) | 0.334 |
+| behaviourism: reinforcement from feedback (expected reward over all candidates) | 0.362 |
+| + cognitivism: spaced retrieval of mistakes | 0.364 |
+| + social constructivism: scaffolding, easy before hard | 0.360 |
+| + andragogy: self-directed study | 0.361 |
+| + reflection: one or two changes at a time | 0.358 |
+
+Feedback is what improves it; with eight habits the later modules add little. The first version, a perceptron step towards the
+single better answer, made it worse (0.28–0.31): one noisy example at a time washed out its best habit.
 
 ## Conventions
 
