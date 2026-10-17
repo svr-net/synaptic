@@ -27,7 +27,7 @@ const cmakeVersion = (await import('node:fs')).readFileSync(new URL('../../CMake
 if (ver) check(ver.library === `synaptic ${cmakeVersion}`, `version() reports the CMake project version: ${ver.library}`);
 
 const models = call('models', () => syn.models());
-check(models && models.length === ver?.models && models.length >= 35, 'every model listed');
+check(models && models.length === ver?.models && models.length >= 38, 'every model listed');
 for (const { name } of models || []) {
   const src = syn.kernelSources({ model: name });
   check(!src.error && src.agent.includes('@compute') && src.reduce.includes('@compute') && src.quantile.includes('@compute'), `${name}: WGSL sources`);
@@ -106,6 +106,12 @@ const crit = model('criticalReflection');
 if (crit) check(crit.designs[10].lowestGroup > crit.designs[0].lowestGroup, 'critical reflection lifts the group left out');
 const pg = model('professionalGrowth');
 if (pg) check(pg.designs[1].efficacy > pg.designs[0].efficacy, 'a community of practice sustains efficacy');
+const fa = model('fgaAlgebra');
+if (fa) check(fa.claims[3].holds && !fa.claims[4].holds, 'exact unbinding; role queries need orthogonal fillers');
+const fl = model('fgaLearning');
+if (fl) check(fl.designs[0].reversed > fl.designs[4].reversed, 'bivector relations judge reversed sentences false');
+const fr = model('fgaRotors');
+if (fr) check(fr.runs[1].rotorTest < fr.runs[1].projectionTest, 'a rotor family generalises from two words');
 
 const cls = model('classroom', spec);
 if (cls) {

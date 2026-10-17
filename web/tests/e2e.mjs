@@ -43,7 +43,7 @@ const browser = await chromium.launch({
 // Small learner counts keep the run fast; the pages pick the spec up from localStorage.
 const testSpec = { sim: { learners: 200, seed: 11 } };
 const pairSpec = { sim: { learners: 3000, seed: 11 } };
-const pages = ['index', 'core', 'behaviorism', 'humanism', 'cognitivism', 'constructivism', 'social', 'development', 'andragogy', 'motivation', 'audience', 'outcomes', 'assessment', 'strategies', 'reflective',
+const pages = ['index', 'core', 'behaviorism', 'humanism', 'cognitivism', 'constructivism', 'social', 'development', 'andragogy', 'motivation', 'audience', 'outcomes', 'assessment', 'strategies', 'reflective', 'fga',
   'classroom', 'theories', 'allocation', 'sensitivity'];
 const cases = [
   ...pages.map((name) => ({ name, file: name, spec: testSpec, expectEngine: 'WebGPU' })),
@@ -66,6 +66,7 @@ const cases = [
   { name: 'cognitivism-no-adapter', file: 'cognitivism', spec: testSpec, expectEngine: 'software GPU', gpuStub: 'no-adapter' },
   { name: 'strategies-no-adapter', file: 'strategies', spec: testSpec, expectEngine: 'software GPU', gpuStub: 'no-adapter' },
   { name: 'reflective-no-adapter', file: 'reflective', spec: testSpec, expectEngine: 'software GPU', gpuStub: 'no-adapter' },
+  { name: 'fga-no-adapter', file: 'fga', spec: testSpec, expectEngine: 'software GPU', gpuStub: 'no-adapter' },
   { name: 'gpu-no-adapter', file: 'gpu', spec: testSpec, gpuStub: 'no-adapter' },
   // Only a compatibility-mode adapter (WebGPU on OpenGL ES): the kernels stay within its limits.
   { name: 'classroom-compat-only', file: 'classroom', spec: testSpec, expectEngine: 'WebGPU', gpuStub: 'compat-only', expectReason: 'compatibility mode' },

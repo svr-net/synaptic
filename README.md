@@ -16,7 +16,10 @@ A C++17 library that models six chapters of *Instruction in Libraries and Inform
 > chapter 10, *Selecting Instructional Strategies and Creating Lesson Plans*
 > (<https://iopn.library.illinois.edu/pressbooks/instructioninlibraries/chapter/selecting-instructional-strategies-and-creating-lesson-plans/>), and
 > chapter 14, *Practicing Reflective Teaching*
-> (<https://iopn.library.illinois.edu/pressbooks/instructioninlibraries/chapter/practicing-reflective-teaching/>).
+> (<https://iopn.library.illinois.edu/pressbooks/instructioninlibraries/chapter/practicing-reflective-teaching/>),
+
+and merges into the same space J. Pustejovsky's *Toward a Functional Geometric Algebra for Natural Language Semantics* (2026,
+arXiv:2604.25902), so that learners can learn the meaning of a text in it.
 
 The chapter surveys how people learn: behaviourism, humanism, cognitivism, constructivism and social constructivism; the developmental
 stages of Piaget, Perry and Vygotsky's Zone of Proximal Development; andragogy; and motivation and the growth mindset. It ends by
@@ -47,6 +50,18 @@ patterns rather than single comments, with ratings that say little about learnin
 practices (a circle, calling on learners, an invitation to challenge, maximum choice) do not hold; and follows three years of
 professional growth with communities of practice, observing colleagues, continuing education, the literature and becoming a
 student again.
+
+Functional geometric algebra (FGA) builds meaning in a Clifford algebra: grades are types, contraction is function application,
+the wedge binds roles to fillers and rotors coerce. The library runs it in its own space, Cl(4, 1), with the whole algebra
+(`include/syn/space/algebra.hpp`: every grade, the geometric product, both contractions, the wedge, reverse and rotors, in
+WGSL): entities are points of the sphere of V_E = ⟨A, B, C⟩, predicate content and purpose lie along e, and the roles are N and e.
+Three models: `fgaAlgebra` checks the paper's claims in the space (most hold exactly; querying the role of a filler needs
+orthogonal fillers, the nullity type check fails with the paper's own lexicon, negation by −u does not swap the polar
+idempotents, and exact unbinding is bounded by the two role directions Cl(4, 1) has left); `fgaLearning` has learners read a
+text — the default one, or any sentences typed on the page — and learn a multivector per word by gradient descent inside
+the fused kernel, showing that the algebra is an inductive bias (bivector relations judge reversed sentences false, a
+flat product judges converses true; on the sphere an antisymmetric relation is cyclic); `fgaRotors` runs the paper's proposed
+experiment of rotors against learned projections for regular polysemy.
 It is an independent implementation. It does not reproduce the text of the chapter. The models are illustrative: their parameters
 are chosen so that the effects the chapter describes appear with plausible sizes. They are not fitted to data.
 
@@ -108,7 +123,7 @@ npm --prefix tools/standalone ci && node tools/standalone/build.mjs
 
 ```
 dist/standalone/
-  index.html, core.html, ... gpu.html           21 pages
+  index.html, core.html, ... gpu.html           22 pages
   assets/app.<hash>.js                          all pages (classic script, ~110 KiB)
   assets/syn-runtime.<hash>.js                  WASM worker with embedded library (~1.2 MiB)
   assets/style.<hash>.css
@@ -159,7 +174,8 @@ The space every model works in is Cl(4, 1), the conformal model of S³ (`include
 learner, the pole), A (cognitive), B (affective) and C (social), plus e with e² = −1. It exists once, in WGSL
 (`src/space/space.cpp`), and every kernel includes it. Its functions are closed forms of versor sandwiches;
 `tests/test_space.cpp` runs each on the software GPU and checks it against the geometric product of `core/multivector.hpp`
-(`core/elliptic_cga.hpp` is the general model of Sⁿ the tests use as reference).
+(`core/elliptic_cga.hpp` is the general model of Sⁿ the tests use as reference). The whole algebra — multivectors of every
+grade, for functional geometric algebra — is `include/syn/space/algebra.hpp`, also in WGSL only (`src/space/algebra.cpp`).
 
 | Object | In the space | Reads as |
 |---|---|---|
@@ -233,6 +249,7 @@ python3 -m http.server -d web 8000      # any static server; file:// will not lo
 | `assessment.html` | Chapter 9: assessment activities, assessment vs grades and satisfaction, formative and summative, the cycle, rubrics, self-assessment | `assessmentActivities` · `assessmentSession` · `rubric` |
 | `strategies.html` | Chapter 10: attention and chunked lectures, video length, discussion formats and wait time, scaffolding, learning styles vs content vs variety, flipped one-shots, problem-based learning, the sample lesson plan on time | `lecture` · `discussion` · `scaffolding` · `strategies` · `lessonPlan` |
 | `reflective.html` | Chapter 14: a term of reflective practice (informal, the four-step journal, video, peer observation, the CIQ), reading student feedback, critical reflection group by group, professional growth | `reflection` · `studentFeedback` · `criticalReflection` · `professionalGrowth` |
+| `fga.html` | Functional geometric algebra (Pustejovsky 2026): learners read a text and learn multivectors of Cl(4, 1); the paper's claims checked; rotors against projections; binding capacity against HRR | `fgaAlgebra` · `fgaLearning` · `fgaRotors` |
 | `classroom.html` | Every theory on the same learners over a course: score profile, learner scatter, equity | `classroom` |
 | `theories.html` | Activity 3.3 designed by every theory, on three populations | `theories` |
 | `allocation.html` | Shapley, incremental and standalone allocation of a design's gain | `allocation` |
@@ -293,6 +310,9 @@ Each model is one file in `src/models/`, and its tests are in `tests/test_models
 | Ch. 14: student feedback | `student_feedback.cpp` | Segments understood as cap tests; the CIQ's most puzzling moment, anonymous or named, and stray grumbles; revising every comment, patterns or ratings; ratings that follow liking and a bias |
 | Ch. 14: critical reflection | `critical_reflection.cpp` | Five groups of learners with comfort, entitlement to question and self-direction points; seating, calling, power, choice and examples as group-dependent dilations |
 | Ch. 14: professional development | `professional_growth.cpp` | Ideas from a community of practice, colleagues, courses and the literature, copied or adapted; the expert blind spot and becoming a student again; efficacy and isolation |
+| FGA: the algebra | `fga_algebra.cpp` | Application by contraction, event binding by the wedge and exact unbinding, type checks by grade and nullity, rotors (elliptic and hyperbolic), polar idempotents, a dot object — each claim measured on random lexicons; binding capacity against holographic reduced representations |
+| FGA: learning | `fga_learning.cpp` | Learners read a text (parsed into name–relation–name sentences) and learn a multivector per word by gradient descent on ⟨S R O⟩₀ with corrupted negatives; typed, untyped, grade prior, flat |
+| FGA: rotors | `fga_rotors.cpp` | Regular polysemy as a rotor family: a rotor of Cl(4, 1) learned by exact plane steps against a learned 5 × 5 projection, from one to six words |
 | Combining the theories | `classroom.cpp` (`classroom`) | Every theory acting on the same learners over a course; score, recall and risk profiles; equity; per-learner read-back |
 | Activity 3.3 | `classroom.cpp` (`theories`) | The lesson each theory designs (16 levers), on children, teenagers and adults: 24 jobs, one dispatch |
 | Allocation | `classroom.cpp` (`allocation`) | Shapley (adds up exactly), incremental and standalone shares of the gain |

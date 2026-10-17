@@ -48,7 +48,7 @@ bool finiteEverywhere(const Value& v) {
 }  // namespace
 
 TEST(every_model_runs_and_is_finite) {
-  CHECK(kernel::models().size() == 35);
+  CHECK(kernel::models().size() == 38);
   for (const kernel::Model* m : kernel::models()) {
     const Value r = run(m->name, spec(200));
     if (!finiteEverywhere(r)) ::syntest::fail("non-finite value in " + m->name, __FILE__, __LINE__);
@@ -401,4 +401,51 @@ TEST(professional_growth_communities_adapting_and_beginners_mind) {
   for (int k : {4, 5}) CHECK(num(d[k], "gain") > num(d[0], "gain"));    // courses and the literature
   CHECK(num(d[6], "blindSpot") < num(d[0], "blindSpot") - 0.3);          // becoming a student again
   CHECK(num(d[7], "gain") > num(d[1], "gain"));
+}
+
+TEST(fga_algebra_claims_checked_in_the_space) {
+  const Value r = run("fgaAlgebra");
+  const auto& claims = r.at("claims").asArray();
+  CHECK(claims.size() == 24);
+  auto holds = [&](std::size_t i) { return claims[i].at("holds").asBool(); };
+  for (std::size_t i : {0u, 1u, 2u, 3u, 5u, 6u, 9u, 11u, 12u, 13u, 14u, 15u, 16u, 17u, 18u, 21u, 22u, 23u}) CHECK(holds(i));  // exact
+  for (std::size_t i : {4u, 7u, 8u, 10u, 19u, 20u}) CHECK(!holds(i));  // the paper's claims that fail in Cl(4, 1), and why
+  const auto& fga = r.at("fgaRecovery").asNumbers();
+  const auto& hrr = r.at("hrrRecovery").asNumbers();
+  CHECK(fga[0] == 1.0 && fga[1] == 1.0);  // exact up to the two role directions of <N, e>
+  CHECK(fga[2] < 0.5);
+  CHECK(hrr[0] > 0.95 && hrr[5] < hrr[0]);  // holographic binding: approximate, degrading
+}
+
+TEST(fga_learning_structure_is_an_inductive_bias) {
+  const Value r = run("fgaLearning");
+  const auto& d = r.at("designs").asArray();
+  CHECK(d.size() == 5);
+  for (const auto& x : d) CHECK(num(x, "read") > 0.85);                       // every learner learns the text
+  CHECK(num(d[0], "reversed") > 0.8);                                           // bivectors: the reverse is false
+  CHECK(num(d[4], "reversed") < 0.2);                                           // flat: the product is symmetric
+  CHECK(num(d[4], "symmetric") > 0.8);
+  CHECK(num(d[0], "symmetric") < 0.2);                                          // no bivector is symmetric
+  CHECK(at(d[0], "entityGrades", 1) > 0.999);                                   // typed: entities in grade 1
+  CHECK(num(d[3], "reversed") > num(d[2], "reversed"));                         // the grade prior helps
+  const Value u = run("fgaLearning", [] {
+    Value s = spec(64);
+    s.set("fgaLearning", Value::object().set("text", "John loves Mary. Mary does not love John. The book is older than Mary."));
+    return s;
+  }());
+  CHECK(u.at("relations").size() == 2 && u.at("entities").size() == 3 && !u.at("world").asBool());
+  CHECK(num(item(u, "designs", 0), "read") > 0.9);
+}
+
+TEST(fga_rotors_generalise_from_few_words) {
+  const Value r = run("fgaRotors");
+  const auto& runs = r.at("runs").asArray();
+  CHECK(num(runs[1], "rotorTest") < 0.5 * num(runs[1], "projectionTest"));  // two words: a rotor family generalises
+  CHECK(num(runs[1], "plane") > 0.95);                                         // ... and finds the hidden plane
+  for (const auto& x : runs) {
+    CHECK(num(x, "rotorNorm") < 1e-4);                                         // norm-preserving
+    CHECK(num(x, "projectionNorm") > num(x, "rotorNorm"));
+    CHECK(num(x, "hyperbolic") < 1e-6);                                        // an alternation inside V_E stays elliptic
+  }
+  CHECK(num(runs[4], "projectionTest") < num(runs[0], "projectionTest"));  // projections need more words
 }

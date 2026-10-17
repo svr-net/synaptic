@@ -29,6 +29,7 @@ export const PAGES = [
       { id: 'reflective', href: 'reflective.html', title: 'Reflective teaching' },
     ],
   },
+  { group: 'Meaning', items: [{ id: 'fga', href: 'fga.html', title: 'Learning meaning (FGA)' }] },
   {
     group: 'Classroom',
     items: [

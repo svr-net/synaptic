@@ -28,7 +28,7 @@ function leaves(v, acc = []) {
 // Two devices running the same WGSL in 32-bit floats differ only by rounding (transcendental
 // functions, fused multiply-adds). Models whose agents take threshold decisions may see one
 // agent's path flip; sensitivity's variance reduction is a ratio of small variances.
-const ALLOW = { equilibration: { flips: 0.02 }, sensitivity: { relative: 0.03 } };
+const ALLOW = { equilibration: { flips: 0.02 }, sensitivity: { relative: 0.03 }, fgaAlgebra: { flips: 0.01 } };
 function worst(a, b, { flips = 0, relative = 2e-3 } = {}) {
   const x = leaves(a), y = leaves(b);
   if (x.length !== y.length) return Infinity;
