@@ -52,10 +52,9 @@ ask.addEventListener('click', async () => {
 page.content.before(el('section', { class: 'card' }, el('h2', { text: 'Ask the reader' }), passage, question, ask, reply));
 
 runButton(page, 'Run', async (spec) => {
-  const { results: [r, student, fresh, notes], note } = await runModels([
+  const { results: [r, student, notes], note } = await runModels([
     ['readingQA', { ...spec, readingQA: { set: 'golden', questions: questions() } }],
-    ['readingStudent', { ...spec, readingStudent: { questions: questions() } }],
-    ['readingStudent', { ...spec, readingStudent: { questions: questions(), memory: false } }],
+    ['readingStudent', { ...spec, readingStudent: { questions: questions(), students: 32 } }],
     ['readingNotes', { ...spec, readingNotes: { questions: questions() } }],
   ], page);
   const s = r.scores, half = r.atLeastHalf;
@@ -87,25 +86,30 @@ runButton(page, 'Run', async (spec) => {
   rows.map((a) => [el('div', { style: 'white-space:normal;max-width:900px' }, el('b', { text: a.question }), el('div', { class: 'note', text: `Golden: ${a.golden}` }),
     el('div', { text: `Reader: ${a.reading}` }), el('div', { class: 'note', text: `From its notes: ${a.knowledge}` })),
   a.f1.toFixed(2), a.rememberedF1.toFixed(2), a.knowledgeF1.toFixed(2), a.oracle.toFixed(2)]));
-  // ---- The reader as a student, starting from its memory of earlier runs.
-  const sd = student.designs, fd = fresh.designs, mem = student.memory;
+  // ---- The reader as a student, with every learning method of the library.
+  const sd = student.designs, mem = student.memory;
+  const named = (n) => sd.find((d) => d.name === n);
+  const shown = ['no feedback (the lexical reader)', 'its memory alone, no feedback', 'reinforcement', 'all methods'].map(named);
   const g3 = grid(page.content);
   lineChart(card(g3, 'The reader as a student', `${student.students} students per study design read ${student.lessons} lessons (golden questions about ` +
-    'other passages) three times, seeing the golden answer after each, and answer the test questions at checkpoints along the way. Each design adds ' +
-    `one module of the library to the one before. They start from the reader's memory: generation ${mem.generation}, ${mem.lessons} lessons studied ` +
-    'in earlier runs.'), {
+    'other passages) three times, seeing the golden answer after each, and answer the test questions at checkpoints along the way. A study design is ' +
+    `a set of the library's learning methods; with its schema, a student starts from the reader's memory (generation ${mem.generation}, ` +
+    `${mem.lessons} lessons studied).`), {
     x: Array.from(sd[0].curve, (_, k) => k + 1), xLabel: 'checkpoint (through three passes of the lessons)', yLabel: 'test F1',
-    series: sd.map((d, i) => ({ name: d.name, y: Array.from(d.curve), colorIndex: i })),
+    series: shown.map((d, i) => ({ name: d.name, y: Array.from(d.curve), colorIndex: i })),
   });
-  barChart(card(g3, 'What each module adds, and what memory keeps', 'Token F1 on the test questions after the lessons: starting fresh (the lexical ' +
-    `reader) and starting from memory. The best answer among the candidates (one sentence or two) scores ${student.oracle.toFixed(3)}.`), {
-    labels: ['no feedback', 'behaviourism', '+ cognitivism', '+ social constr.', '+ andragogy', '+ reflection'],
-    series: [{ name: 'fresh', values: fd.map((d) => d.test) }, { name: 'from memory', values: sd.map((d) => d.test), colorIndex: 1 }],
-    yFormat: (v) => v.toFixed(2),
+  barChart(card(g3, 'Each method of the library', 'Change in test F1 when the method is added to reinforcement alone, and when it is left out of all ' +
+    `methods (all methods: ${named('all methods').test.toFixed(3)}; reinforcement: ${named('reinforcement').test.toFixed(3)}).`), {
+    labels: student.methods.map((m) => m.models),
+    series: [{ name: 'added to reinforcement', values: student.methods.map((m) => m.alone) },
+      { name: 'left out of all', values: student.methods.map((m) => -m.removed), colorIndex: 1 }],
+    yFormat: (v) => v.toFixed(3),
   });
   table(card(g3, 'The habits it learned', `Weights of the reading habits: the prior (the lexical reader), its memory (generation ${mem.generation}, ` +
     `learned with “${mem.design || 'none'}”), and what it would remember after this run (“${student.remember.design}”).`), ['habit', 'prior', 'memory', 'next memory'],
-  sd[0].habits.map((h, k) => [h.habit, fresh.memory.weights[k].toFixed(2), mem.weights[k].toFixed(2), student.remember.weights[k].toFixed(2)]));
+  sd[0].habits.map((h, k) => [h.habit, h.weight.toFixed(2), mem.weights[k].toFixed(2), student.remember.weights[k].toFixed(2)]));
+  table(card(grid(page.content, true), 'Every study design', 'Test and lesson F1 of each design, and its share of two-sentence answers.'),
+    ['design', 'test F1', 'lessons F1', 'two sentences'], sd.map((d) => [d.name, d.test.toFixed(3), d.lessons.toFixed(3), fmt.pct(d.twoSentences, 0)]));
   // ---- Its knowledge: notes taken before any question.
   const g4 = grid(page.content);
   const ex = notes.passages.find((p) => p.sentences.length > 6) || notes.passages[0];

@@ -160,7 +160,7 @@ int main(int argc, char** argv) {
     s.set("sim", seed);
     return syn::kernel::run("readingStudent", s);
   };
-  const Value fresh = student(false, false), st = student(true, false), notesFresh = student(false, true), notesSt = student(true, true);
+  const Value st = student(true, false), notesSt = student(true, true);
   const Value& nextHabits = st.at("remember");
   const Value& nextNotes = notesSt.at("remember");
 
@@ -216,32 +216,44 @@ int main(int argc, char** argv) {
      << "%.\n";
   metrics.set("openBookFoundPassage", found);
 
-  // ---- The reader as a student.
+  // ---- The reader as a student, with every learning method of the library.
   const Value& mem = st.at("memory");
-  md << "\n## The reader as a student\n\n" << st.num("lessons", 0) << " lessons (golden questions about other passages), " << st.num("tests", 0)
-     << " test questions, " << st.num("students", 0) << " students per design. Candidates: one sentence or two adjacent ones; the best of them "
-     << "scores " << r3(st.num("oracle", 0)) << ".\n\n";
-  md << "Its memory: " << (mem.at("used").asBool() ? "generation " + std::to_string(static_cast<int>(mem.num("generation", 0))) : mem.at("reason").asString())
-     << ", " << mem.num("lessons", 0) << " lessons studied before" << (mem.at("design").asString().empty() ? "" : " (" + mem.at("design").asString() + ")")
-     << ".\n\n| study design | test F1, fresh | test F1, from memory | lessons F1, from memory | two-sentence answers |\n|---|---:|---:|---:|---:|\n";
-  const auto& fd = fresh.at("designs").asArray();
+  md << "\n## The reader as a student\n\n" << st.num("lessons", 0) << " lessons (golden questions about other passages), three passes, "
+     << st.num("tests", 0) << " test questions, " << st.num("students", 0) << " students per design. Candidates: one sentence or two adjacent "
+     << "ones; the best of them scores " << r3(st.num("oracle", 0)) << ". Its memory: "
+     << (mem.at("used").asBool() ? "generation " + std::to_string(static_cast<int>(mem.num("generation", 0))) : mem.at("reason").asString()) << ", "
+     << mem.num("lessons", 0) << " lessons studied before.\n\n| study design | test F1 | lessons F1 | two-sentence answers |\n|---|---:|---:|---:|\n";
   const auto& sd = st.at("designs").asArray();
-  for (std::size_t j = 0; j < sd.size(); ++j)
-    md << "| " << sd[j].at("name").asString() << " | " << r3(fd[j].num("test", 0)) << " | " << r3(sd[j].num("test", 0)) << " | "
-       << r3(sd[j].num("lessons", 0)) << " | " << std::round(1000 * sd[j].num("twoSentences", 0)) / 10 << "% |\n";
-  metrics.set("student", fd[1].num("test", 0));
-  metrics.set("memory", sd[0].num("test", 0));
+  for (const auto& d : sd)
+    md << "| " << d.at("name").asString() << " | " << r3(d.num("test", 0)) << " | " << r3(d.num("lessons", 0)) << " | "
+       << std::round(1000 * d.num("twoSentences", 0)) / 10 << "% |\n";
+  md << "\nEach method of the library, as the reader's way of studying: what it adds to reinforcement alone, and what it costs to "
+     << "leave it out of all methods (test F1).\n\n| method | library models | added to reinforcement | left out of all |\n|---|---|---:|---:|\n";
+  auto signed3 = [](double x) {
+    std::ostringstream o;
+    o << (x >= 0 ? "+" : "") << r3(x);
+    return o.str();
+  };
+  for (const auto& m : st.at("methods").asArray())
+    md << "| " << m.at("method").asString() << " | " << m.at("models").asString() << " | " << signed3(m.num("alone", 0)) << " | "
+       << signed3(-m.num("removed", 0)) << " |\n";
+  auto named = [&](const Value& r, const std::string& name) {
+    for (const auto& d : r.at("designs").asArray())
+      if (d.at("name").asString() == name) return d.num("test", 0);
+    return 0.0;
+  };
+  metrics.set("student", named(st, "reinforcement"));
+  metrics.set("memory", named(st, "its memory alone, no feedback"));
+  metrics.set("allMethods", named(st, "all methods"));
 
   // ---- Taking notes.
-  md << "\n## Taking notes, and answering from them\n\nThe student also learns which sentences of a passage are worth keeping before any question "
-     << "is asked: the lesson's golden answer says which one was. Test F1 here is the F1 of the single sentence it would keep first.\n\n"
-     << "| study design | best note F1, fresh | best note F1, from memory |\n|---|---:|---:|\n";
-  const auto& nfd = notesFresh.at("designs").asArray();
-  const auto& nsd = notesSt.at("designs").asArray();
-  for (std::size_t j = 0; j < nsd.size(); ++j)
-    md << "| " << nsd[j].at("name").asString() << " | " << r3(nfd[j].num("test", 0)) << " | " << r3(nsd[j].num("test", 0)) << " |\n";
-  md << "\nWith the note-taking habits of \"" << nextNotes.at("design").asString() << "\" (the design that did best on its own lessons), it takes "
-     << "notes on the " << ids.size() << " test passages and answers the questions from the notes alone:\n\n"
+  md << "\n## Taking notes, and answering from them\n\nThe student also learns, with the same methods, which sentences of a passage are "
+     << "worth keeping before any question is asked: the lesson's golden answer says which one was. Test F1 here is the F1 of the single "
+     << "sentence it would keep first.\n\n| study design | best note F1 |\n|---|---:|\n";
+  for (const auto& d : notesSt.at("designs").asArray())
+    if (d.at("name").asString().rfind("all methods but", 0) != 0) md << "| " << d.at("name").asString() << " | " << r3(d.num("test", 0)) << " |\n";
+  md << "\nWith the note-taking habits it learned with all methods, it takes notes on the " << ids.size()
+     << " test passages and answers the questions from the notes alone:\n\n"
      << "| sentences kept per passage | text kept | best kept sentence F1 | answers from the notes, F1 |\n|---:|---:|---:|---:|\n";
   for (int k : {1, 2, 3, 5, 100}) {
     const Value n = k == keep ? notes : takeNotes(k);
@@ -255,7 +267,7 @@ int main(int argc, char** argv) {
   md << "\nIts next memory (generation " << nextHabits.num("generation", 0) << "): reading habits of \"" << nextHabits.at("design").asString()
      << "\", note-taking habits of \"" << nextNotes.at("design").asString() << "\".\n";
   if (!memoryOut.empty()) {
-    std::ofstream(memoryOut) << memoryInc(nextHabits, nextNotes, sd[0].at("habits"), nsd[0].at("habits"), st.at("fingerprint").asString(), source);
+    std::ofstream(memoryOut) << memoryInc(nextHabits, nextNotes, sd[0].at("habits"), notesSt.at("designs").asArray()[0].at("habits"), st.at("fingerprint").asString(), source);
     md << "Memory written to " << memoryOut << ".\n";
   }
   if (!knowledgeOut.empty()) {
@@ -272,7 +284,7 @@ int main(int argc, char** argv) {
     std::ifstream in(baselineIn);
     std::string text((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
     bool failed = false;
-    for (const char* k : {"reading", "openBook", "openBookFoundPassage", "student", "memory", "remembered", "knowledge"}) {
+    for (const char* k : {"reading", "openBook", "openBookFoundPassage", "student", "memory", "allMethods", "remembered", "knowledge"}) {
       const auto at = text.find(std::string("\"") + k + "\":");
       if (at == std::string::npos) continue;
       const double recorded = std::stod(text.substr(at + std::string(k).size() + 3));

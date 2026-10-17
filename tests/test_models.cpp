@@ -480,9 +480,11 @@ TEST(reading_student_learns_from_feedback) {
   s.set("readingStudent", Value::object().set("memory", false));  // fresh: the prior, built-in lessons and golden test questions
   const Value r = run("readingStudent", s);
   const auto& d = r.at("designs").asArray();
-  CHECK(d.size() == 6);
-  CHECK(num(d[1], "test") > num(d[0], "test") + 0.005);  // feedback improves the reader
-  CHECK(num(d[1], "lessons") > num(d[0], "lessons"));
+  CHECK(d.size() == 24);  // no feedback, memory alone, reinforcement, + each of 10 methods, all, all but each
+  CHECK(num(d[2], "test") > num(d[0], "test") + 0.005);  // feedback improves the reader
+  CHECK(num(d[2], "lessons") > num(d[0], "lessons"));
+  CHECK(r.at("methods").size() == 10);
+  CHECK(r.at("remember").at("design").asString() == "all methods");
   for (const auto& x : d) CHECK(num(x, "test") <= num(r, "oracle") + 1e-9);
 }
 
@@ -499,7 +501,7 @@ TEST(reading_student_remembers) {
   CHECK(num(m, "generation") >= 1);
   CHECK(num(m, "lessons") > 0);
   CHECK(r.at("memory").at("weights").size() == 8);
-  CHECK(num(r.at("designs").asArray()[0], "test") > num(fresh.at("designs").asArray()[0], "test") + 0.005);
+  CHECK(num(r.at("designs").asArray()[1], "test") > num(fresh.at("designs").asArray()[1], "test") + 0.005);  // its memory alone
   CHECK(num(r.at("remember"), "generation") == num(m, "generation") + 1);
   CHECK(fresh.at("memory").num("generation", -1) == 0);
 }

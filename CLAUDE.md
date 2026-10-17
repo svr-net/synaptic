@@ -24,7 +24,8 @@ Cl(4,1) (pure elliptic CGA). Read README.md for the models; this file keeps the 
 
 - Software GPU WGSL: no `cross`, no `countOneBits`; avoid arrays as function parameters (use `var<private>` banks).
 - Reserved/builtin names fail: `common`, `set`, `pass`, `from`, `shared`, `round`, `step` as identifiers
-  (the reserved-word test scans agents and helpers).
+  (the reserved-word test scans agents and helpers). WGSL has no overloading: a helper fn may not reuse a prelude name
+  such as `nudge` (the software GPU accepts it, WebGPU does not; `model_helpers_do_not_redeclare_functions` checks).
 - WebGPU (SwiftShader): arrays declared inside loops are not re-zeroed — zero them explicitly; sin/cos/exp are approximate —
   normalise rotors (`mvNormaliseRotor`); exact-½ belief ties flip — allow flips in `web/kernels.mjs` / `gpu.js` `ALLOW`.
 - clang needs `<algorithm>` for `std::clamp`. Local gcc dangling-reference warnings in tests are pre-existing.
@@ -41,6 +42,10 @@ Cl(4,1) (pure elliptic CGA). Read README.md for the models; this file keeps the 
 - To grow them: `build/qa_golden DATA --keep 5 --write-memory src/models/student_memory.inc --write-knowledge
   src/models/reader_knowledge.inc`, rebuild, `--write-baseline tools/qa_golden/baseline.json`, copy DATA/report.md to
   tools/qa_golden/report.md, rebuild web/wasm (Docker), commit. The memory is chosen by lesson F1, never by the test.
-- Results: reader 0.343; remembered habits (gen 2) 0.361; from knowledge alone (37% of the text) 0.304. Habits are
-  saturated; the next gain needs a richer learner (vocabulary/association learning), not more modules.
+- The student studies with every learning method of the library (`kMethods` in reading_student.cpp, one bit each of the
+  job row): reinforcement, schema, interleaving, worked examples, spaced retrieval, equilibration, scaffolding, peer
+  discussion, self-direction, growth mindset, reflection; 24 designs. The memory is learned with all methods (owner's ask).
+- Results: reader 0.343; remembered habits (gen 3) 0.375; from knowledge alone (37% of the text) 0.308. Alone, worked
+  examples (+0.011) and schema (+0.008) help most; all methods together interfere (0.362). Don't tune method strengths on
+  the test questions. The next gain needs a richer learner (vocabulary/association learning).
 - JS may send an empty array as a numeric array: read spec arrays by index (`size()`, `operator[]`), not `asArray()`.
