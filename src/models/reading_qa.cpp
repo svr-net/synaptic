@@ -8,9 +8,11 @@
 // frequency saturating, longer sentences discounted), and the reader's belief that the sentence
 // answers the question is that evidence read as a point of the space: chance(atLogit(evidence −
 // τ)). Agents are candidate sentences, jobs are questions; the belief of every candidate is kept,
-// and the answer is the sentence believed most. Two plans: reading (the candidates are the
-// sentences of the question's own passage) and open book (every sentence of the corpus, so that the
-// reader must also find the passage).
+// and the answer is the sentence believed most. Plans: reading (the candidates are the sentences of
+// the question's own passage), open book (every sentence of the corpus, so that the reader must also
+// find the passage), remembered (the reader's memory: the reading habits it learned as a student
+// weigh the passage's sentences and pairs of sentences) and knowledge (the passages are gone: it
+// answers from the notes it took on them, reader_knowledge.inc, open book over the notes).
 #include <algorithm>
 #include <cctype>
 #include <cmath>
@@ -18,12 +20,29 @@
 #include <set>
 #include <string>
 
+#include "reading_memory.hpp"
 #include "reading_text.hpp"
 #include "syn/models/models.hpp"
 
 // The agent program, in WGSL.
 constexpr const char* reading_agent = R"wgsl(
-  // Constants: P(0) k1, P(1) b, P(2) τ, P(3) mean sentence length, P(4) start of the idf table,
+  // Remembered habits (J(4) = 1): P(0..7) the habit weights, P(8) start of the candidates' habits
+  // (8 per candidate), P(9) τ; the score of a candidate is the weighted sum of its habits.
+  if (J(4u) > 0.5) {
+    let firstC = u32(J(2u));
+    if (A >= u32(J(3u))) {
+      quant(0u, 0.0);
+      return;
+    }
+    let base = u32(P(8u)) + (firstC + A) * 8u;
+    var score = 0.0;
+    for (var k = 0u; k < 8u; k = k + 1u) { score = score + P(k) * P(base + k); }
+    let believed = chance(atLogit(clamp(score - P(9u), -30.0, 30.0), kA));
+    quant(0u, believed);
+    stat(0u, believed);
+    return;
+  }
+  // BM25: P(0) k1, P(1) b, P(2) τ, P(3) mean sentence length, P(4) start of the idf table,
   // P(5) start of the token pool, P(6) start of the sentence table (start, length) pairs.
   let qStart = u32(J(0u));
   let qLen = u32(J(1u));
@@ -104,7 +123,91 @@ Value example() {
 
 }  // namespace
 
+
 using namespace text;
+
+namespace {
+
+// Documents read by the reader: their sentences, tokenised, and what it learned from them — how
+// informative each word is (BM25's idf, floored at 0).
+struct Index {
+  std::map<std::string, int> vocab;
+  std::vector<double> df, pool, table;
+  std::vector<int> docFirst, docCount, sentenceDoc;
+  Value texts = Value::array();
+  double totalLen = 0, nDocs = 0;
+
+  int id(const std::string& w) {
+    auto it = vocab.find(w);
+    if (it != vocab.end()) return it->second;
+    const int k = static_cast<int>(vocab.size());
+    vocab.emplace(w, k);
+    df.push_back(0.0);
+    return k;
+  }
+  void read(const std::vector<std::string>& docs) {
+    for (std::size_t d = 0; d < docs.size(); ++d) {
+      std::set<int> seen;
+      docFirst.push_back(static_cast<int>(table.size() / 2));
+      int n = 0;
+      for (const auto& s : sentences(docs[d])) {
+        const auto ws = words(s, true);
+        if (ws.empty()) continue;
+        table.push_back(static_cast<double>(pool.size()));
+        table.push_back(static_cast<double>(ws.size()));
+        for (const auto& w : ws) {
+          const int k = id(w);
+          pool.push_back(k);
+          seen.insert(k);
+        }
+        totalLen += static_cast<double>(ws.size());
+        sentenceDoc.push_back(static_cast<int>(d));
+        texts.push(s);
+        ++n;
+      }
+      docCount.push_back(n);
+      for (int k : seen) df[static_cast<std::size_t>(k)] += 1.0;
+    }
+    nDocs += static_cast<double>(docs.size());
+  }
+  // A question: its distinct content words that the reader knows, appended to the pool.
+  std::pair<double, double> question(const std::string& q) {
+    std::set<int> qs;
+    for (const auto& w : words(q, true)) {
+      auto it = vocab.find(w);
+      if (it != vocab.end()) qs.insert(it->second);
+    }
+    const double start = static_cast<double>(pool.size());
+    for (int k : qs) pool.push_back(k);
+    return {start, static_cast<double>(qs.size())};
+  }
+  std::vector<double> params(const Value& given) const {
+    std::vector<double> idf(df.size());
+    for (std::size_t k = 0; k < df.size(); ++k) idf[k] = std::max(0.0, std::log((nDocs - df[k] + 0.5) / (df[k] + 0.5) + 1.0));
+    std::vector<double> p = {given.num("k1", 1.2), given.num("b", 0.75), given.num("threshold", 4.0),
+                             totalLen / std::max<double>(1.0, static_cast<double>(sentenceDoc.size())), 0, 0, 0, 0};
+    p[4] = static_cast<double>(p.size());
+    p.insert(p.end(), idf.begin(), idf.end());
+    p[5] = static_cast<double>(p.size());
+    p.insert(p.end(), pool.begin(), pool.end());
+    p[6] = static_cast<double>(p.size());
+    p.insert(p.end(), table.begin(), table.end());
+    return p;
+  }
+  Value docs() const {
+    Value v = Value::array();
+    for (int d : sentenceDoc) v.push(static_cast<double>(d));
+    return v;
+  }
+};
+
+Value numbers(const std::vector<int>& xs) {
+  Value v = Value::array();
+  for (int x : xs) v.push(static_cast<double>(x));
+  return v;
+}
+
+}  // namespace
 
 const kernel::Model* readingQaModel() {
   static const kernel::Model model = [] {
@@ -117,107 +220,125 @@ const kernel::Model* readingQaModel() {
       const Value& given = spec.sub("readingQA");
       const bool golden = given.str("set", "") == "golden";
       const Value data = golden ? text::goldenSet(given.integer("questions", 60)) : given.has("questions") ? given : example();
-      // Documents: the passages first, then the corpus. Their sentences, tokenised.
+      // Documents: the passages first, then the corpus.
       std::vector<std::string> docs;
-      for (const auto& p : data.at("passages").asArray()) docs.push_back(p.asString());
+      // (Index by position: an empty array may come as a numeric array.)
+      for (std::size_t i = 0; i < data.at("passages").size(); ++i) docs.push_back(data.at("passages")[i].asString());
       const std::size_t passageCount = docs.size();
       if (data.has("corpus"))
-        for (const auto& c : data.at("corpus").asArray()) docs.push_back(c.asString());
-      std::map<std::string, int> vocab;
-      std::vector<double> df;
-      auto id = [&](const std::string& w) {
-        auto it = vocab.find(w);
-        if (it != vocab.end()) return it->second;
-        const int k = static_cast<int>(vocab.size());
-        vocab.emplace(w, k);
-        df.push_back(0.0);
-        return k;
-      };
-      std::vector<double> pool, table;
-      std::vector<int> docFirst, docCount, sentenceDoc;
-      Value texts = Value::array();
-      double totalLen = 0;
-      for (std::size_t d = 0; d < docs.size(); ++d) {
-        std::set<int> seen;
-        docFirst.push_back(static_cast<int>(table.size() / 2));
-        int n = 0;
-        for (const auto& s : sentences(docs[d])) {
-          const auto ws = words(s, true);
-          if (ws.empty()) continue;
-          table.push_back(static_cast<double>(pool.size()));
-          table.push_back(static_cast<double>(ws.size()));
-          for (const auto& w : ws) {
-            const int k = id(w);
-            pool.push_back(k);
-            seen.insert(k);
-          }
-          totalLen += static_cast<double>(ws.size());
-          sentenceDoc.push_back(static_cast<int>(d));
-          texts.push(s);
-          ++n;
-        }
-        docCount.push_back(n);
-        for (int k : seen) df[static_cast<std::size_t>(k)] += 1.0;
+        for (std::size_t i = 0; i < data.at("corpus").size(); ++i) docs.push_back(data.at("corpus")[i].asString());
+      // The knowledge: notes on the passages it read, given or stored (reader_knowledge.inc).
+      std::vector<std::string> notes;
+      bool aligned = false;  // note i was taken on passage i
+      if (given.has("knowledge") && given.at("knowledge").size() > 0) {
+        for (std::size_t i = 0; i < given.at("knowledge").size(); ++i) notes.push_back(given.at("knowledge")[i].asString());
+        aligned = notes.size() >= passageCount;
+      } else {
+        notes = memory::knowledge().notes;
+        aligned = golden && notes.size() >= passageCount;
       }
-      // What the reader learned: how informative each word is (BM25's idf, floored at 0).
-      const double nDocs = static_cast<double>(docs.size());
-      std::vector<double> idf(df.size());
-      for (std::size_t k = 0; k < df.size(); ++k) idf[k] = std::max(0.0, std::log((nDocs - df[k] + 0.5) / (df[k] + 0.5) + 1.0));
-      // Questions: their distinct content words that the corpus knows.
-      std::vector<std::vector<double>> readingRows, openRows;
+      const bool closedBook = given.num("closedBook", 1.0) > 0.5 && !notes.empty();
+      const bool remember = given.num("remember", 1.0) > 0.5 && passageCount > 0;
+      const memory::Memory mem = memory::recall(!given.flag("memory", true), given.str("memoryFingerprint", ""));
+
+      Index main, known;
+      main.read(docs);
+      known.read(notes);
+      std::vector<std::vector<double>> readingRows, openRows, knownRows;
+      std::vector<memory::Item> items;
       int maxCount = 1;
       Value qmeta = Value::array();
       for (const auto& q : data.at("questions").asArray()) {
-        std::set<int> qs;
-        for (const auto& w : words(q.at("question").asString(), true)) {
-          auto it = vocab.find(w);
-          if (it != vocab.end()) qs.insert(it->second);
-        }
-        const double start = static_cast<double>(pool.size());
-        for (int k : qs) pool.push_back(k);
-        const auto p = static_cast<std::size_t>(q.at("passage").asNumber());
-        if (p >= passageCount) throw std::invalid_argument("readingQA: a question names a passage that is not given");
-        readingRows.push_back({start, double(qs.size()), double(docFirst[p]), double(docCount[p])});
-        openRows.push_back({start, double(qs.size()), 0.0, double(sentenceDoc.size())});
-        maxCount = std::max(maxCount, docCount[p]);
-        Value qm = Value::object().set("passage", static_cast<double>(p)).set("question", q.at("question"));
+        const std::string text = q.at("question").asString();
+        Value qm = Value::object().set("question", text);
         if (q.has("golden")) qm.set("golden", q.at("golden"));
+        if (passageCount > 0) {
+          const auto [start, len] = main.question(text);
+          const auto p = static_cast<std::size_t>(q.num("passage", -1));
+          if (!q.has("passage") || p >= passageCount) throw std::invalid_argument("readingQA: a question names a passage that is not given");
+          readingRows.push_back({start, len, double(main.docFirst[p]), double(main.docCount[p]), 0});
+          openRows.push_back({start, len, 0.0, double(main.sentenceDoc.size()), 0});
+          maxCount = std::max(maxCount, main.docCount[p]);
+          items.push_back({text, q.str("golden", ""), docs[p]});
+          qm.set("passage", static_cast<double>(p));
+        }
+        if (closedBook) {
+          const auto [start, len] = known.question(text);
+          knownRows.push_back({start, len, 0.0, double(known.sentenceDoc.size()), 0});
+        }
         qmeta.push(qm);
       }
-      std::vector<double> params = {given.num("k1", 1.2), given.num("b", 0.75), given.num("threshold", 4.0),
-                                    totalLen / std::max<double>(1.0, static_cast<double>(sentenceDoc.size())), 0, 0, 0, 0};
-      params[4] = static_cast<double>(params.size());
-      params.insert(params.end(), idf.begin(), idf.end());
-      params[5] = static_cast<double>(params.size());
-      params.insert(params.end(), pool.begin(), pool.end());
-      params[6] = static_cast<double>(params.size());
-      params.insert(params.end(), table.begin(), table.end());
-      const auto agentsOpen = static_cast<std::uint32_t>(std::max<std::size_t>(1, sentenceDoc.size()));
-      Plan reading = makePlan("readingQA", static_cast<std::uint32_t>(maxCount), 1, params, readingRows, seedOf(spec), 1);
-      reading.keepAgents = reading.agents;
-      Value meta = Value::object();
-      Value docOf = Value::array();
-      for (int d : sentenceDoc) docOf.push(static_cast<double>(d));
-      Value firsts = Value::array();
-      for (int f : docFirst) firsts.push(static_cast<double>(f));
-      meta.set("sentences", texts).set("doc", docOf).set("docFirst", firsts).set("questions", qmeta).set("vocabulary", static_cast<double>(vocab.size()))
-          .set("documents", nDocs).set("passages", static_cast<double>(passageCount));
-      reading.meta = meta;
-      std::vector<Plan> plans{reading};
-      if (given.num("openBook", 1.0) > 0.5) {
-        Plan open = makePlan("readingQA", agentsOpen, 1, params, openRows, seedOf(spec), 1);
-        open.keepAgents = open.agents;
-        plans.push_back(open);
+      std::vector<Plan> plans;
+      const std::uint32_t seed = seedOf(spec);
+      auto withMeta = [](Plan p, const std::string& kind, Value meta) {
+        p.keepAgents = p.agents;
+        p.meta = meta.set("kind", kind);
+        return p;
+      };
+      if (passageCount > 0) {
+        const auto params = main.params(given);
+        plans.push_back(withMeta(makePlan("readingQA", static_cast<std::uint32_t>(maxCount), 1, params, readingRows, seed, 1), "reading",
+                                 Value::object().set("texts", main.texts).set("doc", main.docs()).set("docFirst", numbers(main.docFirst))));
+        if (given.num("openBook", 1.0) > 0.5)
+          plans.push_back(withMeta(makePlan("readingQA", static_cast<std::uint32_t>(std::max<std::size_t>(1, main.sentenceDoc.size())), 1, params,
+                                            openRows, seed, 1),
+                                   "openBook", Value::object().set("texts", main.texts).set("doc", main.docs())));
       }
+      if (remember) {
+        // The remembered habits weigh the passage's sentences and pairs of sentences.
+        const auto cands = memory::answerCandidates(items);
+        std::vector<double> params(mem.habits, mem.habits + memory::kHabitCount);
+        params.push_back(0);
+        params.push_back(given.num("habitThreshold", 1.0));
+        params[8] = static_cast<double>(params.size());
+        std::vector<std::vector<double>> rows;
+        Value texts = Value::array();
+        std::size_t first = 0, most = 1;
+        for (const auto& c : cands) {
+          rows.push_back({0, 0, double(first), double(c.texts.size()), 1});
+          for (std::size_t k = 0; k < c.texts.size(); ++k) {
+            params.insert(params.end(), c.habits[k].begin(), c.habits[k].end());
+            texts.push(c.texts[k]);
+          }
+          first += c.texts.size();
+          most = std::max(most, c.texts.size());
+        }
+        plans.push_back(withMeta(makePlan("readingQA", static_cast<std::uint32_t>(most), 1, params, rows, seed, 1), "remembered",
+                                 Value::object().set("texts", texts)));
+      }
+      if (closedBook)
+        plans.push_back(withMeta(makePlan("readingQA", static_cast<std::uint32_t>(std::max<std::size_t>(1, known.sentenceDoc.size())), 1,
+                                          known.params(given), knownRows, seed, 1),
+                                 "knowledge", Value::object().set("texts", known.texts).set("doc", known.docs())));
+      if (plans.empty()) throw std::invalid_argument("readingQA: neither passages nor knowledge to answer from");
+      const auto& k = memory::knowledge();
+      plans[0].meta.set("questions", qmeta)
+          .set("vocabulary", static_cast<double>(main.vocab.size()))
+          .set("documents", main.nDocs)
+          .set("passages", static_cast<double>(passageCount))
+          .set("aligned", aligned)
+          .set("memory", Value::object().set("used", mem.used).set("reason", mem.reason).set("generation", mem.generation).set("design", mem.design))
+          .set("knowledge", Value::object()
+                                .set("used", closedBook)
+                                .set("stored", !(given.has("knowledge") && given.at("knowledge").size() > 0))
+                                .set("passages", static_cast<double>(notes.size()))
+                                .set("sentences", static_cast<double>(known.sentenceDoc.size()))
+                                .set("kept", k.kept)
+                                .set("perPassage", static_cast<double>(k.perPassage))
+                                .set("generation", static_cast<double>(k.generation)));
       return plans;
     };
     m.summarise = [](const Value&, const std::vector<Plan>& plans, const std::vector<Output>& out) {
       const Value& meta = plans[0].meta;
-      const auto& texts = meta.at("sentences").asArray();
-      const auto& docOf = meta.at("doc").asArray();
-      auto choose = [&](std::size_t planIndex, std::uint32_t job, std::size_t& index, double& belief) {
-        const Plan& p = plans[planIndex];
-        const auto& v = out[planIndex].agentValues;
+      auto planOf = [&](const std::string& kind) -> int {
+        for (std::size_t i = 0; i < plans.size(); ++i)
+          if (plans[i].meta.at("kind").asString() == kind) return static_cast<int>(i);
+        return -1;
+      };
+      // The candidate believed most for a question: its index in the plan's texts, and the belief.
+      auto choose = [&](int planIndex, std::uint32_t job, std::size_t& index, double& belief) {
+        const Plan& p = plans[static_cast<std::size_t>(planIndex)];
+        const auto& v = out[static_cast<std::size_t>(planIndex)].agentValues;
         const std::uint32_t keep = std::min(p.keepAgents, p.agents);
         const float* row = p.jobRows.data() + static_cast<std::size_t>(job) * p.jobStride;
         const auto count = static_cast<std::uint32_t>(row[3]);
@@ -233,67 +354,107 @@ const kernel::Model* readingQaModel() {
         index = static_cast<std::size_t>(row[2]) + best;
         belief = bestV;
       };
+      const int reading = planOf("reading"), open = planOf("openBook"), remembered = planOf("remembered"), known = planOf("knowledge");
       const auto& questions = meta.at("questions").asArray();
-      const auto& docFirst = meta.at("docFirst").asArray();
+      const bool aligned = meta.at("aligned").asBool();
       // Against golden answers, when the questions have them: token F1 of the reader's answers, and
       // of the passage's first sentence, a random sentence and the oracle (its best sentence).
-      double sum[5] = {0, 0, 0, 0, 0}, half[5] = {0, 0, 0, 0, 0}, found = 0, scored = 0;
+      const char* keys[7] = {"reading", "openBook", "firstSentence", "randomSentence", "oracle", "remembered", "knowledge"};
+      double sum[7] = {}, half[7] = {}, have[7] = {}, found = 0, knownFound = 0, scored = 0;
       std::vector<double> bins(20, 0.0);
       Value answers = Value::array();
-      for (std::uint32_t j = 0; j < plans[0].jobs; ++j) {
-        std::size_t i = 0;
-        double b = 0;
-        choose(0, j, i, b);
+      const std::uint32_t jobs = plans[0].jobs;
+      for (std::uint32_t j = 0; j < jobs; ++j) {
         const Value& q = questions[j];
-        Value a = Value::object().set("question", q.at("question")).set("reading", texts[i]).set("readingBelief", b)
-                      .set("readingSentence", static_cast<double>(i));
-        std::size_t openIndex = i;
-        if (plans.size() > 1) {
-          choose(1, j, openIndex, b);
-          a.set("openBook", texts[openIndex]).set("openBookBelief", b).set("openBookSentence", static_cast<double>(openIndex))
-              .set("openBookDocument", docOf[openIndex]);
-        }
+        Value a = Value::object().set("question", q.at("question"));
+        std::string text[7];
+        bool got[7] = {};
+        auto answer = [&](int plan, int slot, const char* key) {
+          if (plan < 0) return std::size_t(0);
+          std::size_t i = 0;
+          double b = 0;
+          choose(plan, j, i, b);
+          text[slot] = plans[static_cast<std::size_t>(plan)].meta.at("texts")[i].asString();
+          got[slot] = true;
+          a.set(key, text[slot]).set(std::string(key) + "Belief", b);
+          return i;
+        };
+        const std::size_t ri = answer(reading, 0, "reading");
+        const std::size_t oi = answer(open, 1, "openBook");
+        answer(remembered, 5, "remembered");
+        const std::size_t ki = answer(known, 6, "knowledge");
+        if (reading >= 0) a.set("readingSentence", static_cast<double>(ri));
+        if (open >= 0) a.set("openBookSentence", static_cast<double>(oi)).set("openBookDocument", plans[static_cast<std::size_t>(open)].meta.at("doc")[oi]);
+        if (known >= 0) a.set("knowledgePassage", plans[static_cast<std::size_t>(known)].meta.at("doc")[ki]);
         if (q.has("golden")) {
           const std::string& g = q.at("golden").asString();
-          const auto p = static_cast<std::size_t>(q.at("passage").asNumber());
-          const auto first = static_cast<std::size_t>(docFirst[p].asNumber());
-          const auto last = p + 1 < docFirst.size() ? static_cast<std::size_t>(docFirst[p + 1].asNumber()) : texts.size();
-          double oracle = 0;
-          for (std::size_t s = first; s < last; ++s) oracle = std::max(oracle, tokenF1(texts[s].asString(), g));
-          const std::size_t pick = first + (last > first ? hash32(j * 2654435761u + 2026u) % (last - first) : 0);
-          const double f[5] = {tokenF1(texts[i].asString(), g), tokenF1(texts[openIndex].asString(), g),
-                               first < last ? tokenF1(texts[first].asString(), g) : 0.0, first < last ? tokenF1(texts[pick].asString(), g) : 0.0, oracle};
-          for (int k = 0; k < 5; ++k) {
-            sum[k] += f[k];
-            half[k] += f[k] >= 0.5 ? 1.0 : 0.0;
+          if (reading >= 0) {
+            const Value& rm = plans[static_cast<std::size_t>(reading)].meta;
+            const auto& texts = rm.at("texts").asArray();
+            const auto& docFirst = rm.at("docFirst").asArray();
+            const auto p = static_cast<std::size_t>(q.at("passage").asNumber());
+            const auto first = static_cast<std::size_t>(docFirst[p].asNumber());
+            const auto last = p + 1 < docFirst.size() ? static_cast<std::size_t>(docFirst[p + 1].asNumber()) : texts.size();
+            double oracle = 0;
+            for (std::size_t s = first; s < last; ++s) oracle = std::max(oracle, tokenF1(texts[s].asString(), g));
+            const std::size_t pick = first + (last > first ? hash32(j * 2654435761u + 2026u) % (last - first) : 0);
+            if (first < last) {
+              text[2] = texts[first].asString();
+              text[3] = texts[pick].asString();
+              got[2] = got[3] = true;
+            }
+            sum[4] += oracle;
+            half[4] += oracle >= 0.5 ? 1.0 : 0.0;
+            have[4] += 1;
+            bins[10 + std::min<std::size_t>(9, static_cast<std::size_t>(oracle * 10))] += 1;
+            a.set("oracle", oracle);
+            if (open >= 0 && static_cast<std::size_t>(plans[static_cast<std::size_t>(open)].meta.at("doc")[oi].asNumber()) == p) found += 1;
+            if (known >= 0 && aligned && static_cast<std::size_t>(plans[static_cast<std::size_t>(known)].meta.at("doc")[ki].asNumber()) == p)
+              knownFound += 1;
           }
-          bins[std::min<std::size_t>(9, static_cast<std::size_t>(f[0] * 10))] += 1;
-          bins[10 + std::min<std::size_t>(9, static_cast<std::size_t>(oracle * 10))] += 1;
-          if (static_cast<std::size_t>(docOf[openIndex].asNumber()) == p) found += 1;
+          for (int k = 0; k < 7; ++k) {
+            if (k == 4 || !got[k]) continue;
+            const double f = tokenF1(text[k], g);
+            sum[k] += f;
+            half[k] += f >= 0.5 ? 1.0 : 0.0;
+            have[k] += 1;
+            if (k == 0) {
+              bins[std::min<std::size_t>(9, static_cast<std::size_t>(f * 10))] += 1;
+              a.set("f1", f);
+            }
+            if (k == 1) a.set("openBookF1", f);
+            if (k == 5) a.set("rememberedF1", f);
+            if (k == 6) a.set("knowledgeF1", f);
+          }
           scored += 1;
-          a.set("golden", g).set("f1", f[0]).set("openBookF1", f[1]).set("oracle", oracle);
+          a.set("golden", g);
         }
         answers.push(a);
       }
       Value result = Value::object()
                          .set("answers", answers)
-                         .set("sentences", meta.at("sentences"))
-                         .set("doc", meta.at("doc"))
-                         .set("docFirst", meta.at("docFirst"))
                          .set("vocabulary", meta.at("vocabulary"))
                          .set("documents", meta.at("documents"))
-                         .set("passages", meta.at("passages"));
+                         .set("passages", meta.at("passages"))
+                         .set("memory", meta.at("memory"))
+                         .set("knowledge", meta.at("knowledge"));
+      if (reading >= 0) {
+        const Value& rm = plans[static_cast<std::size_t>(reading)].meta;
+        result.set("sentences", rm.at("texts")).set("doc", rm.at("doc")).set("docFirst", rm.at("docFirst"));
+      }
       if (scored > 0) {
-        const char* keys[5] = {"reading", "openBook", "firstSentence", "randomSentence", "oracle"};
         Value scores = Value::object(), atLeastHalf = Value::object();
-        for (int k = 0; k < 5; ++k) {
-          scores.set(keys[k], sum[k] / scored);
-          atLeastHalf.set(keys[k], half[k] / scored);
+        for (int k = 0; k < 7; ++k) {
+          if (have[k] == 0) continue;
+          scores.set(keys[k], sum[k] / have[k]);
+          atLeastHalf.set(keys[k], half[k] / have[k]);
         }
-        scores.set("openBookFoundPassage", found / scored);
-        result.set("scores", scores).set("atLeastHalf", atLeastHalf).set("scored", scored)
-            .set("readingF1Histogram", Value::Numbers(std::vector<double>(bins.begin(), bins.begin() + 10)))
-            .set("oracleF1Histogram", Value::Numbers(std::vector<double>(bins.begin() + 10, bins.end())));
+        if (open >= 0 && reading >= 0) scores.set("openBookFoundPassage", found / scored);
+        if (known >= 0 && aligned && reading >= 0) scores.set("knowledgeFoundPassage", knownFound / scored);
+        result.set("scores", scores).set("atLeastHalf", atLeastHalf).set("scored", scored);
+        if (reading >= 0)
+          result.set("readingF1Histogram", Value::Numbers(std::vector<double>(bins.begin(), bins.begin() + 10)))
+              .set("oracleF1Histogram", Value::Numbers(std::vector<double>(bins.begin() + 10, bins.end())));
       }
       return result;
     };

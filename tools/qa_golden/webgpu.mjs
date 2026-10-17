@@ -23,7 +23,9 @@ for (const [doc, question, , passage] of qa) {
   if (!passageOf.has(doc)) { passageOf.set(doc, passages.length); passages.push(passage); }
   questions.push({ question, passage: passageOf.get(doc) });
 }
-const spec = { sim: { seed: 2026 }, readingQA: { passages, questions, corpus } };
+// The notes qa_golden took on the passages (knowledge.tsv), so that the answers from knowledge are comparable.
+const knowledge = fs.existsSync(path.join(dir, 'knowledge.tsv')) ? tsv('knowledge.tsv').map((r) => r[1] || '') : [];
+const spec = { sim: { seed: 2026 }, readingQA: { passages, questions, corpus, knowledge } };
 
 // SQuAD token F1, as in qa_golden.cpp.
 const norm = (s) => s.toLowerCase().replace(/[^a-z0-9\s]/g, '').split(/\s+/).filter((w) => w && !['a', 'an', 'the'].includes(w));
@@ -65,14 +67,18 @@ await browser.close();
 server.close();
 
 const native = tsv('answers.tsv').slice(1);
-let readingF1 = 0, openF1 = 0, same = 0;
+let readingF1 = 0, openF1 = 0, rememberedF1 = 0, knowledgeF1 = 0, same = 0;
+const clean = (s) => (s || '').replace(/\t/g, ' ');
 result.answers.forEach((a, i) => {
   readingF1 += f1(a.reading, qa[i][2]);
   openF1 += f1(a.openBook, qa[i][2]);
-  if (native[i] && native[i][2] === a.reading.replace(/\t/g, ' ') && native[i][4] === a.openBook.replace(/\t/g, ' ')) same++;
+  rememberedF1 += f1(a.remembered || '', qa[i][2]);
+  knowledgeF1 += f1(a.knowledge || '', qa[i][2]);
+  const n = native[i];
+  if (n && n[2] === clean(a.reading) && n[4] === clean(a.openBook) && (n[7] ?? '') === clean(a.remembered) && (n[9] ?? '') === clean(a.knowledge)) same++;
 });
 const n = result.answers.length;
 console.log(`WebGPU (${result.adapter || 'adapter'}): ${n} golden questions in ${Math.round(result.ms)} ms`);
-console.log(`token F1: reader ${(readingF1 / n).toFixed(3)}, open book ${(openF1 / n).toFixed(3)}`);
+console.log(`token F1: reader ${(readingF1 / n).toFixed(3)}, open book ${(openF1 / n).toFixed(3)}, remembering ${(rememberedF1 / n).toFixed(3)}, from its knowledge ${(knowledgeF1 / n).toFixed(3)}`);
 console.log(`same answers as the software GPU: ${same}/${n}`);
 if (same !== n) process.exit(1);

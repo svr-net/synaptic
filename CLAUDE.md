@@ -31,12 +31,16 @@ Cl(4,1) (pure elliptic CGA). Read README.md for the models; this file keeps the 
 - Docker builds here need the proxy build-args, `--secret id=ca,src=/root/.ccr/ca-bundle.crt` and `--network host`;
   start the daemon with `sudo dockerd &` if it is down. Never `pkill -f` a pattern that matches your own shell.
 
-## QA golden test and the student's memory
+## QA golden test, the reader's memory and knowledge
 
 - `tools/qa_golden/run.sh /path/to/knowledge` (data from `prepare.py`, pinned sha256, seed 2026); `--baseline` fails on a
-  drop of more than 0.01 below `tools/qa_golden/baseline.json`.
-- The reader as a student keeps what it learned in `src/models/student_memory.inc` (generation, lessons, design, source,
-  test F1, eight habit weights). To grow it: `build/qa_golden DATA --write-memory src/models/student_memory.inc`, rebuild,
-  re-record the baseline, commit. The memory is chosen by lesson F1, never by the test.
-- Results so far: reader 0.343, student 0.362 (fresh), memory generation 1 0.361 without new feedback; generation 2 is
-  saturated (0.364). The next gain needs a richer learner (vocabulary/association learning), not more modules.
+  drop of more than 0.01 below `tools/qa_golden/baseline.json`. The data lives outside the repo (e.g. build/qa_golden).
+- What the reader keeps: `src/models/reading_memory.{hpp,cpp}` loads `student_memory.inc` (habit and note-taking weights,
+  generation, provenance, fingerprint of the habits) and `reader_knowledge.inc` (notes on the 200 golden passages).
+  Changing a habit's definition: bump its version in `memory::fingerprint()` — the old memory is then refused, not misapplied.
+- To grow them: `build/qa_golden DATA --keep 5 --write-memory src/models/student_memory.inc --write-knowledge
+  src/models/reader_knowledge.inc`, rebuild, `--write-baseline tools/qa_golden/baseline.json`, copy DATA/report.md to
+  tools/qa_golden/report.md, rebuild web/wasm (Docker), commit. The memory is chosen by lesson F1, never by the test.
+- Results: reader 0.343; remembered habits (gen 2) 0.361; from knowledge alone (37% of the text) 0.304. Habits are
+  saturated; the next gain needs a richer learner (vocabulary/association learning), not more modules.
+- JS may send an empty array as a numeric array: read spec arrays by index (`size()`, `operator[]`), not `asArray()`.

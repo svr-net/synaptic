@@ -116,6 +116,12 @@ const rq = model('readingQA');
 if (rq) check(rq.answers[1].reading.includes('waggle run'), 'the reader answers with the right sentence');
 const rg = call('readingQA golden', () => syn.runModel({ model: 'readingQA', readingQA: { set: 'golden', questions: 20 } }));
 if (rg) check(rg.scores.reading > rg.scores.firstSentence, 'the reader beats the first sentence on golden answers');
+if (rg) check(rg.scores.remembered > rg.scores.reading, 'the remembered habits answer better');
+if (rg) check(rg.scores.knowledge > rg.scores.firstSentence, 'it answers from its notes when the passages are gone');
+const rk = call('readingQA from knowledge', () => syn.runModel({ model: 'readingQA', readingQA: { passages: [], questions: [{ question: 'What does the Michigan Makers program help students do?' }] } }));
+if (rk) check(rk.answers[0].knowledge.includes('Michigan Makers'), 'with no passage, it answers from what it knows');
+const rn = model('readingNotes');
+if (rn) check(rn.kept > 0.1 && rn.kept < 0.7 && rn.bestKeptF1 <= rn.bestF1 + 1e-9, 'notes keep part of each passage');
 
 const cls = model('classroom', spec);
 if (cls) {

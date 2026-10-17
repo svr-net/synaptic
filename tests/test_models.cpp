@@ -48,7 +48,7 @@ bool finiteEverywhere(const Value& v) {
 }  // namespace
 
 TEST(every_model_runs_and_is_finite) {
-  CHECK(kernel::models().size() == 40);
+  CHECK(kernel::models().size() == 41);
   for (const kernel::Model* m : kernel::models()) {
     const Value r = run(m->name, spec(200));
     if (!finiteEverywhere(r)) ::syntest::fail("non-finite value in " + m->name, __FILE__, __LINE__);
@@ -502,4 +502,60 @@ TEST(reading_student_remembers) {
   CHECK(num(r.at("designs").asArray()[0], "test") > num(fresh.at("designs").asArray()[0], "test") + 0.005);
   CHECK(num(r.at("remember"), "generation") == num(m, "generation") + 1);
   CHECK(fresh.at("memory").num("generation", -1) == 0);
+}
+
+TEST(reading_memory_is_checked_and_anchored) {
+  // A memory learned for other habits is refused: the student starts from the prior, as fresh.
+  Value s = spec(64);
+  s.set("readingStudent", Value::object().set("memoryFingerprint", "habits v0: other habits"));
+  const Value refused = run("readingStudent", s);
+  CHECK(!refused.at("memory").at("used").asBool());
+  CHECK(refused.at("memory").at("reason").asString().find("fingerprint") != std::string::npos);
+  s.set("readingStudent", Value::object().set("memory", false));
+  const Value fresh = run("readingStudent", s);
+  CHECK(std::fabs(num(refused.at("designs").asArray()[0], "test") - num(fresh.at("designs").asArray()[0], "test")) < 1e-9);
+  // The anchor holds what it remembers against a few new lessons.
+  auto drift = [&](double anchor) {
+    Value a = spec(64);
+    a.set("readingStudent", Value::object().set("lessons", 20).set("anchor", anchor));
+    const Value r = run("readingStudent", a);
+    double d = 0;
+    for (std::size_t k = 0; k < 8; ++k) {
+      const double x = r.at("remember").at("weights")[k].asNumber() - r.at("memory").at("weights")[k].asNumber();
+      d += x * x;
+    }
+    return std::sqrt(d);
+  };
+  CHECK(drift(1.0) < 0.5 * drift(0.0));
+}
+
+TEST(reading_notes_keep_what_answers) {
+  // Notes on the golden passages, before any question: a few sentences of each, chosen by the
+  // remembered note-taking habits, keep much of what answers the questions.
+  Value s = spec(64);
+  s.set("readingNotes", Value::object().set("keep", 5));
+  const Value r = run("readingNotes", s);
+  CHECK(r.at("notes").size() == 60);
+  CHECK(num(r, "kept") > 0.1 && num(r, "kept") < 0.7);
+  CHECK(num(r, "bestKeptF1") <= num(r, "bestF1") + 1e-9);
+  CHECK(num(r, "bestKeptF1") > 0.6 * num(r, "bestF1"));
+  CHECK(r.at("memory").at("used").asBool());
+}
+
+TEST(reading_qa_answers_with_memory_and_knowledge) {
+  Value s = spec(64);
+  s.set("readingQA", Value::object().set("set", "golden").set("questions", 60));
+  const Value r = run("readingQA", s);
+  const Value& sc = r.at("scores");
+  CHECK(r.at("memory").at("used").asBool());
+  CHECK(r.at("knowledge").at("used").asBool());
+  CHECK(num(sc, "remembered") > num(sc, "reading"));            // the remembered habits answer better
+  CHECK(num(sc, "knowledge") > num(sc, "firstSentence") + 0.05);  // from the notes alone, the passages gone
+  CHECK(num(sc, "knowledge") <= num(sc, "oracle"));
+  CHECK(num(sc, "knowledgeFoundPassage") > 0.7);
+  // With no passage at all, it answers from what it knows.
+  Value k = spec(64);
+  k.set("readingQA", Value::object().set("passages", Value::array()).set("questions", Value::array().push(Value::object().set("question", "What does the Michigan Makers program help students do?"))));
+  const Value a = run("readingQA", k);
+  CHECK(a.at("answers").asArray()[0].at("knowledge").asString().find("Michigan Makers") != std::string::npos);
 }
