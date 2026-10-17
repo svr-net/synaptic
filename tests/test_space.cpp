@@ -9,6 +9,7 @@
 #include "syn/core/multivector.hpp"
 #include "syn/gpu/software_gpu.hpp"
 #include "syn/kernel/kernel.hpp"
+#include "syn/space/algebra.hpp"
 #include "syn/space/space.hpp"
 #include "test_framework.hpp"
 
@@ -157,6 +158,50 @@ TEST(space_mixtures_and_caps) {
   CHECK(v[8] == 0.0f);
 }
 
+TEST(space_algebra_products_match_the_reference_algebra) {
+  // Two dense multivectors of Cl(4, 1); every product of the WGSL algebra against syn::Multivector.
+  std::vector<double> a(32), b(32);
+  for (int i = 0; i < 32; ++i) {
+    a[i] = std::sin(1.3 * i + 0.4);
+    b[i] = std::cos(0.7 * i - 1.1) * (i % 3 == 0 ? 0.0 : 1.0);
+  }
+  std::string fill;
+  for (int i = 0; i < 32; ++i) fill += "mvSet(0u, " + std::to_string(i) + "u, " + std::to_string(a[i]) + "); mvSet(1u, " + std::to_string(i) + "u, " + std::to_string(b[i]) + ");\n";
+  const std::string src = space::spaceWgsl() + R"wgsl(
+@group(0) @binding(0) var<storage, read_write> OUT : array<f32>;
+@group(0) @binding(1) var<storage, read> C : array<f32>;
+fn P(i : u32) -> f32 { return C[i]; }
+)wgsl" + space::algebraWgsl(4) + R"wgsl(
+@compute @workgroup_size(1)
+fn main() {
+)wgsl" + fill + R"wgsl(
+  for (var op = 0u; op < 4u; op = op + 1u) {
+    mvMul(2u, 0u, 1u, op);
+    for (var i = 0u; i < 32u; i = i + 1u) { OUT[op * 32u + i] = mvGet(2u, i); }
+  }
+  mvReverse(3u, 0u);
+  for (var i = 0u; i < 32u; i = i + 1u) { OUT[128u + i] = mvGet(3u, i); }
+  OUT[160u] = mvScalar(0u, 1u);
+}
+)wgsl";
+  std::vector<float> table;
+  for (double x : space::signTable()) table.push_back(static_cast<float>(x));
+  const auto shader = gpu::Shader::compile(src);
+  gpu::Buffer out = gpu::Buffer::zeros(192);
+  gpu::Buffer constants = gpu::Buffer::ofFloats(table);
+  gpu::dispatch(*shader, {&out, &constants}, 1, 1, 1);
+  const auto v = out.floats();
+  Multivector A(4, 1), B(4, 1);
+  for (std::uint32_t i = 0; i < 32; ++i) {
+    A[i] = static_cast<float>(a[i]);
+    B[i] = static_cast<float>(b[i]);
+  }
+  const Multivector expected[5] = {A * B, A | B, (B.reverse() | A.reverse()).reverse(), A ^ B, A.reverse()};
+  for (int op = 0; op < 5; ++op)
+    for (std::uint32_t i = 0; i < 32; ++i) CHECK_NEAR(v[op * 32 + i], expected[op][i], 1e-4);
+  CHECK_NEAR(v[160], (A * B).scalarPart(), 1e-4);
+}
+
 TEST(space_model_checks_on_the_software_gpu) {
   Value spec = Value::object();
   spec.set("space", Value::object().set("samples", 5000));
@@ -216,7 +261,9 @@ TEST(kernel_agents_use_no_wgsl_reserved_words) {
       "volatile", "wgsl", "where", "with", "writeonly", "yield", "alias", "case", "const", "const_assert", "continuing",
       "default", "diagnostic", "discard", "enable", "loop", "override", "requires", "struct", "switch", "fn"};
   for (const auto* m : kernel::models()) {
-    const std::string src = m->agentSource;
+    // The agent's statements, and the model's helpers (whose declarations may use const and fn).
+    const std::string src = std::string(m->agentSource) + "\n" + m->helpersWgsl;
+    const std::size_t helpers = std::string(m->agentSource).size();
     std::string word;
     for (std::size_t i = 0; i <= src.size(); ++i) {
       if (i + 1 < src.size() && src[i] == '/' && src[i + 1] == '/') {  // comments may say anything
@@ -229,8 +276,9 @@ TEST(kernel_agents_use_no_wgsl_reserved_words) {
         word += ch;
         continue;
       }
+      const bool declaration = i > helpers && (word == "const" || word == "fn" || word == "struct");
       for (const char* r : reserved)
-        if (word == r) syntest::fail(m->name + ": the agent uses the WGSL reserved word '" + word + "'", __FILE__, __LINE__);
+        if (word == r && !declaration) syntest::fail(m->name + ": the agent uses the WGSL reserved word '" + word + "'", __FILE__, __LINE__);
       word.clear();
     }
   }

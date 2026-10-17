@@ -16,6 +16,7 @@ const pages = {
   assessment: () => import('./pages/assessment.js'),
   strategies: () => import('./pages/strategies.js'),
   reflective: () => import('./pages/reflective.js'),
+  fga: () => import('./pages/fga.js'),
   classroom: () => import('./pages/classroom.js'),
   theories: () => import('./pages/theories.js'),
   allocation: () => import('./pages/allocation.js'),

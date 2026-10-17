@@ -9,7 +9,8 @@ const page = initPage({
   description:
     'Interactive front end for a library modelling chapters 3, 7, 8, 9, 10 and 14 of <i>Instruction in Libraries and Information Centers</i> (Illinois Open ' +
     'Publishing Network): how people learn, identifying audience needs, establishing learning goals and outcomes, assessing learning, and ' +
-    'selecting instructional strategies and creating lesson plans, and practicing reflective teaching. ' +
+    'selecting instructional strategies and creating lesson plans, and practicing reflective teaching; and functional geometric algebra (Pustejovsky, 2026), ' +
+    'in which learners learn the meaning of a text in the same space. ' +
     'Every model lives in <b>one space</b>, the pure elliptic conformal geometric algebra Cl(4, 1): learners, tasks, memories, needs, outcomes, ' +
     'raters and stimuli are points; probabilities and shares are read off them (<a href="core.html">scalars are the miniature basis</a>); learning, ' +
     'forgetting, support and feedback are dilations, rotors and mixtures; thresholds and zones are caps. Every model runs as a <b>fused compute ' +
@@ -33,6 +34,7 @@ const DESCRIPTIONS = {
   assessment: 'Formative and summative assessment, the assessment cycle, choosing activities, rubrics and self-assessment.',
   strategies: 'Chunked lectures and videos, discussion and wait time, scaffolding, learning styles vs content, flipped one-shots, lesson plans on time.',
   reflective: 'Reflecting on a term of teaching, reading student feedback, critical reflection on whom practices leave out, professional growth.',
+  fga: 'Functional geometric algebra: learners read a text and learn multivectors of Cl(4, 1); the paper\'s claims checked; rotors against projections.',
   classroom: 'Every theory acting on the same learners over a course, with a delayed test.',
   theories: 'Activity 3.3 designed by each theory, on children, teenagers and adults.',
   allocation: 'Shapley, incremental and standalone allocation of a design\'s gain to its practices.',
@@ -79,7 +81,8 @@ models (src/models): every theory and chapter as an agent program in WGSL
    │  gagne · audience · community · outcomes · assessmentActivities
    │  assessmentSession · rubric · lecture · discussion · scaffolding
    │  strategies · lessonPlan · reflection · studentFeedback
-   │  criticalReflection · professionalGrowth
+   │  criticalReflection · professionalGrowth · fgaAlgebra · fgaLearning
+   │  fgaRotors
    ▼
 syn::kernel: plans (constants, one row per job, seeds) ▸ agent kernel
    │  (agents × jobs, workgroups of 64) ▸ reduce ▸ quantiles ▸ summary
@@ -96,7 +99,8 @@ pages (js/pages/*.js): render the results as charts and tables` }));
     ['Ch. 7: Identifying audience needs', 'Identifying audience needs', 'audience, community, isp'], ['Ch. 8: Establishing learning goals and outcomes', 'Learning goals and outcomes', 'outcomes'],
     ['Ch. 9: Assessing learning', 'Assessing learning', 'assessmentActivities, assessmentSession, rubric'],
     ['Ch. 10: Selecting instructional strategies and creating lesson plans', 'Strategies and lesson plans', 'lecture, discussion, scaffolding, strategies, lessonPlan'],
-    ['Ch. 14: Practicing reflective teaching', 'Reflective teaching', 'reflection, studentFeedback, criticalReflection, professionalGrowth'], ['Activity 3.3, conclusion', 'Theories compared, Gain allocation', 'classroom, theories, allocation, sensitivity'],
+    ['Ch. 14: Practicing reflective teaching', 'Reflective teaching', 'reflection, studentFeedback, criticalReflection, professionalGrowth'],
+    ['Pustejovsky (2026): functional geometric algebra', 'Learning meaning (FGA)', 'fgaAlgebra, fgaLearning, fgaRotors'], ['Activity 3.3, conclusion', 'Theories compared, Gain allocation', 'classroom, theories, allocation, sensitivity'],
   ]);
   return engineNote(runResult, performance.now() - t0);
 });
