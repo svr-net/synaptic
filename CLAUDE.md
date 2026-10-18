@@ -65,3 +65,13 @@ Cl(4,1) (pure elliptic CGA). Read README.md for the models; this file keeps the 
   Claude's study habits (`tools/qa_golden/claude_student`); the memory's constructing section (v1) is refused per section,
   so constructing runs on that prior. Results: reasoned 0.337, constructed 0.342 (v1-learned was 0.348).
 - JS may send an empty array as a numeric array: read spec arrays by index (`size()`, `operator[]`), not `asArray()`.
+- Growing what it keeps (owner's ask: incremental, persistable, in the same space): knowledge is capsule segments (`SYNK`:
+  each extends the lexicon and passages before it, indices never change; `memory::packSegment`/`joinSegments`/`capsuleOf`),
+  memory is records (`SYNM`: one section's study, folded by evidence; `memory::packRecord`/`recallFor`, spec `memoryRecords`).
+  Ingest routes grade 1 through the growing index (cells cut by spheres, entries by coincidence) whose WGSL is svr-net/compute's
+  `index_cga.hpp`, carried in `src/models/compute_index.inc` — change it in compute, then `tools/sync_compute.sh`. Changing the
+  word points, index or packing: change `capsuleFingerprint()` and regenerate the capsule. Word coordinates are 48 bits of a
+  64-bit FNV (the old LCG kept 24 bits: "fruit" and "tended" coincided). Kept in the browser by `web/js/knowledge.js` (IndexedDB), in
+  svr-net/knowledge's `reader/` by svr-net/store's `ReaderLog` (`synstore_reader`); `qa_golden --write-knowledge DIR` writes
+  segments and only records whose folded memory answers the test at least as well. compute, store and knowledge are private:
+  synaptic's CI (public) cannot fetch them, so it carries the compute helpers verbatim.

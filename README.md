@@ -249,7 +249,7 @@ python3 -m http.server -d web 8000      # any static server; file:// will not lo
 | `assessment.html` | Chapter 9: assessment activities, assessment vs grades and satisfaction, formative and summative, the cycle, rubrics, self-assessment | `assessmentActivities` · `assessmentSession` · `rubric` |
 | `strategies.html` | Chapter 10: attention and chunked lectures, video length, discussion formats and wait time, scaffolding, learning styles vs content vs variety, flipped one-shots, problem-based learning, the sample lesson plan on time | `lecture` · `discussion` · `scaffolding` · `strategies` · `lessonPlan` |
 | `reflective.html` | Chapter 14: a term of reflective practice (informal, the four-step journal, video, peer observation, the CIQ), reading student feedback, critical reflection group by group, professional growth | `reflection` · `studentFeedback` · `criticalReflection` · `professionalGrowth` |
-| `qa.html` | The QA golden test in the browser: the reader answers 60 embedded golden FineWeb-Edu questions, scored against the golden answers — copying a sentence, with its remembered habits, and constructed from its knowledge capsule alone; the reader as a student; its notes, memory and capsule; ask it about your own passage (ingested into a capsule), or with none, from what it knows | `capsuleIngest` · `capsuleRecall` · `readingQA` · `readingStudent` · `readingNotes` |
+| `qa.html` | The QA golden test in the browser: the reader answers 60 embedded golden FineWeb-Edu questions, scored against the golden answers — copying a sentence, with its remembered habits, and constructed from its knowledge capsule alone; the reader as a student; its notes, memory and capsule; ask it about your own passage (ingested into a capsule), or with none, from what it knows; teach it passages (segments of its capsule) and keep what it studied (memory records), kept in the browser | `capsuleIngest` · `capsuleRecall` · `readingQA` · `readingStudent` · `readingNotes` |
 | `fga.html` | Functional geometric algebra (Pustejovsky 2026): learners read a text and learn multivectors of Cl(4, 1); the paper's claims checked; rotors against projections; binding capacity against HRR | `fgaAlgebra` · `fgaLearning` · `fgaRotors` |
 | `classroom.html` | Every theory on the same learners over a course: score profile, learner scatter, equity | `classroom` |
 | `theories.html` | Activity 3.3 designed by every theory, on three populations | `theories` |
@@ -317,7 +317,7 @@ Each model is one file in `src/models/`, and its tests are in `tests/test_models
 | QA golden test | `reading_qa.cpp` | A reader learns word informativeness (idf) from a corpus and believes the sentence that answers a question (BM25 evidence read as a point); reading and open book; scored against golden answers in `tools/qa_golden` |
 | Taking notes | `reading_notes.cpp` | Before any question, the reader keeps the sentences of each passage it believes are worth keeping (learned note-taking habits read as a point) |
 | Reasoning from the capsule | `reading_capsule.cpp` (`capsuleQA`) | Recall, reasoning and answering in one kernel: question parts, evidence by identity of points, the grammar's ways of saying each fact weighed by the constructing habits (Claude's, as the prior); answers with their traces |
-| Knowledge capsule | `reading_capsule.cpp` | The grammar reads clauses as facts; every word a multivector whose grades — fact, word point, grammar bivector — an index router isolates and routes to packed codes (41.5% of the text); recalled from the codes by rebuilding the rotor from grade 2; answers constructed from the recalled facts |
+| Knowledge capsule | `reading_capsule.cpp` | The grammar reads clauses as facts; every word a multivector whose grades — fact, word point, grammar bivector — an index router isolates and routes to packed codes (43.7% of the text), grade 1 through a growing index of S³ (cells cut by spheres, entries by coincidence); the capsule grows by appending segments; recalled from the codes by rebuilding the rotor from grade 2; answers constructed from the recalled facts |
 | FGA: rotors | `fga_rotors.cpp` | Regular polysemy as a rotor family: a rotor of Cl(4, 1) learned by exact plane steps against a learned 5 × 5 projection, from one to six words |
 | Combining the theories | `classroom.cpp` (`classroom`) | Every theory acting on the same learners over a course; score, recall and risk profiles; equity; per-learner read-back |
 | Activity 3.3 | `classroom.cpp` (`theories`) | The lesson each theory designs (16 levers), on children, teenagers and adults: 24 jobs, one dispatch |
@@ -382,26 +382,59 @@ library and the WASM build.
   the prior. Each `readingStudent` run starts from the memory (`memory: false` starts fresh; `notes: true` learns
   note-taking; `construct: true` learns constructing) and returns `remember`. With `anchor`, every lesson also pulls the
   habits back towards where it started (drift over 20 lessons 0.36 → 0.06).
+- **Memory grows by records.** `remember.record` is what a study adds, as a record: one section's weights, the lessons they
+  were learned from, its test score, the generation it makes, its design and source — packed (magic `SYNM`, version, the
+  section's fingerprint, checksum) in base64. Every model that remembers takes `memoryRecords`, read in order on top of the
+  stored memory: each is folded into its section by its evidence, (N·w + n·w_b)/(N + n), so a small study moves a well-learned
+  habit a little and a fresh one all the way (`remember.folded`, `remember.evidence`). A record that is damaged, learned for
+  other habits, or does not follow its section's generation is refused, with the reason (`memory.records`).
+  `remember.accepted` says whether the study answered at least as well as the memory alone; `qa_golden --write-knowledge`
+  keeps a record only when the memory with it folded in answers the golden test at least as well as without it (on the 200
+  questions none of this run's records passes: 0.373 against 0.374 remembering, 0.341 against 0.342 constructing — the
+  memory stays generation 4).
 - **Knowledge: a capsule in the space, packed by an index router of grades** (`reading_capsule.cpp`; stored:
   `reader_capsule.inc`, the 60 embedded golden passages). `capsuleIngest`: the grammar reads every clause as a fact — subject,
   relation, object, the verb found by a cap of the space (below) — and every word of a fact becomes one multivector of Cl(4, 1) whose grades are the levels of the index:
   grade 0 its fact, grade 1 its word's point of S³, grade 2 the grammar's bivector θ/2·e_N∧e_A + φ/2·e_B∧e_C (role and
   place), the generator of the rotor that binds the word. The index router isolates each grade (⟨M⟩_k) and routes it to its
-  level's codebook — the passage's vocabulary, the lattice of 3 roles × 32 places, the runs of facts — and the capsule keeps
-  only the codes, bit-packed, with the lexicon front-coded; not the text. `capsuleRecall` (from the codes, or the `packed`
-  bytes): each slot's multivector rebuilt, the rotor exp(−B) formed from its isolated grade 2, the word bound by it (R w R̃),
-  and the role and place read back off the bound point and checked; each fact's codes are kept out of order and put back by
-  the places. On the 600 passages of the golden test every one of 249,064 words comes back exactly, from **41.5% of the bytes
-  of the text** (824 KB for 1.99 MB; the 60 stored passages: 105 KB for 212 KB, 49.6%):
+  level's codebook — grade 1 through the **growing index** of the lexicon (below), then the passage's vocabulary; the lattice
+  of 3 roles × 32 places; the runs of facts — and the capsule keeps only the codes, bit-packed, with the lexicon front-coded;
+  not the text. `capsuleRecall` (from the codes: `segments`, one `packed` segment, or the stored capsule): each slot's
+  multivector rebuilt, the rotor exp(−B) formed from its isolated grade 2, the word bound by it (R w R̃), and the role and
+  place read back off the bound point and checked; each fact's codes are kept out of order and put back by the places. On
+  the 600 passages of the golden test every one of 249,064 words comes back exactly, from **43.7% of the bytes of the text**
+  (868 KB for 1.99 MB; the 60 stored passages: 116 KB for 212 KB, 54.6%):
 
   | part | bytes (600 passages) |
   |---|---:|
   | codes: a word's place in its vocabulary, its role and place (grades 1, 2) | 474,030 |
   | vocabularies (grade 1's codebooks) | 179,478 |
   | lexicon, front-coded | 151,904 |
+  | the growing index: each word's cell of S³ | 43,656 |
   | facts, as run lengths (grade 0) | 19,004 |
-  | **capsule** | **824,418** |
+  | the segment's header and checksum | 15 |
+  | **capsule** | **868,089** |
   | text | 1,985,545 |
+- **Knowledge grows by segments, through a growing index.** A capsule is a list of segments; each extends the capsule before
+  it — the words it adds to the lexicon, numbered after those before it (so no index ever changes), and its passages — and
+  is packed on its own (magic `SYNK`, version, the capsule's fingerprint, the lexicon and passages it extends, the new words
+  front-coded with their cells, the passages, checksum). `capsuleIngest` with `base` segments (or `stored: true`, on top of
+  the stored capsule) routes each word's point through the index of the lexicon it knows, in the kernel: the **cell** of S³
+  it lies in — the sides of 45 spheres S = e_a − t e_N + t e, the images of the planes u_a = t, cut S³ into 16³ cells — then
+  the entry of that cell its null vector **coincides** with; a word that routes to none is new, appended with its cell. It
+  returns `segment` (only what it adds) and `segments` (the list, to keep). The index's geometry is svr-net/compute's
+  (`compute/index_cga.hpp`, `kIndexHelpersWgsl`), carried verbatim into the ingest kernel (`src/models/compute_index.inc`,
+  refreshed by `tools/sync_compute.sh`); compute checks it against the CPU on WebGPU. Segments that extend the stored
+  capsule are read on top of it; a damaged segment, one written for another format, or one that does not extend the
+  capsule read so far is refused, and so is every segment after it (`segments` in the result: bytes, words, passages, used,
+  reason). The 300 documents of the knowledge corpus grown on top of the stored capsule: 5,238 new words, 6,987 routed to
+  the words it knew (100%), 138 KB for 267 KB of text, and both segments recall all 360 passages exactly. A word's point
+  is three 16-bit coordinates of its 64-bit FNV hash (48 bits of the word), so two words of a lexicon never coincide.
+- **Kept where it lives.** In the browser, the QA page keeps the segments it was taught and the records of what it studied
+  in IndexedDB (`web/js/knowledge.js`, storage only) and passes them back to the models. In a knowledge repo
+  (svr-net/knowledge), they are an append-only log on its branch — `reader/log.tsv`, `reader/segments/`, `reader/records/`,
+  one incremental commit per append, each blob checked against its checksum — kept by svr-net/store's `ReaderLog`
+  (`synstore_reader REPO list|append|cat|export`); `qa_golden DATA --write-knowledge DIR` writes them.
 - **Constructed answers** (`readingQA` with `recalled`): the grammar says candidate answers from the recalled facts — the
   whole fact, its predicate, its object, its subject, or two facts — and the constructing habits (learned as a student,
   with all methods) choose one. The text never reaches this answer. With no passage at all, it answers from the facts of all

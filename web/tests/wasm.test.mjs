@@ -122,6 +122,13 @@ if (rg) check(rg.scores.remembered > rg.scores.reading, 'the remembered habits a
 if (rg) check(rg.scores.constructed > rg.scores.firstSentence, 'it constructs answers from its capsule alone');
 const ci = call('capsuleIngest', () => syn.runModel({ model: 'capsuleIngest', capsuleIngest: { passages: ['Honeybees communicate the location of flowers with a waggle dance.'] } }));
 if (ci) check(ci.facts === 1 && ci.points === 8, 'a passage ingested: one fact, a point per word (articles dropped)');
+const ct = call('capsuleIngest on what it knows', () => syn.runModel({ model: 'capsuleIngest', capsuleIngest: { passages: ['Axolotls regrow lost limbs within weeks.'], base: [], stored: true } }));
+if (ct) check(ct.routed === 1 && ct.knownWords > 6000 && ct.newWords > 0 && ct.newWords < 6, 'taught a passage: its known words routed through the index, a few new ones appended');
+const cg = ct && call('capsuleRecall of the grown capsule', () => syn.runModel({ model: 'capsuleRecall', capsuleRecall: { segments: [ct.segment] } }));
+if (cg) check(cg.recovered === 1 && cg.recalled.passages.length === 61 && cg.segments.every((x) => x.used), 'the grown capsule: the stored passages and the one taught');
+const rs = call('readingStudent record', () => syn.runModel({ model: 'readingStudent', readingStudent: { lessons: 20, students: 8, memoryRecords: [] } }));
+const rr = rs && call('readingStudent with its record', () => syn.runModel({ model: 'readingStudent', readingStudent: { lessons: 20, students: 8, memoryRecords: [rs.remember.record] } }));
+if (rr) check(rr.memory.generation === rs.memory.generation + 1 && rr.memory.records[0].used, 'a study kept as a record: the next generation of its memory');
 const rk = call('readingQA from the capsule', () => syn.runModel({ model: 'readingQA', readingQA: { passages: [], recalled: rc.recalled, questions: [{ question: 'What does the Michigan Makers program help students do?' }] } }));
 if (rk) check(rk.answers[0].constructed.includes('Michigan Makers'), 'with no passage, it answers from what it knows');
 const rn = model('readingNotes');

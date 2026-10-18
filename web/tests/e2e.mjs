@@ -151,6 +151,24 @@ for (const { name, file, spec, expectEngine, expectReason, pair, side, device, g
     await page.click('.menu-toggle');
     if (await page.evaluate(() => document.getElementById('nav-links').offsetParent === null)) problems.push('menu button does not open the menu');
   }
+  if (file === 'qa' && !gpuStub && !device && !problems.length) {
+    // Teach the reader a passage: a segment of its capsule kept in this browser (IndexedDB) — still there
+    // after a reload — and asked about from what it knows.
+    await page.fill('textarea', 'Axolotls regrow lost limbs within weeks. The regrown limb has bones, muscles and nerves.');
+    await page.click('text=Teach it this passage');
+    await page.waitForFunction(() => /Kept:|Error/.test(document.querySelector('#qa-reply').textContent), null, { timeout: 120000 });
+    const kept = await page.textContent('#qa-reply');
+    if (!/Kept: \d+ facts/.test(kept)) problems.push(`teaching failed: ${kept.slice(0, 120)}`);
+    await page.reload();
+    await page.waitForFunction(() => /Kept in this browser: 1 segment/.test(document.querySelector('#qa-known').textContent), null, { timeout: 60000 })
+      .catch(() => problems.push('the taught segment was not kept across a reload'));
+    await page.fill('input[type=text]', 'What do axolotls regrow?');
+    await page.click('button:has-text("Ask")');
+    await page.waitForFunction(() => /reasoned from its capsule|Error/.test(document.querySelector('#qa-reply').textContent), null, { timeout: 120000 });
+    const answer = await page.textContent('#qa-reply p');
+    if (!/limb/i.test(answer || '')) problems.push(`asked about what it was taught: ${answer}`);
+    else console.log(`       taught and kept a passage; asked: ${answer.slice(0, 80)}`);
+  }
   if (name === 'classroom-adults') {
     const shown = await page.evaluate(() => document.querySelector('details.spec select').value);
     if (shown !== 'adults') problems.push(`population selector shows ${shown}`);

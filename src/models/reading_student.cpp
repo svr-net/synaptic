@@ -442,7 +442,7 @@ const kernel::Model* readingStudentModel() {
                                     c.num("support", 2.0), 0, 0, 0, 16, c.num("sharpness", 5.0)};
       // It starts from its memory — if the memory was learned for these habits — unless asked to start
       // fresh or given the weights to start from.
-      const memory::Memory mem = memory::recall(!c.flag("memory", true), c.str("memoryFingerprint", ""));
+      const memory::Memory mem = memory::recallFor(c);
       const double* start = construct ? mem.construct : notes ? mem.notes : mem.habits;
       for (int k = 0; k < 8; ++k) params.push_back(start[k]);
       if (c.has("start"))
@@ -504,7 +504,10 @@ const kernel::Model* readingStudentModel() {
                            .set("design", construct ? mem.constructDesign : notes ? mem.notesDesign : mem.design)
                            .set("source", mem.source)
                            .set("test", construct ? mem.constructTest : notes ? mem.notesTest : mem.test)
-                           .set("weights", startW);
+                           .set("weights", startW)
+                           .set("evidence", mem.used && !c.has("start") ? mem.evidence[construct ? 2 : notes ? 1 : 0] : 0.0)
+                           .set("records", mem.records);
+      meta.set("source", c.str("source", c.has("train") ? "lessons given to readingStudent" : "the embedded lessons (readingStudent)"));
       meta.set("memory", recalled).set("notes", notes).set("kind", kind);
       std::vector<std::vector<double>> rows;
       for (const auto& d : designs()) rows.push_back({double(d.methods)});
@@ -556,6 +559,27 @@ const kernel::Model* readingStudentModel() {
                        .set("design", all[keep].name)
                        .set("test", rs[keep].num("test", 0))
                        .set("weights", weights);
+      // As a record of the memory: what this study adds, folded in by its evidence. Kept only when it
+      // does not answer worse than the memory alone.
+      memory::Record rec;
+      const std::string kind = p.meta.at("kind").asString();
+      rec.section = kind == "construct" ? 2 : kind == "notes" ? 1 : 0;
+      rec.generation = static_cast<int>(recalled.num("generation", 0)) + 1;
+      rec.lessons = p.meta.num("lessons", 0) * p.params[3];
+      rec.test = rs[keep].num("test", 0);
+      for (int k = 0; k < memory::kHabitCount; ++k) rec.weights[k] = weights[static_cast<std::size_t>(k)].asNumber();
+      rec.design = all[keep].name;
+      rec.source = p.meta.at("source").asString();
+      double before[memory::kHabitCount], after[memory::kHabitCount];
+      for (int k = 0; k < memory::kHabitCount; ++k) before[k] = recalled.at("weights")[static_cast<std::size_t>(k)].asNumber();
+      memory::fold(before, recalled.num("evidence", 0), rec, after);
+      const double alone = rs[designOf(2)].num("test", 0);
+      next.set("record", memory::packRecord(rec))
+          .set("folded", Value::Numbers(std::vector<double>(after, after + memory::kHabitCount)))
+          .set("evidence", recalled.num("evidence", 0) + rec.lessons)
+          .set("accepted", rec.test >= alone - 1e-9)
+          .set("reason", rec.test >= alone - 1e-9 ? std::string("it answers at least as well as its memory alone")
+                                                   : std::string("it answers worse than its memory alone: not kept"));
       return Value::object().set("designs", results).set("methods", methods).set("memory", recalled).set("remember", next).set("notes", p.meta.at("notes")).set("kind", p.meta.at("kind"))
           .set("fingerprint", memory::fingerprint()).set("oracle", p.meta.at("oracle")).set("oracleSingle", p.meta.at("oracleSingle"))
           .set("lessons", p.meta.at("lessons")).set("tests", p.meta.at("tests")).set("students", static_cast<double>(p.agents));

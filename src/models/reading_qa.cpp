@@ -234,7 +234,7 @@ const kernel::Model* readingQaModel() {
       if (given.has("recalled")) capsules = memory::factsOf(given.at("recalled"));
       const bool construct = !capsules.empty();
       const bool remember = given.num("remember", 1.0) > 0.5 && passageCount > 0;
-      const memory::Memory mem = memory::recall(!given.flag("memory", true), given.str("memoryFingerprint", ""));
+      const memory::Memory mem = memory::recallFor(given);
 
       Index main;
       main.read(docs);
@@ -339,7 +339,7 @@ const kernel::Model* readingQaModel() {
             Value habits = Value::array();
             for (int k = 0; k < memory::kHabitCount; ++k) habits.push(Value::object().set("habit", memory::kConstructHabits[k]).set("weight", mem.construct[k]));
             return Value::object().set("used", mem.used).set("reason", mem.reason).set("generation", mem.generation).set("design", mem.design)
-                .set("constructDesign", mem.constructDesign).set("constructing", habits);
+                .set("constructDesign", mem.constructDesign).set("constructing", habits).set("lessons", mem.lessons).set("records", mem.records);
           }())
           .set("capsule", Value::object().set("used", construct).set("passages", static_cast<double>(capsules.size())).set("facts", static_cast<double>(facts)));
       return plans;
