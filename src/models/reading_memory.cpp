@@ -52,10 +52,10 @@ const Stored kStored =
 #include "student_memory.inc"
     ;
 
-// The stored capsule: its packed bytes (packCapsule), in base64.
-const char* const kCapsuleBlob =
+// The stored capsule: its packed bytes (packCapsule), in base64, line by line.
+const char* const kCapsuleBlob[] = {
 #include "reader_capsule.inc"
-    ;
+    nullptr};
 
 bool hasDigit(const std::string& s) { return std::any_of(s.begin(), s.end(), [](unsigned char c) { return std::isdigit(c) != 0; }); }
 bool hasName(const std::string& s) {
@@ -685,7 +685,11 @@ Value unpackCapsule(const std::string& base64) {
 }
 
 const Value& storedCapsule() {
-  static const Value v = unpackCapsule(kCapsuleBlob);
+  static const Value v = [] {
+    std::string b64;
+    for (const char* const* line = kCapsuleBlob; *line; ++line) b64 += *line;
+    return unpackCapsule(b64);
+  }();
   return v;
 }
 

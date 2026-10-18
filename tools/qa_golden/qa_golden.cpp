@@ -101,7 +101,7 @@ void writeCapsule(const std::string& file, const Value& ingested) {
       << n("facts") << ") and a code per word (" << n("codes") << "). No text.\n"
       << "// Written by tools/qa_golden (qa_golden DATA_DIR --write-capsule src/models/reader_capsule.inc). Do not edit by hand.\n";
   const std::string b64 = ingested.at("packed").asString();
-  for (std::size_t i = 0; i < b64.size(); i += 120) out << "\"" << b64.substr(i, 120) << "\"\n";
+  for (std::size_t i = 0; i < b64.size(); i += 120) out << "\"" << b64.substr(i, 120) << "\",\n";
 }
 
 std::string field(const std::string& s) {
