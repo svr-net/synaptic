@@ -26,6 +26,8 @@ Cl(4,1) (pure elliptic CGA). Read README.md for the models; this file keeps the 
 - Reserved/builtin names fail: `common`, `set`, `pass`, `from`, `shared`, `round`, `step` as identifiers
   (the reserved-word test scans agents and helpers). WGSL has no overloading: a helper fn may not reuse a prelude name
   such as `nudge` (the software GPU accepts it, WebGPU does not; `model_helpers_do_not_redeclare_functions` checks).
+- Exact geometric tests on WebGPU: normalise (cos, sin) of any rotor you compare exactly (`grammarTurn`), or points leave S³.
+- `Value::operator[]` returns a copy: never bind a reference into it (`x[i].at(..)`); use `asArray()[i]`.
 - WebGPU (SwiftShader): arrays declared inside loops are not re-zeroed — zero them explicitly; sin/cos/exp are approximate —
   normalise rotors (`mvNormaliseRotor`); exact-½ belief ties flip — allow flips in `web/kernels.mjs` / `gpu.js` `ALLOW`.
 - clang needs `<algorithm>` for `std::clamp`. Local gcc dangling-reference warnings in tests are pre-existing.
@@ -36,16 +38,20 @@ Cl(4,1) (pure elliptic CGA). Read README.md for the models; this file keeps the 
 
 - `tools/qa_golden/run.sh /path/to/knowledge` (data from `prepare.py`, pinned sha256, seed 2026); `--baseline` fails on a
   drop of more than 0.01 below `tools/qa_golden/baseline.json`. The data lives outside the repo (e.g. build/qa_golden).
-- What the reader keeps: `src/models/reading_memory.{hpp,cpp}` loads `student_memory.inc` (habit and note-taking weights,
-  generation, provenance, fingerprint of the habits) and `reader_knowledge.inc` (notes on the 200 golden passages).
+- What the reader keeps: `src/models/reading_memory.{hpp,cpp}` loads `student_memory.inc` (reading, note-taking and
+  constructing weights, generation, provenance, fingerprint of the habits) and the knowledge capsule
+  `reader_capsule_{lexicon,points}.inc` (points of the 60 embedded golden passages; no text).
   Changing a habit's definition: bump its version in `memory::fingerprint()` — the old memory is then refused, not misapplied.
-- To grow them: `build/qa_golden DATA --keep 5 --write-memory src/models/student_memory.inc --write-knowledge
-  src/models/reader_knowledge.inc`, rebuild, `--write-baseline tools/qa_golden/baseline.json`, copy DATA/report.md to
-  tools/qa_golden/report.md, rebuild web/wasm (Docker), commit. The memory is chosen by lesson F1, never by the test.
+- Owner's rule: constructed answers must never use the original text — only the capsule (points + lexicon), the grammar
+  and the learned habits. The grammar's operators are in `grammarWgsl()` (role and place rotors; `grammarOf` reads the rotor
+  off the angles; recall re-binds to check exactly). Changing the grammar or the rotors: regenerate the capsule.
+- To grow them: `build/qa_golden DATA --write-memory src/models/student_memory.inc --write-capsule src/models/reader_capsule`,
+  rebuild, `--write-baseline tools/qa_golden/baseline.json`, copy DATA/report.md to tools/qa_golden/report.md, rebuild
+  web/wasm (Docker), commit. Don't write a new memory generation if it scores below the current one.
 - The student studies with every learning method of the library (`kMethods` in reading_student.cpp, one bit each of the
   job row): reinforcement, schema, interleaving, worked examples, spaced retrieval, equilibration, scaffolding, peer
   discussion, self-direction, growth mindset, reflection; 24 designs. The memory is learned with all methods (owner's ask).
-- Results: reader 0.343; remembered habits (gen 3) 0.375; from knowledge alone (37% of the text) 0.308. Alone, worked
-  examples (+0.011) and schema (+0.008) help most; all methods together interfere (0.362). Don't tune method strengths on
-  the test questions. The next gain needs a richer learner (vocabulary/association learning).
+- Results: reader 0.343; remembered habits (gen 4) 0.374; constructed from the capsule alone 0.348 (prior habits 0.297;
+  best constructible 0.504). All methods together interfere slightly; don't tune method strengths on the test questions.
+  Next: verb finding as geometry (word-class caps), and vocabulary/association learning.
 - JS may send an empty array as a numeric array: read spec arrays by index (`size()`, `operator[]`), not `asArray()`.

@@ -249,7 +249,7 @@ python3 -m http.server -d web 8000      # any static server; file:// will not lo
 | `assessment.html` | Chapter 9: assessment activities, assessment vs grades and satisfaction, formative and summative, the cycle, rubrics, self-assessment | `assessmentActivities` · `assessmentSession` · `rubric` |
 | `strategies.html` | Chapter 10: attention and chunked lectures, video length, discussion formats and wait time, scaffolding, learning styles vs content vs variety, flipped one-shots, problem-based learning, the sample lesson plan on time | `lecture` · `discussion` · `scaffolding` · `strategies` · `lessonPlan` |
 | `reflective.html` | Chapter 14: a term of reflective practice (informal, the four-step journal, video, peer observation, the CIQ), reading student feedback, critical reflection group by group, professional growth | `reflection` · `studentFeedback` · `criticalReflection` · `professionalGrowth` |
-| `qa.html` | The QA golden test in the browser: the reader answers 60 embedded golden FineWeb-Edu questions, scored against the golden answers — by word overlap, with its remembered habits, and from its notes alone; the reader as a student; its notes and its memory; ask it about your own passage, or with none, from what it knows | `readingQA` · `readingStudent` · `readingNotes` |
+| `qa.html` | The QA golden test in the browser: the reader answers 60 embedded golden FineWeb-Edu questions, scored against the golden answers — copying a sentence, with its remembered habits, and constructed from its knowledge capsule alone; the reader as a student; its notes, memory and capsule; ask it about your own passage (ingested into a capsule), or with none, from what it knows | `capsuleIngest` · `capsuleRecall` · `readingQA` · `readingStudent` · `readingNotes` |
 | `fga.html` | Functional geometric algebra (Pustejovsky 2026): learners read a text and learn multivectors of Cl(4, 1); the paper's claims checked; rotors against projections; binding capacity against HRR | `fgaAlgebra` · `fgaLearning` · `fgaRotors` |
 | `classroom.html` | Every theory on the same learners over a course: score profile, learner scatter, equity | `classroom` |
 | `theories.html` | Activity 3.3 designed by every theory, on three populations | `theories` |
@@ -315,7 +315,8 @@ Each model is one file in `src/models/`, and its tests are in `tests/test_models
 | FGA: learning | `fga_learning.cpp` | Learners read a text (parsed into name–relation–name sentences) and learn a multivector per word by gradient descent on ⟨S R O⟩₀ with corrupted negatives; typed, untyped, grade prior, flat |
 | The reader as a student | `reading_student.cpp` | A student learns reading and note-taking habits from golden lessons with every learning method of the library as a switch — reinforcement, schema, interleaving, worked examples, spaced retrieval, equilibration, scaffolding, peer discussion, self-direction, growth mindset, reflection — in 24 study designs, scored on held-out golden answers; it starts from and returns the reader's memory |
 | QA golden test | `reading_qa.cpp` | A reader learns word informativeness (idf) from a corpus and believes the sentence that answers a question (BM25 evidence read as a point); reading and open book; scored against golden answers in `tools/qa_golden` |
-| Taking notes | `reading_notes.cpp` | Before any question, the reader keeps the sentences of each passage it believes are worth keeping (learned note-taking habits read as a point); the notes are its knowledge |
+| Taking notes | `reading_notes.cpp` | Before any question, the reader keeps the sentences of each passage it believes are worth keeping (learned note-taking habits read as a point) |
+| Knowledge capsule | `reading_capsule.cpp` | The grammar reads clauses as facts; every word a point of S³ turned by the rotors of its role and place; recalled from the points alone by reading the rotor off the rotation angles; answers constructed from the recalled facts |
 | FGA: rotors | `fga_rotors.cpp` | Regular polysemy as a rotor family: a rotor of Cl(4, 1) learned by exact plane steps against a learned 5 × 5 projection, from one to six words |
 | Combining the theories | `classroom.cpp` (`classroom`) | Every theory acting on the same learners over a course; score, recall and risk profiles; equity; per-learner read-back |
 | Activity 3.3 | `classroom.cpp` (`theories`) | The lesson each theory designs (16 levers), on children, teenagers and adults: 24 jobs, one dispatch |
@@ -371,37 +372,42 @@ reinforcement, a perceptron step towards the single better answer, made it worse
 every design and what each method adds and costs.
 
 **What the reader keeps** (`src/models/reading_memory.{hpp,cpp}`): its memory and its knowledge, compiled into the native
-library and the WASM build, so that it can answer when neither the lessons nor the passages are at hand.
+library and the WASM build.
 
-- **Memory** (`student_memory.inc`): the weights of its reading habits (how to pick an answer) and of its note-taking habits
-  (which sentences of a passage are worth keeping, before any question), with the generation, the lessons studied in all
-  generations, the design and lessons each was learned from, its test F1 when written, and a fingerprint of the habits the
-  weights are for. A memory learned for other habits is refused (`memory.used: false`, with the reason) and the reader starts
-  from the prior, never applying weights to the wrong habits. Each `readingStudent` run starts from the memory
-  (`memory: false` starts fresh; `notes: true` learns note-taking) and returns `remember`: the habits of the design that did
-  best on its own lessons — never chosen by the test. With `anchor`, every lesson also pulls the habits back towards the
-  memory, so that a few lessons of another kind do not wash it out (drift over 20 lessons 0.36 → 0.06). The memory is
-  learned with all methods.
-- **Knowledge** (`reader_knowledge.inc`): the notes it took (`readingNotes`) on the 200 passages of the golden test — five
-  sentences each, 37% of the text, chosen by the note-taking habits (learned with all methods) before any question — with
-  the passage each came from.
-- **Answering with them** (`readingQA`): `remembered` answers from the passage with the remembered habits; `knowledge` answers
-  with the passages gone, open book over the notes alone (with no passage at all, it answers from what it knows).
+- **Memory** (`student_memory.inc`, generation 4): the weights of its reading habits (how to pick an answer), its note-taking
+  habits (which sentences are worth keeping) and its constructing habits (how to say an answer from what it knows), each
+  learned with all methods, with the generation, the lessons studied, provenance, and a fingerprint of the habits the weights
+  are for. A memory learned for other habits is refused (`memory.used: false`, with the reason) and the reader starts from
+  the prior. Each `readingStudent` run starts from the memory (`memory: false` starts fresh; `notes: true` learns
+  note-taking; `construct: true` learns constructing) and returns `remember`. With `anchor`, every lesson also pulls the
+  habits back towards where it started (drift over 20 lessons 0.36 → 0.06).
+- **Knowledge: a capsule in the space** (`reading_capsule.cpp`; stored: `reader_capsule_{lexicon,points}.inc`, the 60
+  embedded golden passages). `capsuleIngest`: the grammar reads every clause as a fact — subject, relation, object — and
+  every word of a fact becomes a point of S³ (its coordinates lifted), turned by the grammar's operators: the rotor R_r of
+  its role in the (N, A) plane and S^k of its place in the (B, C) plane. The capsule keeps only these points — each fact's
+  out of order — and a lexicon of the words it knows; not the text. `capsuleRecall`: from the points alone, the word of the
+  passage's vocabulary that a rotor of the grammar turns into each point, and that rotor, read off the two rotation angles
+  and checked exactly; the facts are put back in order by the rotors. On the 600 passages of the golden test (247,289
+  points) every point comes back as its word, role and place.
+- **Constructed answers** (`readingQA` with `recalled`): the grammar says candidate answers from the recalled facts — the
+  whole fact, its predicate, its object, its subject, or two facts — and the constructing habits (learned as a student,
+  with all methods) choose one. The text never reaches this answer. With no passage at all, it answers from the facts of all
+  its capsules that share most with the question.
 
-`qa_golden DATA_DIR --keep 5 --write-memory src/models/student_memory.inc --write-knowledge src/models/reader_knowledge.inc`
-writes the next generation. On the 200 golden questions:
+`qa_golden DATA_DIR --write-memory src/models/student_memory.inc --write-capsule src/models/reader_capsule` writes the next
+generation. On the 200 golden questions:
 
 | answer | token F1 |
 |---|---:|
-| reader, its own passage (lexical) | 0.343 |
-| reader with its remembered habits (generation 3, 3,600 lessons, learned with all methods) | 0.375 |
-| from its knowledge alone — the passages gone; notes of 5 sentences each, 37% of the text | 0.308 |
-| from notes of 1 / 2 / 3 sentences each (9% / 18% / 25% of the text) | 0.207 / 0.234 / 0.261 |
-| no text and no knowledge | 0 |
+| reader, its own passage (copies a sentence) | 0.343 |
+| reader with its remembered habits (copies one or two sentences) | 0.374 |
+| **constructed from its knowledge capsule alone (never sees the text)** | **0.348** |
+| constructed with the prior constructing habits (before learning) | 0.297 |
+| the best answer the grammar could construct | 0.504 |
 
-Learning to take notes adds little over keeping the most informative sentences (best kept sentence 0.198 → 0.202); what
-preserves the answers is keeping a third of the text, chosen before the questions. The golden test fails if the remembered or
-knowledge score drops (`baseline.json`: `memory`, `remembered`, `knowledge`, `allMethods`).
+The grammar's rotors, word order and recall are operators of the space; finding the verb of a clause is still a word list
+(auxiliaries, verb endings), not geometry. The golden test fails if a score drops (`baseline.json`: `constructed`,
+`capsuleRecovered`, `constructingStudent`, `remembered`, …).
 
 ## Conventions
 

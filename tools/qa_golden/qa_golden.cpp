@@ -4,20 +4,22 @@
 // passage's first sentence, a random sentence, and the oracle (the passage sentence closest to the
 // golden answer: the best any one-sentence extractive reader can do).
 //
-// The reader also learns, as a student (readingStudent), from lessons on other passages (train.tsv):
-// how to pick an answer, and how to take notes. It takes notes on the test passages (readingNotes)
-// and answers from its notes alone, as if the passages were gone (closed book), and with the reading
-// habits it remembers.
+// The reader also ingests every passage it reads as a knowledge capsule (capsuleIngest: each word
+// a point of the space turned by the rotor of its grammatical role), recalls the capsule
+// (capsuleRecall), and constructs answers from the recalled facts by its grammar — never from the
+// text. As a student (readingStudent) it learns, from lessons on other passages (train.tsv), how to
+// pick an answer, how to take notes and how to construct an answer, with every learning method of
+// the library.
 //
 //   qa_golden DATA_DIR [--baseline FILE] [--write-baseline FILE] [--write-memory FILE]
-//                      [--write-knowledge FILE] [--keep N]
+//                      [--write-capsule PREFIX] [--capsule-passages N]
 //
 // DATA_DIR holds qa.tsv, corpus.tsv and train.tsv (tools/qa_golden/prepare.py). Writes
-// DATA_DIR/report.md, DATA_DIR/answers.tsv and DATA_DIR/knowledge.tsv (the notes). With --baseline,
-// fails (exit 1) if a score drops more than 0.01 below the recorded one. With --write-memory, writes
-// what the student learned in this run, starting from its memory, as its next memory
-// (src/models/student_memory.inc); with --write-knowledge, the notes it took with that memory
-// (src/models/reader_knowledge.inc), --keep sentences per passage (default 3).
+// DATA_DIR/report.md and DATA_DIR/answers.tsv. With --baseline, fails (exit 1) if a score drops
+// more than 0.01 below the recorded one. With --write-memory, writes what the student learned in
+// this run, starting from its memory, as its next memory (src/models/student_memory.inc); with
+// --write-capsule, the capsule of the first N test passages (default 60, the embedded golden set)
+// as PREFIX_lexicon.inc and PREFIX_points.inc (src/models/reader_capsule).
 #include <algorithm>
 #include <cctype>
 #include <cmath>
@@ -62,17 +64,17 @@ std::string quoted(const std::string& s) {
 }
 
 // The memory as C++ (src/models/student_memory.inc): what the next run of the reader starts from.
-std::string memoryInc(const Value& habits, const Value& notes, const Value& habitNames, const Value& noteNames, const std::string& fingerprint,
-                      const std::string& source) {
+std::string memoryInc(const Value& habits, const Value& notes, const Value& construct, const Value& habitNames, const Value& noteNames,
+                      const Value& constructNames, const std::string& fingerprint, const std::string& source) {
   std::ostringstream o;
   o.precision(17);
   auto weights = [&](const Value& next, const Value& names, const char* close) {
     const auto& w = next.at("weights");
     o << " {";
     for (std::size_t k = 0; k < 8; ++k)
-      o << (k ? "  " : "") << w[k].asNumber() << (k < 7 ? "," : close) << "  // " << names[k].at("habit").asString() << "\n";
+      o << (k ? "  " : "") << w[k].asNumber() << (k < 7 ? "," : close) << "  // " << names.asArray()[k].at("habit").asString() << "\n";
   };
-  o << "// The reader's memory: its reading and note-taking habits, learned from golden answers, kept between runs.\n"
+  o << "// The reader's memory: its reading, note-taking and constructing habits, learned from golden answers, kept between runs.\n"
     << "// Written by tools/qa_golden (qa_golden DATA_DIR --write-memory src/models/student_memory.inc). Do not edit by hand.\n"
     << "{" << habits.num("generation", 0) << ",  // generation\n " << habits.num("lessons", 0) << ",  // lessons studied, in all generations\n "
     << quoted(habits.at("design").asString()) << ",  // study design the reading habits were learned with\n " << quoted(source)
@@ -81,23 +83,40 @@ std::string memoryInc(const Value& habits, const Value& notes, const Value& habi
   weights(habits, habitNames, "},");
   o << " " << quoted(notes.at("design").asString()) << ",  // study design the note-taking habits were learned with\n " << notes.num("test", 0)
     << ",  // test F1 of its best note on the golden test when it was written\n";
-  weights(notes, noteNames, "}}");
+  weights(notes, noteNames, "},");
+  o << " " << quoted(construct.at("design").asString()) << ",  // study design the constructing habits were learned with\n "
+    << construct.num("test", 0) << ",  // test F1 of its constructed answers on the golden test when it was written\n";
+  weights(construct, constructNames, "}}");
   return o.str();
 }
 
-// The knowledge as C++ (src/models/reader_knowledge.inc): the notes on each passage read.
-std::string knowledgeInc(const std::vector<std::string>& ids, const std::vector<std::string>& passages, const Value& notes, int generation, int keep) {
-  std::ostringstream o;
-  o << "// The reader's knowledge: the notes it took on the passages of the QA golden test (" << keep << " sentences each, chosen by the\n"
-    << "// note-taking habits of memory generation " << generation << ", before any question), so that it can answer when the passages are gone.\n"
-    << "// Written by tools/qa_golden (qa_golden DATA_DIR --write-knowledge src/models/reader_knowledge.inc). Do not edit by hand.\n"
-    << "// Entries: passage (doc_index of edededdy/fineweb-edu-grounded-qa), memory generation, sentences kept, the passage's length, the notes.\n";
-  for (std::size_t i = 0; i < ids.size(); ++i) {
-    const std::string n = notes.at("notes")[i].asString();
-    if (n.find(")kn\"") != std::string::npos) throw std::runtime_error("a note holds the raw-string delimiter");
-    o << "{" << quoted(ids[i]) << ", " << generation << ", " << keep << ", " << passages[i].size() << ", R\"kn(" << n << ")kn\"},\n";
+// The capsule as C++ (src/models/reader_capsule_{lexicon,points}.inc): the lexicon, and a stream of
+// numbers — the passages; for each, its vocabulary, its facts (slots in each) and its points.
+void writeCapsule(const std::string& prefix, const Value& capsule, std::size_t passages) {
+  std::ofstream lex(prefix + "_lexicon.inc");
+  lex << "// The lexicon of the reader's knowledge capsule: the words it knows (no text). Written by tools/qa_golden\n"
+      << "// (qa_golden DATA_DIR --write-capsule src/models/reader_capsule). Do not edit by hand.\n";
+  const Value& dict = capsule.at("dictionary");
+  for (std::size_t w = 0; w < dict.size(); ++w) lex << quoted(dict[w].asString()) << (w % 8 == 7 ? ",\n" : ", ");
+  lex << "\n";
+  std::ofstream pts(prefix + "_points.inc");
+  pts << "// The reader's knowledge capsule: the " << passages << " golden passages it read, as points of the space — every word of a fact\n"
+      << "// the point of S³ its coordinates lift to, turned by the rotor of its grammatical role (capsuleIngest). Per passage: its\n"
+      << "// vocabulary (lexicon indices), its facts (slots in each), its points (5 coordinates per slot). Written by tools/qa_golden\n"
+      << "// (qa_golden DATA_DIR --write-capsule src/models/reader_capsule). Do not edit by hand.\n"
+      << passages << ",\n";
+  pts.precision(7);
+  const auto& ps = capsule.at("passages").asArray();
+  for (std::size_t i = 0; i < passages && i < ps.size(); ++i) {
+    for (const char* part : {"vocabulary", "facts"}) {
+      const Value& v = ps[i].at(part);
+      pts << v.size() << ",";
+      for (std::size_t k = 0; k < v.size(); ++k) pts << v[k].asNumber() << ",";
+      pts << "\n";
+    }
+    const Value& points = ps[i].at("points");
+    for (std::size_t k = 0; k < points.size(); ++k) pts << points[k].asNumber() << (k % 5 == 4 ? ",\n" : ",");
   }
-  return o.str();
 }
 
 std::string field(const std::string& s) {
@@ -110,27 +129,34 @@ std::string field(const std::string& s) {
 
 int main(int argc, char** argv) {
   if (argc < 2) {
-    std::cerr << "usage: qa_golden DATA_DIR [--baseline FILE] [--write-baseline FILE] [--write-memory FILE] [--write-knowledge FILE] [--keep N]\n";
+    std::cerr << "usage: qa_golden DATA_DIR [--baseline FILE] [--write-baseline FILE] [--write-memory FILE] [--write-capsule PREFIX] "
+                 "[--capsule-passages N]\n";
     return 2;
   }
   const std::string dir = argv[1];
-  std::string baselineIn, baselineOut, memoryOut, knowledgeOut;
-  int keep = 3;
+  std::string baselineIn, baselineOut, memoryOut, capsuleOut;
+  std::size_t capsulePassages = 60;
   for (int i = 2; i + 1 < argc; i += 2) {
     const std::string k = argv[i];
     if (k == "--baseline") baselineIn = argv[i + 1];
     else if (k == "--write-baseline") baselineOut = argv[i + 1];
     else if (k == "--write-memory") memoryOut = argv[i + 1];
-    else if (k == "--write-knowledge") knowledgeOut = argv[i + 1];
-    else if (k == "--keep") keep = std::max(1, std::stoi(argv[i + 1]));
+    else if (k == "--write-capsule") capsuleOut = argv[i + 1];
+    else if (k == "--capsule-passages") capsulePassages = static_cast<std::size_t>(std::max(1, std::stoi(argv[i + 1])));
   }
   const auto qa = readTsv(dir + "/qa.tsv");
   const auto corpus = readTsv(dir + "/corpus.tsv");
   const Value seed = Value::object().set("seed", 2026);
+  auto run = [&](const std::string& model, const Value& body) {
+    Value s = Value::object();
+    s.set(model, body);
+    s.set("sim", seed);
+    return syn::kernel::run(model, s);
+  };
 
-  // The test: every test passage once, the questions, and the knowledge corpus.
-  Value passages = Value::array(), questions = Value::array(), docs = Value::array(), test = Value::array();
-  std::vector<std::string> ids, passageTexts;
+  // The test: every test passage once, the questions (naming their passage and its capsule), and
+  // the knowledge corpus. The lessons: golden questions about other passages.
+  Value passages = Value::array(), questions = Value::array(), docs = Value::array(), test = Value::array(), testCapsules = Value::array();
   std::map<std::string, int> passageOf;
   for (const auto& r : qa) {
     if (r.size() < 4) continue;
@@ -138,105 +164,100 @@ int main(int argc, char** argv) {
     if (it == passageOf.end()) {
       it = passageOf.emplace(r[0], static_cast<int>(passageOf.size())).first;
       passages.push(r[3]);
-      ids.push_back(r[0]);
-      passageTexts.push_back(r[3]);
     }
-    questions.push(Value::object().set("question", r[1]).set("golden", r[2]).set("passage", it->second));
+    questions.push(Value::object().set("question", r[1]).set("golden", r[2]).set("passage", it->second).set("capsule", it->second));
     test.push(Value::object().set("question", r[1]).set("golden", r[2]).set("passage", r[3]));
+    testCapsules.push(Value::object().set("question", r[1]).set("golden", r[2]).set("capsule", it->second));
   }
   for (const auto& r : corpus)
     if (r.size() >= 2) docs.push(r[1]);
-  Value goldenOfPassage = Value::array();
-  for (const auto& q : questions.asArray()) goldenOfPassage.push(q.at("golden"));
-  Value train = Value::array();
+  Value train = Value::array(), trainCapsules = Value::array(), read = passages;
   for (const auto& r : readTsv(dir + "/train.tsv"))
-    if (r.size() >= 4) train.push(Value::object().set("question", r[1]).set("golden", r[2]).set("passage", r[3]));
+    if (r.size() >= 4) {
+      train.push(Value::object().set("question", r[1]).set("golden", r[2]).set("passage", r[3]));
+      trainCapsules.push(Value::object().set("question", r[1]).set("golden", r[2]).set("capsule", static_cast<double>(read.size())));
+      read.push(r[3]);
+    }
 
-  // The reader as a student: lessons on other passages, the same test questions; reading habits
-  // and note-taking habits, fresh and from its memory.
-  auto student = [&](bool memory, bool notes) {
-    Value s = Value::object();
-    s.set("readingStudent", Value::object().set("train", train).set("test", test).set("memory", memory).set("notes", notes));
-    s.set("sim", seed);
-    return syn::kernel::run("readingStudent", s);
+  // The knowledge capsule: every passage it reads (the test's, then the lessons'), ingested into the
+  // space and recalled from it.
+  const Value ingested = run("capsuleIngest", Value::object().set("passages", read));
+  const Value recall = run("capsuleRecall", Value::object().set("capsule", ingested.at("capsule")));
+  const Value& recalled = recall.at("recalled");
+
+  // The reader as a student: how to pick an answer, how to take notes, how to construct an answer.
+  auto student = [&](bool notes, bool construct) {
+    Value body = construct ? Value::object().set("train", trainCapsules).set("test", testCapsules).set("recalled", recalled).set("construct", true)
+                           : Value::object().set("train", train).set("test", test).set("notes", notes);
+    return run("readingStudent", body);
   };
-  const Value st = student(true, false), notesSt = student(true, true);
+  const Value st = student(false, false), notesSt = student(true, false), constructSt = student(false, true);
   const Value& nextHabits = st.at("remember");
   const Value& nextNotes = notesSt.at("remember");
+  const Value& nextConstruct = constructSt.at("remember");
 
-  // Notes on the test passages with the note-taking habits it now has, before any question; the
-  // knowledge is the notes of --keep sentences per passage.
-  auto takeNotes = [&](int k) {
-    Value s = Value::object();
-    s.set("readingNotes", Value::object().set("passages", passages).set("golden", goldenOfPassage).set("keep", k).set("weights", nextNotes.at("weights")));
-    s.set("sim", seed);
-    return syn::kernel::run("readingNotes", s);
-  };
-  const Value notes = takeNotes(keep);
-  {
-    std::ofstream kn(dir + "/knowledge.tsv");
-    for (std::size_t i = 0; i < ids.size(); ++i) kn << ids[i] << '\t' << notes.at("notes")[i].asString() << '\n';
-  }
-  auto ask = [&](const Value& knowledge, bool all) {
-    Value s = Value::object();
-    Value q = Value::object().set("passages", passages).set("questions", questions).set("corpus", docs).set("knowledge", knowledge);
-    if (!all) q.set("openBook", 0).set("remember", 0);
-    s.set("readingQA", q);
-    s.set("sim", seed);
-    return syn::kernel::run("readingQA", s);
-  };
-  const Value result = ask(notes.at("notes"), true);
-
+  // Answers: reading, open book and remembering from the text; constructed from the capsule alone.
+  const Value result = run("readingQA", Value::object().set("passages", passages).set("questions", questions).set("corpus", docs).set("recalled", recalled));
   const auto& answers = result.at("answers").asArray();
   const Value& scores = result.at("scores");
   const Value& atLeastHalf = result.at("atLeastHalf");
   std::ofstream rows(dir + "/answers.tsv");
-  rows << "question\tgolden\treader\tF1\topen book\tF1\toracle F1\tremembered\tF1\tknowledge\tF1\n";
+  rows << "question\tgolden\treader\tF1\topen book\tF1\toracle F1\tremembered\tF1\tconstructed\tF1\n";
   for (const auto& a : answers)
     rows << field(a.at("question").asString()) << '\t' << field(a.at("golden").asString()) << '\t' << field(a.at("reading").asString()) << '\t'
          << a.num("f1", 0) << '\t' << field(a.at("openBook").asString()) << '\t' << a.num("openBookF1", 0) << '\t' << a.num("oracle", 0) << '\t'
-         << field(a.at("remembered").asString()) << '\t' << a.num("rememberedF1", 0) << '\t' << field(a.at("knowledge").asString()) << '\t'
-         << a.num("knowledgeF1", 0) << '\n';
+         << field(a.at("remembered").asString()) << '\t' << a.num("rememberedF1", 0) << '\t' << field(a.at("constructed").asString()) << '\t'
+         << a.num("constructedF1", 0) << '\n';
   Value metrics = Value::object();
   std::ostringstream md;
   md << "# QA golden test\n\n" << answers.size() << " golden questions (edededdy/fineweb-edu-grounded-qa, FineWeb-Edu passages), "
      << result.num("passages", 0) << " passages + " << docs.size() << " knowledge documents read; vocabulary " << result.num("vocabulary", 0)
      << " words, " << result.at("sentences").size() << " sentences.\n\n| answer | token F1 | F1 ≥ 0.5 |\n|---|---:|---:|\n";
-  const char* keys[7] = {"reading", "remembered", "openBook", "knowledge", "firstSentence", "randomSentence", "oracle"};
-  const char* names[7] = {"reader, its own passage", "reader with its remembered habits, its own passage", "reader, open book (the whole corpus)",
-                          "reader from its knowledge alone (its notes; the passages gone)", "first sentence of the passage",
-                          "a random sentence of the passage", "oracle: the best sentence of the passage"};
+  const char* keys[7] = {"reading", "remembered", "constructed", "openBook", "firstSentence", "randomSentence", "oracle"};
+  const char* names[7] = {"reader, its own passage (copies a sentence)", "reader with its remembered habits, its own passage (copies one or two sentences)",
+                          "constructed from its knowledge capsule alone (never sees the text)", "reader, open book (the whole corpus)",
+                          "first sentence of the passage", "a random sentence of the passage", "oracle: the best sentence of the passage"};
   for (int k = 0; k < 7; ++k) {
     md << "| " << names[k] << " | " << r3(scores.num(keys[k], 0)) << " | " << std::round(1000 * atLeastHalf.num(keys[k], 0)) / 10 << "% |\n";
     metrics.set(keys[k], scores.num(keys[k], 0));
   }
-  const double found = scores.num("openBookFoundPassage", 0), knownFound = scores.num("knowledgeFoundPassage", 0);
-  md << "\nOpen book, the reader's answer came from the question's own passage for " << std::round(1000 * found) / 10
-     << "% of the questions; from its knowledge, its answer came from the notes on the question's passage for " << std::round(1000 * knownFound) / 10
-     << "%.\n";
+  const double found = scores.num("openBookFoundPassage", 0);
+  md << "\nOpen book, the reader's answer came from the question's own passage for " << std::round(1000 * found) / 10 << "% of the questions.\n";
   metrics.set("openBookFoundPassage", found);
 
+  // ---- The knowledge capsule.
+  md << "\n## The knowledge capsule\n\nThe grammar read the " << read.size() << " passages (" << passages.size() << " of the test, " << train.size()
+     << " of the lessons; " << ingested.num("wordsRead", 0) << " words) as " << ingested.num("facts", 0) << " facts — subject, relation, object — and "
+     << "ingested them as " << ingested.num("points", 0) << " points of the space, each word turned by the grammar's rotors of its role and place (and kept out of order), over a lexicon of "
+     << ingested.num("lexicon", 0) << " words. Recalled from the points alone, " << std::round(100000 * recall.num("recovered", 0)) / 1000
+     << "% of them came back as their word, role and place. Constructed answers are said by the grammar from the recalled facts — the whole fact, "
+     << "its predicate, its object or its subject — and chosen by the constructing habits; the text is never used.\n";
+  metrics.set("capsuleRecovered", recall.num("recovered", 0));
+
   // ---- The reader as a student, with every learning method of the library.
-  const Value& mem = st.at("memory");
-  md << "\n## The reader as a student\n\n" << st.num("lessons", 0) << " lessons (golden questions about other passages), three passes, "
-     << st.num("tests", 0) << " test questions, " << st.num("students", 0) << " students per design. Candidates: one sentence or two adjacent "
-     << "ones; the best of them scores " << r3(st.num("oracle", 0)) << ". Its memory: "
-     << (mem.at("used").asBool() ? "generation " + std::to_string(static_cast<int>(mem.num("generation", 0))) : mem.at("reason").asString()) << ", "
-     << mem.num("lessons", 0) << " lessons studied before.\n\n| study design | test F1 | lessons F1 | two-sentence answers |\n|---|---:|---:|---:|\n";
-  const auto& sd = st.at("designs").asArray();
-  for (const auto& d : sd)
-    md << "| " << d.at("name").asString() << " | " << r3(d.num("test", 0)) << " | " << r3(d.num("lessons", 0)) << " | "
-       << std::round(1000 * d.num("twoSentences", 0)) / 10 << "% |\n";
-  md << "\nEach method of the library, as the reader's way of studying: what it adds to reinforcement alone, and what it costs to "
-     << "leave it out of all methods (test F1).\n\n| method | library models | added to reinforcement | left out of all |\n|---|---|---:|---:|\n";
   auto signed3 = [](double x) {
     std::ostringstream o;
     o << (x >= 0 ? "+" : "") << r3(x);
     return o.str();
   };
-  for (const auto& m : st.at("methods").asArray())
-    md << "| " << m.at("method").asString() << " | " << m.at("models").asString() << " | " << signed3(m.num("alone", 0)) << " | "
-       << signed3(-m.num("removed", 0)) << " |\n";
+  auto section = [&](const Value& r, const std::string& title, const std::string& what) {
+    const Value& mem = r.at("memory");
+    md << "\n## " << title << "\n\n" << what << " " << r.num("lessons", 0) << " lessons (golden questions about other passages), three passes, "
+       << r.num("tests", 0) << " test questions, " << r.num("students", 0) << " students per design; the best candidate scores " << r3(r.num("oracle", 0))
+       << ". Its memory: "
+       << (mem.at("used").asBool() ? "generation " + std::to_string(static_cast<int>(mem.num("generation", 0))) : mem.at("reason").asString()) << ", "
+       << mem.num("lessons", 0) << " lessons studied before.\n\n| study design | test F1 | lessons F1 |\n|---|---:|---:|\n";
+    for (const auto& d : r.at("designs").asArray())
+      md << "| " << d.at("name").asString() << " | " << r3(d.num("test", 0)) << " | " << r3(d.num("lessons", 0)) << " |\n";
+    md << "\n| method | library models | added to reinforcement | left out of all |\n|---|---|---:|---:|\n";
+    for (const auto& m : r.at("methods").asArray())
+      md << "| " << m.at("method").asString() << " | " << m.at("models").asString() << " | " << signed3(m.num("alone", 0)) << " | "
+         << signed3(-m.num("removed", 0)) << " |\n";
+  };
+  section(st, "The reader as a student: picking an answer", "Candidates: one sentence of the passage or two adjacent ones.");
+  section(constructSt, "The reader as a student: constructing an answer from its capsule",
+          "Candidates: what the grammar can say from each fact recalled from the capsule — the whole fact, its predicate, its object, its subject.");
+  section(notesSt, "The reader as a student: taking notes", "Candidates: the sentences of a passage, before any question.");
   auto named = [&](const Value& r, const std::string& name) {
     for (const auto& d : r.at("designs").asArray())
       if (d.at("name").asString() == name) return d.num("test", 0);
@@ -245,35 +266,25 @@ int main(int argc, char** argv) {
   metrics.set("student", named(st, "reinforcement"));
   metrics.set("memory", named(st, "its memory alone, no feedback"));
   metrics.set("allMethods", named(st, "all methods"));
-
-  // ---- Taking notes.
-  md << "\n## Taking notes, and answering from them\n\nThe student also learns, with the same methods, which sentences of a passage are "
-     << "worth keeping before any question is asked: the lesson's golden answer says which one was. Test F1 here is the F1 of the single "
-     << "sentence it would keep first.\n\n| study design | best note F1 |\n|---|---:|\n";
-  for (const auto& d : notesSt.at("designs").asArray())
-    if (d.at("name").asString().rfind("all methods but", 0) != 0) md << "| " << d.at("name").asString() << " | " << r3(d.num("test", 0)) << " |\n";
-  md << "\nWith the note-taking habits it learned with all methods, it takes notes on the " << ids.size()
-     << " test passages and answers the questions from the notes alone:\n\n"
-     << "| sentences kept per passage | text kept | best kept sentence F1 | answers from the notes, F1 |\n|---:|---:|---:|---:|\n";
-  for (int k : {1, 2, 3, 5, 100}) {
-    const Value n = k == keep ? notes : takeNotes(k);
-    const Value r = ask(n.at("notes"), false);
-    md << "| " << (k == 100 ? std::string("all") : std::to_string(k)) << " | " << std::round(1000 * n.num("kept", 0)) / 10 << "% | "
-       << r3(n.num("bestKeptF1", 0)) << " | " << r3(r.at("scores").num("knowledge", 0)) << " |\n";
-  }
-  metrics.set("knowledgeKept", notes.num("kept", 0));
+  metrics.set("constructingStudent", named(constructSt, "all methods"));
 
   const std::string source = std::to_string(train.size()) + " lessons of edededdy/fineweb-edu-grounded-qa (tools/qa_golden/prepare.py, seed 2026)";
-  md << "\nIts next memory (generation " << nextHabits.num("generation", 0) << "): reading habits of \"" << nextHabits.at("design").asString()
-     << "\", note-taking habits of \"" << nextNotes.at("design").asString() << "\".\n";
+  md << "\nIts next memory (generation " << nextHabits.num("generation", 0) << "): reading, note-taking and constructing habits learned with all "
+     << "methods.\n";
   if (!memoryOut.empty()) {
-    std::ofstream(memoryOut) << memoryInc(nextHabits, nextNotes, sd[0].at("habits"), notesSt.at("designs").asArray()[0].at("habits"), st.at("fingerprint").asString(), source);
+    std::ofstream(memoryOut) << memoryInc(nextHabits, nextNotes, nextConstruct, st.at("designs").asArray()[0].at("habits"),
+                                          notesSt.at("designs").asArray()[0].at("habits"), constructSt.at("designs").asArray()[0].at("habits"),
+                                          st.at("fingerprint").asString(), source);
     md << "Memory written to " << memoryOut << ".\n";
   }
-  if (!knowledgeOut.empty()) {
-    std::ofstream(knowledgeOut) << knowledgeInc(ids, passageTexts, notes, static_cast<int>(nextHabits.num("generation", 0)), keep);
-    md << "Knowledge (" << keep << " sentences per passage, " << std::round(1000 * notes.num("kept", 0)) / 10 << "% of the text) written to "
-       << knowledgeOut << ".\n";
+  if (!capsuleOut.empty()) {
+    // The stored capsule: the first N test passages (the embedded golden set), ingested on their own.
+    Value first = Value::array();
+    for (std::size_t i = 0; i < capsulePassages && i < passages.size(); ++i) first.push(passages[i]);
+    const Value own = run("capsuleIngest", Value::object().set("passages", first));
+    writeCapsule(capsuleOut, own.at("capsule"), first.size());
+    md << "Capsule of " << first.size() << " passages (" << own.num("points", 0) << " points, lexicon " << own.num("lexicon", 0) << ") written to "
+       << capsuleOut << "_{lexicon,points}.inc.\n";
   }
   std::ofstream(dir + "/report.md") << md.str();
   std::cout << md.str();
@@ -284,7 +295,8 @@ int main(int argc, char** argv) {
     std::ifstream in(baselineIn);
     std::string text((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
     bool failed = false;
-    for (const char* k : {"reading", "openBook", "openBookFoundPassage", "student", "memory", "allMethods", "remembered", "knowledge"}) {
+    for (const char* k : {"reading", "openBook", "openBookFoundPassage", "student", "memory", "allMethods", "remembered", "constructed",
+                          "constructingStudent", "capsuleRecovered"}) {
       const auto at = text.find(std::string("\"") + k + "\":");
       if (at == std::string::npos) continue;
       const double recorded = std::stod(text.substr(at + std::string(k).size() + 3));

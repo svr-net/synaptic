@@ -7,8 +7,8 @@
 // position, length, whether it is a question, whether it holds a number or a name. The belief that
 // a sentence is worth keeping is its score read as a point of the space, chance(atLogit(score − τ)).
 // Agents are sentences, jobs are passages; the belief of every sentence is kept, and the notes are
-// the `keep` sentences believed most (as many as its stored knowledge keeps), in the passage's order. tools/qa_golden writes the notes as
-// the reader's knowledge (reader_knowledge.inc), and readingQA answers from them.
+// the `keep` sentences believed most, in the passage's order. The notes are a skill the student
+// learns; the reader's knowledge is its capsule (reading_capsule.cpp), from which it answers.
 #include <algorithm>
 #include <numeric>
 #include <string>
@@ -105,7 +105,7 @@ const kernel::Model* readingNotesModel() {
                    .set("texts", texts)
                    .set("rewards", rewards)
                    .set("passageChars", passageChars)
-                   .set("keep", static_cast<double>(std::max(1, c.integer("keep", memory::knowledge().perPassage > 0 ? memory::knowledge().perPassage : 3))))
+                   .set("keep", static_cast<double>(std::max(1, c.integer("keep", 5))))
                    .set("golden", !items.empty() && !items[0].golden.empty())
                    .set("memory", Value::object().set("used", mem.used).set("reason", mem.reason).set("generation", mem.generation)
                                       .set("design", mem.notesDesign).set("weights", weights).set("habits", habits));
