@@ -1,6 +1,7 @@
 // Every model of the library, run as its fused kernel on the CPU in 64-bit floats: the results
 // reproduce what the chapters describe. (test_space checks that the 32-bit engines agree.)
 #include <cmath>
+#include <utility>
 #include <string>
 
 #include "syn/core/value.hpp"
@@ -48,7 +49,7 @@ bool finiteEverywhere(const Value& v) {
 }  // namespace
 
 TEST(every_model_runs_and_is_finite) {
-  CHECK(kernel::models().size() == 41);
+  CHECK(kernel::models().size() == 43);
   for (const kernel::Model* m : kernel::models()) {
     const Value r = run(m->name, spec(200));
     if (!finiteEverywhere(r)) ::syntest::fail("non-finite value in " + m->name, __FILE__, __LINE__);
@@ -544,20 +545,92 @@ TEST(reading_notes_keep_what_answers) {
   CHECK(r.at("memory").at("used").asBool());
 }
 
-TEST(reading_qa_answers_with_memory_and_knowledge) {
+TEST(reading_capsule_recalls_words_and_grammar_from_points) {
+  // The stored capsule (the 60 golden passages): every point comes back as its word, role and place.
+  const Value r = run("capsuleRecall", spec(64));
+  CHECK(num(r, "recovered") == 1.0);
+  CHECK(r.at("recalled").at("passages").size() == 60);
+  // A passage ingested: its facts, then the same facts recalled from the points alone — also when the
+  // points of each fact are kept in another order, since the order is in the rotors.
+  Value in = spec(64);
+  in.set("capsuleIngest", Value::object().set("passages", Value::array().push(
+      "Honeybees communicate the location of flowers with a waggle dance. The length of the waggle run tells the other bees how far "
+      "away the flowers are.")));
+  const Value ing = run("capsuleIngest", in);
+  CHECK(num(ing, "facts") == 2);
+  Value capsule = ing.at("capsule");
+  auto recall = [&](const Value& c) {
+    Value s = spec(64);
+    s.set("capsuleRecall", Value::object().set("capsule", c));
+    return run("capsuleRecall", s);
+  };
+  const Value once = recall(capsule);
+  CHECK(num(once, "recovered") == 1.0);
+  const Value& fact = once.at("recalled").at("passages").asArray()[0].at("facts").asArray()[1];
+  const Value& dict = capsule.at("dictionary");
+  std::string said;
+  for (const char* role : {"subject", "relation", "object"})
+    for (std::size_t k = 0; k < fact.at(role).size(); ++k) said += dict[static_cast<std::size_t>(fact.at(role)[k].asNumber())].asString() + " ";
+  CHECK(said == "length of waggle run tells other bees how far away flowers are ");  // articles dropped
+  CHECK(fact.at("relation").size() == 1);  // "tells": the verb
+  // The points of each fact reversed: the same facts.
+  Value::Numbers points = capsule.at("passages").asArray()[0].at("points").asNumbers();
+  const Value::Numbers sizes = capsule.at("passages").asArray()[0].at("facts").asNumbers();
+  std::size_t at = 0;
+  for (double n : sizes) {
+    const auto slots = static_cast<std::size_t>(n);
+    for (std::size_t k = 0; k < slots / 2; ++k)
+      for (std::size_t c = 0; c < 5; ++c) std::swap(points[5 * (at + k) + c], points[5 * (at + slots - 1 - k) + c]);
+    at += slots;
+  }
+  Value shuffled = capsule;
+  shuffled.fields()["passages"] = Value(Value::Array{Value::object()
+                                                        .set("vocabulary", capsule.at("passages").asArray()[0].at("vocabulary"))
+                                                        .set("facts", capsule.at("passages").asArray()[0].at("facts"))
+                                                        .set("points", Value(points))});
+  CHECK(recall(shuffled).at("recalled").json() == once.at("recalled").json());
+}
+
+TEST(reading_qa_constructs_answers_from_the_capsule_alone) {
+  // Recall the stored capsule, then answer the golden questions from the recalled facts: the
+  // constructed answer is said by the grammar, never copied from a passage.
+  const Value rec = run("capsuleRecall", spec(64));
   Value s = spec(64);
-  s.set("readingQA", Value::object().set("set", "golden").set("questions", 60));
+  s.set("readingQA", Value::object().set("set", "golden").set("questions", 60).set("recalled", rec.at("recalled")));
   const Value r = run("readingQA", s);
   const Value& sc = r.at("scores");
   CHECK(r.at("memory").at("used").asBool());
-  CHECK(r.at("knowledge").at("used").asBool());
-  CHECK(num(sc, "remembered") > num(sc, "reading"));            // the remembered habits answer better
-  CHECK(num(sc, "knowledge") > num(sc, "firstSentence") + 0.05);  // from the notes alone, the passages gone
-  CHECK(num(sc, "knowledge") <= num(sc, "oracle"));
-  CHECK(num(sc, "knowledgeFoundPassage") > 0.7);
+  CHECK(r.at("capsule").at("used").asBool());
+  CHECK(num(sc, "remembered") > num(sc, "reading"));             // the remembered habits answer better
+  CHECK(num(sc, "constructed") > num(sc, "firstSentence") + 0.1);  // from the capsule alone
+  const auto& sentences = r.at("sentences").asArray();
+  int copied = 0;
+  for (const auto& a : r.at("answers").asArray())
+    for (const auto& t : sentences) copied += a.at("constructed").asString() == t.asString() ? 1 : 0;
+  CHECK(copied == 0);
   // With no passage at all, it answers from what it knows.
   Value k = spec(64);
-  k.set("readingQA", Value::object().set("passages", Value::array()).set("questions", Value::array().push(Value::object().set("question", "What does the Michigan Makers program help students do?"))));
+  k.set("readingQA", Value::object().set("passages", Value::array()).set("recalled", rec.at("recalled"))
+                         .set("questions", Value::array().push(Value::object().set("question", "What does the Michigan Makers program help students do?"))));
   const Value a = run("readingQA", k);
-  CHECK(a.at("answers").asArray()[0].at("knowledge").asString().find("Michigan Makers") != std::string::npos);
+  CHECK(a.at("answers").asArray()[0].at("constructed").asString().find("Michigan Makers") != std::string::npos);
+}
+
+TEST(reading_student_learns_to_construct) {
+  // Lessons: 40 golden questions, test: the other 20, all answered from their recalled capsules.
+  const Value rec = run("capsuleRecall", spec(64));
+  Value gs = spec(64);
+  gs.set("readingQA", Value::object().set("set", "golden").set("questions", 60).set("openBook", 0).set("remember", 0));
+  const Value g = run("readingQA", gs);  // the golden questions: question i is about passage (and capsule) i
+  Value train = Value::array(), test = Value::array();
+  const auto& qs = g.at("answers").asArray();
+  for (std::size_t i = 0; i < qs.size(); ++i)
+    (i < 40 ? train : test).push(Value::object().set("question", qs[i].at("question")).set("golden", qs[i].at("golden")).set("capsule", static_cast<double>(i)));
+  Value s = spec(64);
+  s.set("readingStudent", Value::object().set("construct", true).set("recalled", rec.at("recalled")).set("train", train).set("test", test).set("memory", false));
+  const Value r = run("readingStudent", s);
+  const auto& d = r.at("designs").asArray();
+  CHECK(r.at("kind").asString() == "construct");
+  CHECK(num(d[2], "lessons") > num(d[0], "lessons"));  // reinforcement: it learns to construct its lessons' answers
+  CHECK(r.at("designs").asArray()[0].at("habits").asArray()[0].at("habit").asString() == "overlap of the fact with the question (BM25)");
 }

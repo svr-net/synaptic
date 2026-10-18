@@ -43,13 +43,15 @@ const kernel::Model* fgaRotorsModel();
 const kernel::Model* readingQaModel();
 const kernel::Model* readingStudentModel();
 const kernel::Model* readingNotesModel();
+const kernel::Model* capsuleIngestModel();
+const kernel::Model* capsuleRecallModel();
 }  // namespace syn::models
 
 namespace syn::kernel {
 
 std::vector<const Model*> allModels() {
   using namespace syn::models;
-  return {spaceModel(), conditioningModel(), operantModel(), tokenEconomyModel(), maslowModel(), ispModel(), memoryModel(), interleavingModel(), schemaModel(), equilibrationModel(), zpdModel(), dialogueModel(), developmentModel(), andragogyModel(), motivationModel(), classroomModel(), theoriesModel(), allocationModel(), sensitivityModel(), gagneModel(), audienceModel(), communityModel(), outcomesModel(), assessmentActivitiesModel(), assessmentSessionModel(), rubricModel(), lectureModel(), discussionModel(), scaffoldingModel(), strategiesModel(), lessonPlanModel(), reflectionModel(), studentFeedbackModel(), criticalReflectionModel(), professionalGrowthModel(), fgaAlgebraModel(), fgaLearningModel(), fgaRotorsModel(), readingQaModel(), readingStudentModel(), readingNotesModel()};
+  return {spaceModel(), conditioningModel(), operantModel(), tokenEconomyModel(), maslowModel(), ispModel(), memoryModel(), interleavingModel(), schemaModel(), equilibrationModel(), zpdModel(), dialogueModel(), developmentModel(), andragogyModel(), motivationModel(), classroomModel(), theoriesModel(), allocationModel(), sensitivityModel(), gagneModel(), audienceModel(), communityModel(), outcomesModel(), assessmentActivitiesModel(), assessmentSessionModel(), rubricModel(), lectureModel(), discussionModel(), scaffoldingModel(), strategiesModel(), lessonPlanModel(), reflectionModel(), studentFeedbackModel(), criticalReflectionModel(), professionalGrowthModel(), fgaAlgebraModel(), fgaLearningModel(), fgaRotorsModel(), readingQaModel(), readingStudentModel(), readingNotesModel(), capsuleIngestModel(), capsuleRecallModel()};
 }
 
 }  // namespace syn::kernel

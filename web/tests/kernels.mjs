@@ -50,6 +50,8 @@ const SPECS = {
   // Cleaning up a binding under crosstalk is an argmax among near-ties.
   fgaAlgebra: { spec: { sim: { seed: 11 } }, flips: 0.01 },
   sensitivity: { spec: { sim: { learners: 300, seed: 11 } }, relative: 0.03 },
+  // A student's path of lessons turns on argmax choices among near-ties (exp is approximate on GPUs).
+  readingStudent: { spec: { sim: { learners: 300, seed: 11 } }, relative: 0.05 },
 };
 
 const report = await page.evaluate(async ({ specs, filter }) => {

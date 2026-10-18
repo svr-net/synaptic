@@ -11,8 +11,9 @@
 // and the answer is the sentence believed most. Plans: reading (the candidates are the sentences of
 // the question's own passage), open book (every sentence of the corpus, so that the reader must also
 // find the passage), remembered (the reader's memory: the reading habits it learned as a student
-// weigh the passage's sentences and pairs of sentences) and knowledge (the passages are gone: it
-// answers from the notes it took on them, reader_knowledge.inc, open book over the notes).
+// weigh the passage's sentences and pairs of sentences) and constructed (from its knowledge capsule
+// alone: the grammar says answers from the facts recalled from the capsule, and the constructing
+// habits it learned as a student choose one; the text is never used — reading_capsule.cpp).
 #include <algorithm>
 #include <cctype>
 #include <cmath>
@@ -227,25 +228,19 @@ const kernel::Model* readingQaModel() {
       const std::size_t passageCount = docs.size();
       if (data.has("corpus"))
         for (std::size_t i = 0; i < data.at("corpus").size(); ++i) docs.push_back(data.at("corpus")[i].asString());
-      // The knowledge: notes on the passages it read, given or stored (reader_knowledge.inc).
-      std::vector<std::string> notes;
-      bool aligned = false;  // note i was taken on passage i
-      if (given.has("knowledge") && given.at("knowledge").size() > 0) {
-        for (std::size_t i = 0; i < given.at("knowledge").size(); ++i) notes.push_back(given.at("knowledge")[i].asString());
-        aligned = notes.size() >= passageCount;
-      } else {
-        notes = memory::knowledge().notes;
-        aligned = golden && notes.size() >= passageCount;
-      }
-      const bool closedBook = given.num("closedBook", 1.0) > 0.5 && !notes.empty();
+      // Its knowledge: facts recalled from its capsule (capsuleRecall's result). The constructed
+      // answer is said by the grammar from these facts; it never sees the text.
+      std::vector<std::vector<memory::Fact>> capsules;
+      if (given.has("recalled")) capsules = memory::factsOf(given.at("recalled"));
+      const bool construct = !capsules.empty();
       const bool remember = given.num("remember", 1.0) > 0.5 && passageCount > 0;
       const memory::Memory mem = memory::recall(!given.flag("memory", true), given.str("memoryFingerprint", ""));
 
-      Index main, known;
+      Index main;
       main.read(docs);
-      known.read(notes);
-      std::vector<std::vector<double>> readingRows, openRows, knownRows;
-      std::vector<memory::Item> items;
+      std::vector<std::vector<double>> readingRows, openRows;
+      std::vector<memory::Item> items, asked;
+      std::vector<std::vector<memory::Fact>> known;
       int maxCount = 1;
       Value qmeta = Value::array();
       for (const auto& q : data.at("questions").asArray()) {
@@ -262,9 +257,12 @@ const kernel::Model* readingQaModel() {
           items.push_back({text, q.str("golden", ""), docs[p]});
           qm.set("passage", static_cast<double>(p));
         }
-        if (closedBook) {
-          const auto [start, len] = known.question(text);
-          knownRows.push_back({start, len, 0.0, double(known.sentenceDoc.size()), 0});
+        if (construct) {
+          // The capsule it answers from: the question's own, or else the facts of all that share most with it.
+          const double c = q.num("capsule", golden && q.has("passage") ? q.num("passage", -1) : -1);
+          known.push_back(c >= 0 && c < static_cast<double>(capsules.size()) ? capsules[static_cast<std::size_t>(c)]
+                                                                               : memory::factsFor(text, capsules, 24));
+          asked.push_back({text, q.str("golden", ""), ""});
         }
         qmeta.push(qm);
       }
@@ -306,26 +304,44 @@ const kernel::Model* readingQaModel() {
         plans.push_back(withMeta(makePlan("readingQA", static_cast<std::uint32_t>(most), 1, params, rows, seed, 1), "remembered",
                                  Value::object().set("texts", texts)));
       }
-      if (closedBook)
-        plans.push_back(withMeta(makePlan("readingQA", static_cast<std::uint32_t>(std::max<std::size_t>(1, known.sentenceDoc.size())), 1,
-                                          known.params(given), knownRows, seed, 1),
-                                 "knowledge", Value::object().set("texts", known.texts).set("doc", known.docs())));
-      if (plans.empty()) throw std::invalid_argument("readingQA: neither passages nor knowledge to answer from");
-      const auto& k = memory::knowledge();
+      if (construct) {
+        // The constructed answers: what the grammar can say from each recalled fact, weighed by the
+        // constructing habits it remembers.
+        const auto cands = memory::constructCandidates(asked, known);
+        std::vector<double> params(mem.construct, mem.construct + memory::kHabitCount);
+        params.push_back(0);
+        params.push_back(given.num("habitThreshold", 1.0));
+        params[8] = static_cast<double>(params.size());
+        std::vector<std::vector<double>> rows;
+        Value texts = Value::array();
+        std::size_t first = 0, most = 1;
+        for (const auto& c : cands) {
+          rows.push_back({0, 0, double(first), double(c.texts.size()), 1});
+          for (std::size_t k = 0; k < c.texts.size(); ++k) {
+            params.insert(params.end(), c.habits[k].begin(), c.habits[k].end());
+            texts.push(c.texts[k]);
+          }
+          first += c.texts.size();
+          most = std::max(most, c.texts.size());
+        }
+        if (first == 0) texts.push("");
+        plans.push_back(withMeta(makePlan("readingQA", static_cast<std::uint32_t>(most), 1, params, rows, seed, 1), "constructed",
+                                 Value::object().set("texts", texts)));
+      }
+      if (plans.empty()) throw std::invalid_argument("readingQA: neither passages nor a recalled capsule to answer from");
+      std::size_t facts = 0;
+      for (const auto& c : capsules) facts += c.size();
       plans[0].meta.set("questions", qmeta)
           .set("vocabulary", static_cast<double>(main.vocab.size()))
           .set("documents", main.nDocs)
           .set("passages", static_cast<double>(passageCount))
-          .set("aligned", aligned)
-          .set("memory", Value::object().set("used", mem.used).set("reason", mem.reason).set("generation", mem.generation).set("design", mem.design))
-          .set("knowledge", Value::object()
-                                .set("used", closedBook)
-                                .set("stored", !(given.has("knowledge") && given.at("knowledge").size() > 0))
-                                .set("passages", static_cast<double>(notes.size()))
-                                .set("sentences", static_cast<double>(known.sentenceDoc.size()))
-                                .set("kept", k.kept)
-                                .set("perPassage", static_cast<double>(k.perPassage))
-                                .set("generation", static_cast<double>(k.generation)));
+          .set("memory", [&] {
+            Value habits = Value::array();
+            for (int k = 0; k < memory::kHabitCount; ++k) habits.push(Value::object().set("habit", memory::kConstructHabits[k]).set("weight", mem.construct[k]));
+            return Value::object().set("used", mem.used).set("reason", mem.reason).set("generation", mem.generation).set("design", mem.design)
+                .set("constructDesign", mem.constructDesign).set("constructing", habits);
+          }())
+          .set("capsule", Value::object().set("used", construct).set("passages", static_cast<double>(capsules.size())).set("facts", static_cast<double>(facts)));
       return plans;
     };
     m.summarise = [](const Value&, const std::vector<Plan>& plans, const std::vector<Output>& out) {
@@ -354,13 +370,12 @@ const kernel::Model* readingQaModel() {
         index = static_cast<std::size_t>(row[2]) + best;
         belief = bestV;
       };
-      const int reading = planOf("reading"), open = planOf("openBook"), remembered = planOf("remembered"), known = planOf("knowledge");
+      const int reading = planOf("reading"), open = planOf("openBook"), remembered = planOf("remembered"), constructed = planOf("constructed");
       const auto& questions = meta.at("questions").asArray();
-      const bool aligned = meta.at("aligned").asBool();
       // Against golden answers, when the questions have them: token F1 of the reader's answers, and
       // of the passage's first sentence, a random sentence and the oracle (its best sentence).
-      const char* keys[7] = {"reading", "openBook", "firstSentence", "randomSentence", "oracle", "remembered", "knowledge"};
-      double sum[7] = {}, half[7] = {}, have[7] = {}, found = 0, knownFound = 0, scored = 0;
+      const char* keys[7] = {"reading", "openBook", "firstSentence", "randomSentence", "oracle", "remembered", "constructed"};
+      double sum[7] = {}, half[7] = {}, have[7] = {}, found = 0, scored = 0;
       std::vector<double> bins(20, 0.0);
       Value answers = Value::array();
       const std::uint32_t jobs = plans[0].jobs;
@@ -374,7 +389,11 @@ const kernel::Model* readingQaModel() {
           std::size_t i = 0;
           double b = 0;
           choose(plan, j, i, b);
-          text[slot] = plans[static_cast<std::size_t>(plan)].meta.at("texts")[i].asString();
+          const Plan& pl = plans[static_cast<std::size_t>(plan)];
+          // No candidate at all (nothing it knows says anything): no answer.
+          const bool none = pl.jobRows[static_cast<std::size_t>(j) * pl.jobStride + 3] < 0.5;
+          text[slot] = none ? std::string() : pl.meta.at("texts")[i].asString();
+          if (none) b = 0;
           got[slot] = true;
           a.set(key, text[slot]).set(std::string(key) + "Belief", b);
           return i;
@@ -382,10 +401,9 @@ const kernel::Model* readingQaModel() {
         const std::size_t ri = answer(reading, 0, "reading");
         const std::size_t oi = answer(open, 1, "openBook");
         answer(remembered, 5, "remembered");
-        const std::size_t ki = answer(known, 6, "knowledge");
+        answer(constructed, 6, "constructed");
         if (reading >= 0) a.set("readingSentence", static_cast<double>(ri));
         if (open >= 0) a.set("openBookSentence", static_cast<double>(oi)).set("openBookDocument", plans[static_cast<std::size_t>(open)].meta.at("doc")[oi]);
-        if (known >= 0) a.set("knowledgePassage", plans[static_cast<std::size_t>(known)].meta.at("doc")[ki]);
         if (q.has("golden")) {
           const std::string& g = q.at("golden").asString();
           if (reading >= 0) {
@@ -409,8 +427,6 @@ const kernel::Model* readingQaModel() {
             bins[10 + std::min<std::size_t>(9, static_cast<std::size_t>(oracle * 10))] += 1;
             a.set("oracle", oracle);
             if (open >= 0 && static_cast<std::size_t>(plans[static_cast<std::size_t>(open)].meta.at("doc")[oi].asNumber()) == p) found += 1;
-            if (known >= 0 && aligned && static_cast<std::size_t>(plans[static_cast<std::size_t>(known)].meta.at("doc")[ki].asNumber()) == p)
-              knownFound += 1;
           }
           for (int k = 0; k < 7; ++k) {
             if (k == 4 || !got[k]) continue;
@@ -424,7 +440,7 @@ const kernel::Model* readingQaModel() {
             }
             if (k == 1) a.set("openBookF1", f);
             if (k == 5) a.set("rememberedF1", f);
-            if (k == 6) a.set("knowledgeF1", f);
+            if (k == 6) a.set("constructedF1", f);
           }
           scored += 1;
           a.set("golden", g);
@@ -437,7 +453,7 @@ const kernel::Model* readingQaModel() {
                          .set("documents", meta.at("documents"))
                          .set("passages", meta.at("passages"))
                          .set("memory", meta.at("memory"))
-                         .set("knowledge", meta.at("knowledge"));
+                         .set("capsule", meta.at("capsule"));
       if (reading >= 0) {
         const Value& rm = plans[static_cast<std::size_t>(reading)].meta;
         result.set("sentences", rm.at("texts")).set("doc", rm.at("doc")).set("docFirst", rm.at("docFirst"));
@@ -450,7 +466,6 @@ const kernel::Model* readingQaModel() {
           atLeastHalf.set(keys[k], half[k] / have[k]);
         }
         if (open >= 0 && reading >= 0) scores.set("openBookFoundPassage", found / scored);
-        if (known >= 0 && aligned && reading >= 0) scores.set("knowledgeFoundPassage", knownFound / scored);
         result.set("scores", scores).set("atLeastHalf", atLeastHalf).set("scored", scored);
         if (reading >= 0)
           result.set("readingF1Histogram", Value::Numbers(std::vector<double>(bins.begin(), bins.begin() + 10)))

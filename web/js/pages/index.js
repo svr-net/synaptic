@@ -83,7 +83,8 @@ models (src/models): every theory and chapter as an agent program in WGSL
    │  assessmentSession · rubric · lecture · discussion · scaffolding
    │  strategies · lessonPlan · reflection · studentFeedback
    │  criticalReflection · professionalGrowth · fgaAlgebra · fgaLearning
-   │  fgaRotors · readingQA · readingStudent · readingNotes
+   │  fgaRotors · readingQA · readingStudent · readingNotes · capsuleIngest
+   │  capsuleRecall
    ▼
 syn::kernel: plans (constants, one row per job, seeds) ▸ agent kernel
    │  (agents × jobs, workgroups of 64) ▸ reduce ▸ quantiles ▸ summary
@@ -102,7 +103,7 @@ pages (js/pages/*.js): render the results as charts and tables` }));
     ['Ch. 10: Selecting instructional strategies and creating lesson plans', 'Strategies and lesson plans', 'lecture, discussion, scaffolding, strategies, lessonPlan'],
     ['Ch. 14: Practicing reflective teaching', 'Reflective teaching', 'reflection, studentFeedback, criticalReflection, professionalGrowth'],
     ['Pustejovsky (2026): functional geometric algebra', 'Learning meaning (FGA)', 'fgaAlgebra, fgaLearning, fgaRotors'],
-    ['QA golden test (FineWeb-Edu)', 'Reading for answers (QA)', 'readingQA, readingStudent, readingNotes'], ['Activity 3.3, conclusion', 'Theories compared, Gain allocation', 'classroom, theories, allocation, sensitivity'],
+    ['QA golden test (FineWeb-Edu)', 'Reading for answers (QA)', 'readingQA, readingStudent, readingNotes, capsuleIngest, capsuleRecall'], ['Activity 3.3, conclusion', 'Theories compared, Gain allocation', 'classroom, theories, allocation, sensitivity'],
   ]);
   return engineNote(runResult, performance.now() - t0);
 });

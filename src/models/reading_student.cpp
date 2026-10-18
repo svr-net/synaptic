@@ -36,7 +36,10 @@
 // It starts from its memory (reading_memory.hpp), if the memory was learned for these habits, and
 // returns what it would remember next: the habits learned with all methods. With `notes`, it learns
 // the other half of its memory, taking notes: from a passage alone, without a question, which
-// sentence is worth keeping — the lesson's golden answer says which one was. With `anchor`, each
+// sentence is worth keeping — the lesson's golden answer says which one was. With `construct`, it
+// learns the third, constructing: how to say an answer from the facts it recalls from its knowledge
+// capsule (`recalled`, capsuleRecall's result; lessons and questions name their `capsule`) — which
+// fact, and whether to say all of it, its predicate, its object or its subject. With `anchor`, each
 // lesson also pulls the habits back towards where it started, so that new lessons of another kind do
 // not wash out what it knew.
 #include <algorithm>
@@ -371,7 +374,18 @@ std::string kindOf(const std::string& question) {
 
 std::vector<Item> lessonsOf(const Value& v) {
   std::vector<Item> out;
-  for (const auto& x : v.asArray()) out.push_back({x.at("question").asString(), x.at("golden").asString(), x.at("passage").asString()});
+  for (const auto& x : v.asArray()) out.push_back({x.at("question").asString(), x.at("golden").asString(), x.str("passage", "")});
+  return out;
+}
+
+// The facts each lesson or question may answer from: those recalled from the capsule it names.
+std::vector<std::vector<memory::Fact>> capsulesOf(const Value& v, const std::vector<std::vector<memory::Fact>>& recalled) {
+  std::vector<std::vector<memory::Fact>> out;
+  for (const auto& x : v.asArray()) {
+    const double c = x.num("capsule", -1);
+    if (c < 0 || c >= static_cast<double>(recalled.size())) throw std::invalid_argument("readingStudent: a lesson names a capsule that is not recalled");
+    out.push_back(recalled[static_cast<std::size_t>(c)]);
+  }
   return out;
 }
 
@@ -407,16 +421,29 @@ const kernel::Model* readingStudentModel() {
       const auto lessons = std::min<std::size_t>(train.size(), static_cast<std::size_t>(std::clamp(c.integer("lessons", 512), 1, 512)));
       train.resize(lessons);
       const bool notes = c.flag("notes", false);
-      const auto a = notes ? memory::noteCandidates(train) : memory::answerCandidates(train);
-      const auto b = notes ? memory::noteCandidates(test) : memory::answerCandidates(test);
-      const double* prior = notes ? memory::kNotePrior : memory::kHabitPrior;
+      const bool construct = c.flag("construct", false);
+      std::vector<memory::Candidates> a, b;
+      if (construct) {
+        if (!c.has("recalled") || !c.has("train") || !c.has("test"))
+          throw std::invalid_argument("readingStudent: constructing needs the recalled capsules and the lessons and questions that name them");
+        const auto recalled = memory::factsOf(c.at("recalled"));
+        auto lessonFacts = capsulesOf(c.at("train"), recalled);
+        lessonFacts.resize(train.size());
+        a = memory::constructCandidates(train, lessonFacts);
+        b = memory::constructCandidates(test, capsulesOf(c.at("test"), recalled));
+      } else {
+        a = notes ? memory::noteCandidates(train) : memory::answerCandidates(train);
+        b = notes ? memory::noteCandidates(test) : memory::answerCandidates(test);
+      }
+      const double* prior = construct ? memory::kConstructPrior : notes ? memory::kNotePrior : memory::kHabitPrior;
+      const char* kind = construct ? "construct" : notes ? "notes" : "answer";
       std::vector<double> params = {8, double(a.size()), double(b.size()), double(std::clamp(c.integer("passes", 3), 1, 10)), c.num("rate", 0.2),
                                     c.num("margin", 0.02), c.num("spacing", 10), double(std::max(1, c.integer("block", 20))), c.num("pool", 6),
                                     c.num("support", 2.0), 0, 0, 0, 16, c.num("sharpness", 5.0)};
       // It starts from its memory — if the memory was learned for these habits — unless asked to start
       // fresh or given the weights to start from.
       const memory::Memory mem = memory::recall(!c.flag("memory", true), c.str("memoryFingerprint", ""));
-      const double* start = notes ? mem.notes : mem.habits;
+      const double* start = construct ? mem.construct : notes ? mem.notes : mem.habits;
       for (int k = 0; k < 8; ++k) params.push_back(start[k]);
       if (c.has("start"))
         for (int k = 0; k < 8 && k < static_cast<int>(c.at("start").size()); ++k) params[15 + k] = c.at("start")[static_cast<std::size_t>(k)].asNumber();
@@ -474,11 +501,11 @@ const kernel::Model* readingStudentModel() {
                            .set("reason", c.has("start") ? std::string("started from the given weights") : mem.reason)
                            .set("generation", mem.used ? mem.generation : 0)
                            .set("lessons", mem.used ? mem.lessons : 0.0)
-                           .set("design", notes ? mem.notesDesign : mem.design)
+                           .set("design", construct ? mem.constructDesign : notes ? mem.notesDesign : mem.design)
                            .set("source", mem.source)
-                           .set("test", notes ? mem.notesTest : mem.test)
+                           .set("test", construct ? mem.constructTest : notes ? mem.notesTest : mem.test)
                            .set("weights", startW);
-      meta.set("memory", recalled).set("notes", notes);
+      meta.set("memory", recalled).set("notes", notes).set("kind", kind);
       std::vector<std::vector<double>> rows;
       for (const auto& d : designs()) rows.push_back({double(d.methods)});
       Plan p = makePlan("readingStudent", static_cast<std::uint32_t>(c.integer("students", 64)), 28, params, rows, seedOf(spec));
@@ -492,9 +519,9 @@ const kernel::Model* readingStudentModel() {
       Value results = Value::array();
       for (std::uint32_t j = 0; j < p.jobs; ++j) {
         Value habits = Value::array();
-        const bool notes = p.meta.at("notes").asBool();
-        for (int k = 0; k < 8; ++k)
-          habits.push(Value::object().set("habit", notes ? memory::kNoteHabits[k] : memory::kHabits[k]).set("weight", o.mean(p, j, 18 + k)));
+        const std::string kind = p.meta.at("kind").asString();
+        const char* const* names = kind == "construct" ? memory::kConstructHabits : kind == "notes" ? memory::kNoteHabits : memory::kHabits;
+        for (int k = 0; k < 8; ++k) habits.push(Value::object().set("habit", names[k]).set("weight", o.mean(p, j, 18 + k)));
         Value used = Value::array();
         for (unsigned b = 0; b < 11; ++b)
           if (all[j].methods & (1u << b)) used.push(kMethods[b].name);
@@ -529,7 +556,7 @@ const kernel::Model* readingStudentModel() {
                        .set("design", all[keep].name)
                        .set("test", rs[keep].num("test", 0))
                        .set("weights", weights);
-      return Value::object().set("designs", results).set("methods", methods).set("memory", recalled).set("remember", next).set("notes", p.meta.at("notes"))
+      return Value::object().set("designs", results).set("methods", methods).set("memory", recalled).set("remember", next).set("notes", p.meta.at("notes")).set("kind", p.meta.at("kind"))
           .set("fingerprint", memory::fingerprint()).set("oracle", p.meta.at("oracle")).set("oracleSingle", p.meta.at("oracleSingle"))
           .set("lessons", p.meta.at("lessons")).set("tests", p.meta.at("tests")).set("students", static_cast<double>(p.agents));
     };
