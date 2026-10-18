@@ -69,11 +69,36 @@ struct Memory {
   double habits[kHabitCount] = {};
   double notes[kHabitCount] = {};
   double construct[kHabitCount] = {};
+  double evidence[3] = {};   // lessons behind each section's weights (reading, notes, constructing)
+  Value records = Value::array();  // the records read on top of the stored memory: what each added, or why not
 };
 
 /** The stored memory, checked against the habits of this build (or `fingerprintOf`, to check a
  *  memory written for other habits). Refused, or with `fresh`, it is the prior. */
-Memory recall(bool fresh, const std::string& fingerprintOf = "");
+Memory recall(bool fresh, const std::string& fingerprintOf = "", const Value& records = Value());
+/** The memory a model's spec asks for: `memory` (false: fresh), `memoryFingerprint`, and
+ *  `memoryRecords` — records read on top of the stored memory, in order. */
+Memory recallFor(const Value& spec);
+
+/** The sections of the memory, in the order of Memory::evidence. */
+constexpr int kSections = 3;
+extern const char* const kSectionNames[kSections];  // "answer", "notes", "construct"
+/** A memory record: what one study added to one section — the weights it learned from `lessons`
+ *  lessons, and its test score — for the generation it makes. Memory grows by appending records: each
+ *  is folded into the section by its evidence, (N·w + n·w_b) / (N + n), so a small study moves a well
+ *  learned habit a little and a fresh one all the way. Packed (magic, version, the section's
+ *  fingerprint, generation, lessons, test, weights, design, source, checksum) in base64. */
+struct Record {
+  int section = 0, generation = 0;
+  double lessons = 0, test = 0;
+  double weights[kHabitCount] = {};
+  std::string design, source;
+};
+std::string packRecord(const Record& r);
+/** A record read back; empty `error` when it can be used with these habits. */
+Record unpackRecord(const std::string& base64, std::string* error);
+/** The weights a section would have with a record folded in. */
+void fold(const double* weights, double evidence, const Record& r, double* out);
 
 // ---- The grammar and the capsule.
 
@@ -129,19 +154,38 @@ std::vector<std::string> stemsOf(const std::string& word);
 /** For a question with no capsule: the facts of all capsules that share most with it. */
 std::vector<Fact> factsFor(const std::string& question, const std::vector<std::vector<Fact>>& all, std::size_t keep);
 
-/** The capsule packed: the lexicon front-coded, and per passage its vocabulary (level 1's
- *  codebook), its facts as run lengths (level 0) and each slot's code (levels 1 and 2: the word in
- *  the vocabulary, the role and the place), bit-packed. The bytes of each part, and all in base64. */
+/** The capsule packed, segment by segment. A capsule grows by appending segments: each adds words to
+ *  the lexicon (numbered after the words before it, so no index ever changes) and passages, and is
+ *  packed on its own — a header (magic, version, the capsule's fingerprint, the lexicon and passages
+ *  it extends), its new words front-coded with the cell of the index each lies in, per passage its
+ *  vocabulary (level 1's codebook), its facts as run lengths (level 0) and each slot's code (levels
+ *  1 and 2: the word in the vocabulary, the role and the place), bit-packed, and a checksum. The
+ *  bytes of each part, and all in base64. */
 struct CapsuleBytes {
   std::vector<std::uint8_t> bytes;
-  std::size_t lexicon = 0, vocabulary = 0, facts = 0, codes = 0;
+  std::size_t header = 0, lexicon = 0, cells = 0, vocabulary = 0, facts = 0, codes = 0;
   std::string base64;
 };
+/** The fingerprint of the capsule's format: the word points, the grammar, the codes and the index. A
+ *  segment written for another is refused, never misread. */
+std::uint32_t capsuleFingerprint();
+/** The segment of a capsule that extends its first `baseWords` words and `basePassages` passages. */
+CapsuleBytes packSegment(const Value& capsule, std::size_t baseWords, std::size_t basePassages);
+/** The whole capsule as one segment. */
 CapsuleBytes packCapsule(const Value& capsule);
-/** The capsule from its packed bytes (base64). */
+/** Segments read in order into one capsule ({dictionary, cells, passages}), with a report per segment
+ *  (bytes, words, passages, used, and why not). A segment that is damaged, written for another
+ *  format, or does not extend the capsule read so far is refused, and so are those after it. */
+Value joinSegments(const std::vector<std::string>& segments);
+/** One segment, read as a capsule. */
 Value unpackCapsule(const std::string& base64);
 
 /** The stored capsule (reader_capsule.inc): the golden passages, ingested; capsuleRecall's default. */
+const std::vector<std::string>& storedSegments();
 const Value& storedCapsule();
+/** The capsule a model's spec names: `capsule` as is; `segments` (or one, `packed`) read in order —
+ *  on top of the stored capsule when they extend it (or with `stored`); none: the stored capsule.
+ *  {capsule, segments (the report), stored}. */
+Value capsuleOf(const Value& spec);
 
 }  // namespace syn::models::memory

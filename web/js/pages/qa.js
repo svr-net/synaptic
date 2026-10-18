@@ -1,5 +1,6 @@
 import { barChart, fmt, lineChart } from '../charts.js';
 import { runModels } from '../engine/run.js';
+import { forgetKnowledge, keep, loadKnowledge } from '../knowledge.js';
 import { callout, card, el, grid, initPage, runButton, table, tiles, toolbarNumber } from '../ui.js';
 
 const page = initPage({
@@ -42,47 +43,79 @@ function traceOf(a) {
 }
 
 // Ask the reader: about a passage of your own, or, with no passage, from what it knows (outside
-// page.content, which each run clears).
+// page.content, which each run clears). Teach it a passage: the passage is ingested on top of what it
+// knows — a segment of the capsule, its new words routed through the growing index — and kept in this
+// browser, with the records of what it studied.
 const passage = el('textarea', { rows: 4, style: 'width:100%;box-sizing:border-box;font:inherit', placeholder: 'Paste a passage — or leave empty to ask what it knows…' });
 const question = el('input', { type: 'text', style: 'width:100%;box-sizing:border-box;font:inherit;margin-top:6px', placeholder: 'Ask a question…' });
-const reply = el('div', { class: 'note' });
+const reply = el('div', { class: 'note', id: 'qa-reply' });
+const known = el('div', { class: 'note', id: 'qa-known', style: 'margin-top:6px' });
 const ask = el('button', { class: 'primary', text: 'Ask', style: 'margin-top:6px' });
-ask.addEventListener('click', async () => {
+const teach = el('button', { text: 'Teach it this passage', style: 'margin:6px 0 0 6px' });
+const forget = el('button', { text: 'Forget what it was taught here', style: 'margin:6px 0 0 6px' });
+async function showKnown(r) {
+  const k = await loadKnowledge();
+  const segs = r && r.segments ? r.segments.filter((x) => x.used) : null;
+  known.textContent = `Kept in this browser: ${k.segments.length} segment(s) of passages it was taught` +
+    (segs ? ` (${segs.reduce((n, x) => n + x.passages, 0)} passages, ${segs.reduce((n, x) => n + x.words, 0)} words new to it, ` +
+      `${segs.reduce((n, x) => n + x.bytes, 0).toLocaleString()} bytes)` : '') + `; ${k.records.length} record(s) of what it studied.`;
+  return k;
+}
+async function busy(button, fn) {
+  button.disabled = true;
+  try { await fn(); } catch (e) { reply.textContent = 'Error: ' + e.message; } finally { button.disabled = false; }
+}
+ask.addEventListener('click', () => busy(ask, async () => {
   if (!question.value.trim()) { reply.textContent = 'Ask a question.'; return; }
-  ask.disabled = true;
   reply.textContent = 'Reading…';
-  try {
-    // The passage is ingested into a capsule and recalled; the answer is constructed from the capsule
-    // alone (no passage reaches readingQA). With no passage, from the stored capsule.
-    const own = passage.value.trim();
-    let packed;
-    if (own) {
-      const { results: [ing] } = await runModels([['capsuleIngest', { capsuleIngest: { passages: [own] } }]], page);
-      packed = ing.packed;
-    }
-    // Recall, reasoning and answering in one kernel (capsuleQA), from the capsule alone.
-    const q = packed ? { packed, questions: [{ question: question.value, capsule: 0 }] } : { questions: [{ question: question.value }] };
-    const { results: [r] } = await runModels([['capsuleQA', { capsuleQA: q }]], page);
-    const a = r.answers[0];
-    reply.innerHTML = '';
-    reply.append(el('p', {}, el('b', { text: a.answer || '(nothing it knows says that)' }), ' — reasoned from its capsule'));
-    reply.append(traceOf(a));
-  } catch (e) {
-    reply.textContent = 'Error: ' + e.message;
-  } finally {
-    ask.disabled = false;
+  // The passage is ingested into a capsule and recalled; the answer is constructed from the capsule
+  // alone (no passage reaches readingQA). With no passage, from what it knows: the stored capsule and
+  // what it was taught here.
+  const own = passage.value.trim();
+  const k = await loadKnowledge();
+  let q = k.segments.length ? { segments: k.segments, questions: [{ question: question.value }] } : { questions: [{ question: question.value }] };
+  if (own) {
+    const { results: [ing] } = await runModels([['capsuleIngest', { capsuleIngest: { passages: [own] } }]], page);
+    q = { packed: ing.packed, questions: [{ question: question.value, capsule: 0 }] };
   }
-});
-page.content.before(el('section', { class: 'card' }, el('h2', { text: 'Ask the reader' }), passage, question, ask, reply));
+  // Recall, reasoning and answering in one kernel (capsuleQA), from the capsule alone.
+  const { results: [r] } = await runModels([['capsuleQA', { capsuleQA: q }]], page);
+  const a = r.answers[0];
+  reply.innerHTML = '';
+  reply.append(el('p', {}, el('b', { text: a.answer || '(nothing it knows says that)' }), ' — reasoned from its capsule'));
+  reply.append(traceOf(a));
+}));
+teach.addEventListener('click', () => busy(teach, async () => {
+  const own = passage.value.trim();
+  if (!own) { reply.textContent = 'Paste a passage to teach it.'; return; }
+  reply.textContent = 'Ingesting…';
+  const k = await loadKnowledge();
+  const { results: [ing] } = await runModels([['capsuleIngest', { capsuleIngest: { passages: [own], base: k.segments, stored: true } }]], page);
+  await keep('segments', ing.segment);
+  const { results: [rec] } = await runModels([['capsuleRecall', { capsuleRecall: { segments: [...k.segments, ing.segment] } }]], page);
+  reply.textContent = `Kept: ${ing.facts} facts in ${ing.bytes.total.toLocaleString()} bytes (${fmt.pct(ing.bytes.ratio, 0)} of the text); ` +
+    `${ing.newWords} words new to it, ${ing.knownWords.toLocaleString()} it knew (routed through its index: ${fmt.pct(ing.routed, 0)}). ` +
+    `It now knows ${rec.recalled.passages.length} passages.`;
+  passage.value = '';
+  await showKnown(rec);
+}));
+forget.addEventListener('click', () => busy(forget, async () => {
+  await forgetKnowledge();
+  reply.textContent = 'It forgot what it was taught here; it knows the stored capsule and memory.';
+  await showKnown();
+}));
+page.content.before(el('section', { class: 'card' }, el('h2', { text: 'Ask the reader, or teach it' }), passage, question, ask, teach, forget, reply, known));
+showKnown();
 
 runButton(page, 'Run', async (spec) => {
   // The golden passages ingested and packed; recalled from the packed bytes alone.
   const { results: [ing] } = await runModels([['capsuleIngest', { ...spec, capsuleIngest: { questions: questions() } }]], page);
   const { results: [rec, reasoned] } = await runModels([['capsuleRecall', { ...spec, capsuleRecall: { packed: ing.packed } }],
     ['capsuleQA', { ...spec, capsuleQA: { packed: ing.packed, questions: questions() } }]], page);
+  const kept = await loadKnowledge();
   const { results: [r, student, notes], note } = await runModels([
-    ['readingQA', { ...spec, readingQA: { set: 'golden', questions: questions(), recalled: rec.recalled } }],
-    ['readingStudent', { ...spec, readingStudent: { questions: questions(), students: 32 } }],
+    ['readingQA', { ...spec, readingQA: { set: 'golden', questions: questions(), recalled: rec.recalled, memoryRecords: kept.records } }],
+    ['readingStudent', { ...spec, readingStudent: { questions: questions(), students: 32, memoryRecords: kept.records } }],
     ['readingNotes', { ...spec, readingNotes: { questions: questions() } }],
   ], page);
   const s = r.scores, half = r.atLeastHalf;
@@ -134,9 +167,22 @@ runButton(page, 'Run', async (spec) => {
       { name: 'left out of all', values: student.methods.map((m) => -m.removed), colorIndex: 1 }],
     yFormat: (v) => v.toFixed(3),
   });
-  table(card(g3, 'The habits it learned', `Weights of the reading habits: the prior (the lexical reader), its memory (generation ${mem.generation}, ` +
-    `learned with “${mem.design || 'none'}”), and what it would remember after this run (“${student.remember.design}”).`), ['habit', 'prior', 'memory', 'next memory'],
-  sd[0].habits.map((h, k) => [h.habit, h.weight.toFixed(2), mem.weights[k].toFixed(2), student.remember.weights[k].toFixed(2)]));
+  const next = student.remember;
+  const learned = card(g3, 'The habits it learned', `Weights of the reading habits: the prior (the lexical reader), its memory (generation ${mem.generation}, ` +
+    `${mem.lessons} lessons, learned with “${mem.design || 'none'}”), what this study learned (“${next.design}”), and its memory with this study ` +
+    `folded in by its evidence (${next.evidence} lessons) — generation ${next.generation}. ${next.reason}.`);
+  table(learned, ['habit', 'prior', 'memory', 'this study', 'next memory'],
+    sd[0].habits.map((h, k) => [h.habit, h.weight.toFixed(2), mem.weights[k].toFixed(2), next.weights[k].toFixed(2), next.folded[k].toFixed(2)]));
+  if (next.accepted) {
+    const keepStudy = el('button', { text: `Keep this study (generation ${next.generation})` });
+    keepStudy.addEventListener('click', async () => {
+      keepStudy.disabled = true;
+      await keep('records', next.record);
+      keepStudy.textContent = 'Kept: the next run starts from it';
+      await showKnown();
+    });
+    learned.append(keepStudy);
+  }
   table(card(grid(page.content, true), 'Every study design', 'Test and lesson F1 of each design, and its share of two-sentence answers.'),
     ['design', 'test F1', 'lessons F1', 'two sentences'], sd.map((d) => [d.name, d.test.toFixed(3), d.lessons.toFixed(3), fmt.pct(d.twoSentences, 0)]));
   // ---- Taking notes (a skill), before any question.
@@ -169,9 +215,12 @@ runButton(page, 'Run', async (spec) => {
   const g5 = grid(page.content);
   table(card(g5, 'The knowledge capsule, packed', `Every word of a fact is one multivector of the space whose grades are the levels of the index: ` +
     'grade 0 its fact, grade 1 its word\'s point of S³, grade 2 the grammar\'s bivector (its role in the (N, A) plane, its place in the (B, C) plane). ' +
-    'The index router isolates each grade and routes it to its codebook — the passage\'s vocabulary, the lattice of 3 roles × 32 places, the runs ' +
-    `of facts — and only the codes are kept: ${b.total.toLocaleString()} bytes for ${b.text.toLocaleString()} bytes of text (${fmt.pct(b.ratio, 0)}).`),
+    'The index router isolates each grade and routes it to its codebook — grade 1 through the growing index (the cell of S³ it lies in, cut by ' +
+    'spheres, then the word it coincides with), the lattice of 3 roles × 32 places, the runs of facts — and only the codes are kept, as a segment: ' +
+    `${b.total.toLocaleString()} bytes for ${b.text.toLocaleString()} bytes of text (${fmt.pct(b.ratio, 0)}). Teaching it more appends a segment; ` +
+    'no word it knows is numbered again.'),
   ['part', 'bytes'], [['codes: word in its vocabulary, role, place (grades 1, 2)', b.codes.toLocaleString()], ['lexicon, front-coded', b.lexicon.toLocaleString()],
+    ['the index: each word\'s cell of S³ (the sides of the spheres)', b.cells.toLocaleString()], ['header and checksum', b.header.toLocaleString()],
     ['vocabularies (grade 1\'s codebooks)', b.vocabulary.toLocaleString()], ['facts, as run lengths (grade 0)', b.facts.toLocaleString()],
     ['total', b.total.toLocaleString()], ['the text', b.text.toLocaleString()]]);
   table(card(g5, 'Recalled from the codes', 'Each code rebuilt as a multivector; the rotor formed from its grade 2 binds the word, and its role and place ' +

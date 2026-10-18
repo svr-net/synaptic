@@ -44,7 +44,7 @@ constexpr const char* word_classes = R"wgsl(
 // Q(3) auxiliary, Q(4) verb ending, Q(5) each sign against (function word, capital, after a
 // preposition, first word), Q(6) goes with a verb, Q(7) after a plural first word, Q(8) the
 // chance the verb class's cap holds.
-fn cueOf(t : u32) -> u32 { return u32(Q(u32(Q(1u)) + 5u * t + 1u)); }
+fn cueOf(t : u32) -> u32 { return u32(Q(u32(Q(1u)) + 7u * t + 3u)); }
 fn against(c : u32) -> f32 {
   var n = 0.0;
   for (var b = 2u; b <= 5u; b = b + 1u) { n = n + select(0.0, 1.0, ((c >> b) & 1u) != 0u); }
@@ -72,18 +72,20 @@ fn goesWithVerb(t : u32) -> bool {
 // Ingesting, in WGSL: each word's role found in the space, the slot as a multivector, routed grade
 // by grade to its code.
 constexpr const char* ingest_agent = R"wgsl(
-  // Constants (after the sign table): Q(0) start of the lexicon's coordinates (3 per word), Q(1)
-  // start of the words (lexicon index, cues, first word of its clause, clause length, fact), Q(2)
-  // start of the vocabularies, Q(3..8) the word classes. Job: J(0) first word of the passage,
-  // J(1) its words, J(2) first word of its vocabulary, J(3) its words.
+  // Constants (after the sign table): Q(0) start of the index's points (3 coordinates per word of
+  // the lexicon), Q(1) start of the words (coordinates, cues, first word of its clause, clause
+  // length, fact), Q(2) start of the index's cells (ixCells + 1 offsets, then the entries), Q(3..8)
+  // the word classes. Job: J(0) first word of the passage, J(1) its words.
   if (A >= u32(J(1u))) {
     quant(0u, -1.0);
+    quant(1u, -1.0);
+    quant(2u, -1.0);
     return;
   }
   let t = u32(J(0u)) + A;
-  let b = u32(Q(1u)) + 5u * t;
-  let first = u32(Q(b + 2u));
-  let n = u32(Q(b + 3u));
+  let b = u32(Q(1u)) + 7u * t;
+  let first = u32(Q(b + 4u));
+  let n = u32(Q(b + 5u));
   let i = t - first;
   // The verb: the clause's first word inside the verb class's cap.
   var verb = n;
@@ -114,23 +116,27 @@ constexpr const char* ingest_agent = R"wgsl(
   }
   if (!kept) {
     quant(0u, -1.0);
+    quant(1u, -1.0);
+    quant(2u, -1.0);
     return;
   }
-  let u = u32(Q(0u)) + 3u * u32(Q(b));
   // The slot: grade 0 its fact, grade 1 its word's point, grade 2 the grammar's bivector.
-  mvVector(0u, lift(Q(u), Q(u + 1u), Q(u + 2u), 1.0));
-  mvSet(0u, 0u, Q(b + 4u));
+  mvVector(0u, V5(ixLift(vec3<f32>(Q(b), Q(b + 1u), Q(b + 2u))), 1.0));
+  mvSet(0u, 0u, Q(b + 6u));
   mvSet(0u, 3u, 0.5 * (0.5 + kGrammarRole * f32(role)));
   mvSet(0u, 12u, 0.5 * (0.3 + kGrammarStep * f32(place)));
-  // The index router. Level 1: grade 1 isolated, routed to the nearest point of the vocabulary.
+  // The index router. Level 1: grade 1 isolated, routed through the growing index — the cell of S³
+  // it lies in (the sides of the spheres), then the cell's entry it coincides with; none: a new word.
   mvGrade(1u, 0u, 1u);
-  let x = V5(vec4<f32>(mvGet(1u, 1u), mvGet(1u, 2u), mvGet(1u, 4u), mvGet(1u, 8u)), mvGet(1u, 16u));
-  var word = 0u;
-  var nearest = -1e30;
-  for (var k = 0u; k < u32(J(3u)); k = k + 1u) {
-    let v = u32(Q(0u)) + 3u * u32(Q(u32(Q(2u)) + u32(J(2u)) + k));
-    let d = dot5(x, lift(Q(v), Q(v + 1u), Q(v + 2u), 1.0));
-    if (d > nearest) { nearest = d; word = k; }
+  let x = vec4<f32>(mvGet(1u, 1u), mvGet(1u, 2u), mvGet(1u, 4u), mvGet(1u, 8u));
+  let xe = mvGet(1u, 16u);
+  let cell = ixCell(x, xe);
+  let cells = u32(Q(2u));
+  var word = -1.0;
+  for (var k = u32(Q(cells + cell)); k < u32(Q(cells + cell + 1u)); k = k + 1u) {
+    let id = u32(Q(cells + ixCells + 1u + k));
+    let v = u32(Q(0u)) + 3u * id;
+    if (word < 0.0 && ixCoincide(ixLift(vec3<f32>(Q(v), Q(v + 1u), Q(v + 2u))), 1.0, x, xe)) { word = f32(id); }
   }
   // Level 2: grade 2 isolated, routed to the grammar's lattice of roles and places.
   mvGrade(2u, 0u, 2u);
@@ -138,8 +144,10 @@ constexpr const char* ingest_agent = R"wgsl(
   let p = u32(clamp(round((2.0 * mvGet(2u, 12u) - 0.3) / kGrammarStep), 0.0, 31.0));
   // Level 0: grade 0 isolated — the fact, which the capsule keeps as runs of slots.
   mvGrade(3u, 0u, 0u);
-  stat(0u, select(0.0, 1.0, abs(mvGet(3u, 0u) - Q(b + 4u)) < 0.5 && nearest > -1e-5));
-  quant(0u, f32((word * 3u + r) * 32u + p));
+  stat(0u, select(0.0, 1.0, abs(mvGet(3u, 0u) - Q(b + 6u)) < 0.5 && r == role && p == place));
+  quant(0u, word);
+  quant(1u, f32(r * 32u + p));
+  quant(2u, f32(cell));
 )wgsl";
 
 // Recalling, in WGSL: the multivector rebuilt from the code, the rotor from its grade 2.
@@ -196,6 +204,13 @@ std::vector<double> coordinates(const Value& dictionary) {
 
 std::string helpers() { return space::algebraWgsl(6) + memory::grammarWgsl(); }
 
+constexpr std::size_t kIndexCells = 4096;  // ixCells
+
+// The growing index's geometry, carried from svr-net/compute (tools/sync_compute.sh).
+constexpr const char* compute_index =
+#include "compute_index.inc"
+    ;
+
 }  // namespace
 
 const kernel::Model* capsuleIngestModel() {
@@ -205,7 +220,7 @@ const kernel::Model* capsuleIngestModel() {
     m.title = "The knowledge capsule: passages read by the grammar, every word a multivector routed grade by grade to a packed code";
     m.maxStats = 1;
     m.agentSource = ingest_agent;
-    m.helpersWgsl = helpers() + word_classes;
+    m.helpersWgsl = helpers() + word_classes + compute_index;
     m.compile = [](const Value& spec) {
       const Value& c = spec.sub("capsuleIngest");
       std::vector<std::string> passages;
@@ -216,33 +231,35 @@ const kernel::Model* capsuleIngestModel() {
         for (std::size_t i = 0; i < g.at("passages").size(); ++i) passages.push_back(g.at("passages")[i].asString());
       }
       if (passages.empty()) throw std::invalid_argument("capsuleIngest: no passages");
-      // The clauses of every passage, with the cues of their words, and the lexicon of the words.
+      // The capsule it grows: its `base` segments (on top of the stored capsule when they extend it),
+      // the stored capsule with `stored`, or none.
+      Value base = Value::object().set("capsule", Value::object().set("dictionary", Value::array()).set("cells", Value::Numbers{}).set("passages", Value::array()))
+                       .set("segments", Value::array()).set("stored", false);
+      if (c.has("base") && c.at("base").size() > 0)
+        base = memory::capsuleOf(Value::object().set("segments", c.at("base")).set("stored", c.has("stored") && c.at("stored").asBool()));
+      else if (c.has("stored") && c.at("stored").asBool())
+        base = memory::capsuleOf(Value::object());
+      const Value& known = base.at("capsule").at("dictionary");
+      const Value& knownCells = base.at("capsule").at("cells");
+      // The clauses of every passage, with the cues of their words.
       std::vector<std::vector<memory::Clause>> clauses;
-      std::set<std::string> words;
       double read = 0, textBytes = 0;
       for (const auto& p : passages) {
         clauses.push_back(memory::clauses(p));
         read += static_cast<double>(text::words(p, false).size());
         textBytes += static_cast<double>(p.size());
-        for (const auto& cl : clauses.back()) words.insert(cl.words.begin(), cl.words.end());
-      }
-      Value dictionary = Value::array();
-      std::map<std::string, int> index;
-      for (const auto& w : words) {
-        index[w] = static_cast<int>(dictionary.size());
-        dictionary.push(w);
       }
       // The word classes: auxiliary, verb ending, each sign against, goes with a verb, after a plural
       // first word, and the chance the verb class's cap holds.
       std::vector<double> q = {0, 0, 0, c.num("auxiliary", 20), c.num("verbEnding", 2), c.num("against", 4), c.num("goesWithVerb", 2),
                                c.num("afterPlural", 2), c.num("verbCap", 0.75)};
+      // The index: the points of the words the capsule knows.
       q[0] = double(q.size());
-      const auto coords = coordinates(dictionary);
+      const auto coords = coordinates(known);
       q.insert(q.end(), coords.begin(), coords.end());
       q[1] = double(q.size());
-      std::vector<std::set<double>> vocabularies(clauses.size());
       std::vector<std::vector<double>> rows;
-      Value shape = Value::array();
+      Value words = Value::array();
       std::size_t token = 0, most = 1;
       std::vector<double> firsts;
       std::vector<Value> clauseLengths;
@@ -253,8 +270,10 @@ const kernel::Model* capsuleIngestModel() {
           const auto& cl = clauses[p][fi];
           const std::size_t clauseFirst = token;
           for (std::size_t k = 0; k < cl.words.size(); ++k, ++token) {
-            q.insert(q.end(), {double(index[cl.words[k]]), double(cl.cues[k]), double(clauseFirst), double(cl.words.size()), double(fi)});
-            vocabularies[p].insert(index[cl.words[k]]);
+            float u[3];
+            memory::wordCoordinates(cl.words[k], u);
+            q.insert(q.end(), {u[0], u[1], u[2], double(cl.cues[k]), double(clauseFirst), double(cl.words.size()), double(fi)});
+            words.push(cl.words[k]);
           }
           lengths.push(static_cast<double>(cl.words.size()));
         }
@@ -262,99 +281,144 @@ const kernel::Model* capsuleIngestModel() {
         clauseLengths.push_back(lengths);
         most = std::max(most, token - start);
       }
+      // The index's cells: each cell's words, in the order they came.
       q[2] = double(q.size());
-      for (std::size_t p = 0; p < clauses.size(); ++p) {
-        const double vocabStart = double(q.size()) - q[2];
-        q.insert(q.end(), vocabularies[p].begin(), vocabularies[p].end());
-        const double count = p + 1 < clauses.size() ? firsts[p + 1] - firsts[p] : double(token) - firsts[p];
-        rows.push_back({firsts[p], count, vocabStart, double(vocabularies[p].size())});
-        shape.push(Value::object().set("clauses", clauseLengths[p]).set("vocabulary", Value::Numbers(std::vector<double>(vocabularies[p].begin(), vocabularies[p].end()))));
+      std::vector<std::vector<double>> members(kIndexCells);
+      for (std::size_t w = 0; w < known.size(); ++w) members[static_cast<std::size_t>(knownCells[w].asNumber()) % kIndexCells].push_back(double(w));
+      double at = 0;
+      for (const auto& cell : members) {
+        q.push_back(at);
+        at += double(cell.size());
       }
-      Plan p = makePlan("capsuleIngest", static_cast<std::uint32_t>(most), 1, space::withSignTable(q), rows, seedOf(spec), 1);
+      q.push_back(at);
+      for (const auto& cell : members) q.insert(q.end(), cell.begin(), cell.end());
+      for (std::size_t p = 0; p < clauses.size(); ++p) {
+        const double count = p + 1 < clauses.size() ? firsts[p + 1] - firsts[p] : double(token) - firsts[p];
+        rows.push_back({firsts[p], count});
+      }
+      Plan p = makePlan("capsuleIngest", static_cast<std::uint32_t>(most), 1, space::withSignTable(q), rows, seedOf(spec), 3);
       p.keepAgents = p.agents;
-      p.meta = Value::object().set("dictionary", dictionary).set("shape", shape).set("read", read).set("textBytes", textBytes);
+      Value shape = Value::array();
+      for (const auto& l : clauseLengths) shape.push(l);
+      Value given = Value::array();
+      if (c.has("base"))
+        for (std::size_t i = 0; i < c.at("base").size(); ++i) given.push(c.at("base")[i].asString());
+      p.meta = Value::object().set("base", base).set("given", given).set("words", words).set("shape", shape).set("read", read).set("textBytes", textBytes);
       return std::vector<Plan>{p};
     };
     m.summarise = [](const Value&, const std::vector<Plan>& plans, const std::vector<Output>& out) {
       const Plan& p = plans[0];
       const auto& v = out[0].agentValues;
-      Value passages = Value::array();
-      double slots = 0, facts = 0;
+      const Value& baseCapsule = p.meta.at("base").at("capsule");
+      const Value& known = baseCapsule.at("dictionary");
+      const Value& words = p.meta.at("words");
+      const std::size_t baseWords = known.size(), basePassages = baseCapsule.at("passages").size();
+      auto value = [&](std::uint32_t j, std::size_t a, std::size_t k) { return v[(static_cast<std::size_t>(j) * p.keepAgents + a) * 3 + k]; };
+      // The words new to the index (routed to no entry), with the cell each lies in: numbered after the
+      // lexicon, in order (front-coded together). A word the index routed differently than it reads
+      // counts against `routed`.
+      std::map<std::string, double> fresh;
+      std::map<std::string, double> knownAt;
+      for (std::size_t w = 0; w < baseWords; ++w) knownAt[known[w].asString()] = double(w);
+      double slots = 0, routed = 0;
+      std::size_t token = 0;
       for (std::uint32_t j = 0; j < p.jobs; ++j) {
-        const Value& shape = p.meta.at("shape").asArray()[j];
-        const Value& routing = shape.at("vocabulary");
-        // The kept words, fact by fact, and the vocabulary they use (level 1's codebook, re-indexed).
-        std::vector<std::vector<std::uint32_t>> kept;
+        const Value& lengths = p.meta.at("shape").asArray()[j];
+        std::size_t a = 0;
+        for (std::size_t f = 0; f < lengths.size(); ++f)
+          for (std::size_t k = 0; k < static_cast<std::size_t>(lengths[f].asNumber()); ++k, ++a, ++token) {
+            if (value(j, a, 1) < 0) continue;
+            const std::string word = words[token].asString();
+            const double id = value(j, a, 0);
+            const auto it = knownAt.find(word);
+            slots += 1;
+            routed += (id < 0 ? it == knownAt.end() : it != knownAt.end() && it->second == id) ? 1.0 : 0.0;
+            if (it == knownAt.end()) fresh.emplace(word, value(j, a, 2));
+          }
+      }
+      Value dictionary = known, cells = baseCapsule.at("cells");
+      std::map<std::string, double> index = knownAt;
+      for (const auto& [word, cell] : fresh) {
+        index[word] = double(dictionary.size());
+        dictionary.push(word);
+        cells.numbers().push_back(cell);
+      }
+      // Each passage: its vocabulary (level 1's codebook) and the codes of its facts.
+      Value passages = baseCapsule.at("passages");
+      double facts = 0, kept = 0;
+      token = 0;
+      for (std::uint32_t j = 0; j < p.jobs; ++j) {
+        const Value& lengths = p.meta.at("shape").asArray()[j];
+        std::vector<std::vector<std::array<double, 2>>> fs;  // (lexicon index, role · 32 + place)
         std::set<double> used;
         std::size_t a = 0;
-        const Value& lengths = shape.at("clauses");
         for (std::size_t f = 0; f < lengths.size(); ++f) {
-          std::vector<std::uint32_t> fact;
-          for (std::size_t k = 0; k < static_cast<std::size_t>(lengths[f].asNumber()); ++k, ++a) {
-            const double code = v[static_cast<std::size_t>(j) * p.keepAgents + a];
-            if (code < 0) continue;
-            fact.push_back(static_cast<std::uint32_t>(code));
-            used.insert(routing[static_cast<std::uint32_t>(code) / 96u].asNumber());
+          std::vector<std::array<double, 2>> fact;
+          for (std::size_t k = 0; k < static_cast<std::size_t>(lengths[f].asNumber()); ++k, ++a, ++token) {
+            const double grammar = value(j, a, 1);
+            if (grammar < 0) continue;
+            const double w = index.at(words[token].asString());
+            fact.push_back({w, grammar});
+            used.insert(w);
           }
-          kept.push_back(fact);
+          fs.push_back(fact);
         }
         const std::vector<double> vocabulary(used.begin(), used.end());
         std::vector<double> sizes, codes;
-        for (const auto& fact : kept) {
+        for (const auto& fact : fs) {
           // Kept out of order (odd places, then even ones backwards): the order is in the grammar's bivectors.
           std::vector<std::size_t> order;
           for (std::size_t k = 1; k < fact.size(); k += 2) order.push_back(k);
           for (std::size_t k = fact.size(); k-- > 0;)
             if (k % 2 == 0) order.push_back(k);
           for (std::size_t k : order) {
-            const std::uint32_t c = fact[k];
-            const double w = routing[c / 96u].asNumber();
-            const auto at = static_cast<std::uint32_t>(std::lower_bound(vocabulary.begin(), vocabulary.end(), w) - vocabulary.begin());
-            codes.push_back(double(at * 96u + c % 96u));
+            const auto rank = static_cast<double>(std::lower_bound(vocabulary.begin(), vocabulary.end(), fact[k][0]) - vocabulary.begin());
+            codes.push_back(rank * 96 + fact[k][1]);
           }
           sizes.push_back(double(fact.size()));
         }
         passages.push(Value::object().set("vocabulary", Value::Numbers(vocabulary)).set("facts", Value::Numbers(sizes)).set("codes", Value::Numbers(codes)));
-        slots += static_cast<double>(codes.size());
+        kept += static_cast<double>(codes.size());
         facts += static_cast<double>(sizes.size());
       }
-      // The lexicon: only the words the capsule keeps (the grammar drops words beyond a fact's reach).
-      std::set<double> known;
-      for (const auto& ps : passages.asArray())
-        for (const auto& w : ps.at("vocabulary").asNumbers()) known.insert(w);
-      const std::vector<double> keep(known.begin(), known.end());
-      Value dictionary = Value::array();
-      for (double w : keep) dictionary.push(p.meta.at("dictionary")[static_cast<std::size_t>(w)]);
-      Value relexed = Value::array();
-      for (const auto& ps : passages.asArray()) {
-        std::vector<double> vocabulary;
-        for (double w : ps.at("vocabulary").asNumbers()) vocabulary.push_back(double(std::lower_bound(keep.begin(), keep.end(), w) - keep.begin()));
-        relexed.push(Value::object().set("vocabulary", Value::Numbers(vocabulary)).set("facts", ps.at("facts")).set("codes", ps.at("codes")));
-      }
-      const Value capsule = Value::object().set("dictionary", dictionary).set("passages", relexed);
-      const memory::CapsuleBytes packed = memory::packCapsule(capsule);
+      const Value capsule = Value::object().set("dictionary", dictionary).set("cells", cells).set("passages", passages);
+      const memory::CapsuleBytes packed = memory::packSegment(capsule, baseWords, basePassages);
+      Value segments = p.meta.at("given");
+      segments.push(packed.base64);
       const double text = p.meta.num("textBytes", 0);
       return Value::object()
           .set("capsule", capsule)
+          .set("segment", packed.base64)
           .set("packed", packed.base64)
+          .set("segments", segments)
+          .set("base", Value::object()
+                           .set("words", static_cast<double>(baseWords))
+                           .set("passages", static_cast<double>(basePassages))
+                           .set("stored", p.meta.at("base").at("stored"))
+                           .set("segments", p.meta.at("base").at("segments")))
           .set("bytes", Value::object()
+                            .set("header", static_cast<double>(packed.header))
                             .set("lexicon", static_cast<double>(packed.lexicon))
+                            .set("cells", static_cast<double>(packed.cells))
                             .set("vocabulary", static_cast<double>(packed.vocabulary))
                             .set("facts", static_cast<double>(packed.facts))
                             .set("codes", static_cast<double>(packed.codes))
                             .set("total", static_cast<double>(packed.bytes.size()))
                             .set("text", text)
                             .set("ratio", text > 0 ? static_cast<double>(packed.bytes.size()) / text : 0.0))
-          .set("routed", [&] {
-            // The share of slots whose grades routed back to their word and fact exactly.
+          .set("routed", slots > 0 ? routed / slots : 0.0)
+          .set("grades", [&] {
+            // The share of slots whose grades 0 and 2 routed back to their fact, role and place exactly.
             double sum = 0;
             for (std::uint32_t j = 0; j < p.jobs; ++j) sum += out[0].mean(p, j, 0) * p.agents;
             return slots > 0 ? sum / slots : 0.0;
           }())
           .set("passages", static_cast<double>(p.jobs))
           .set("facts", facts)
-          .set("points", slots)
+          .set("points", kept)
           .set("lexicon", static_cast<double>(dictionary.size()))
+          .set("newWords", static_cast<double>(dictionary.size() - baseWords))
+          .set("knownWords", static_cast<double>(baseWords))
           .set("wordsRead", p.meta.at("read"));
     };
     return m;
@@ -372,8 +436,8 @@ const kernel::Model* capsuleRecallModel() {
     m.helpersWgsl = helpers();
     m.compile = [](const Value& spec) {
       const Value& c = spec.sub("capsuleRecall");
-      const Value unpacked = c.has("packed") ? memory::unpackCapsule(c.at("packed").asString()) : Value();
-      const Value& capsule = c.has("packed") ? unpacked : c.has("capsule") ? c.at("capsule") : memory::storedCapsule();
+      const Value source = memory::capsuleOf(c);
+      const Value& capsule = source.at("capsule");
       const Value& dictionary = capsule.at("dictionary");
       const auto& passages = capsule.at("passages").asArray();
       if (passages.empty()) throw std::invalid_argument("capsuleRecall: an empty capsule");
@@ -402,7 +466,7 @@ const kernel::Model* capsuleRecallModel() {
       }
       Plan p = makePlan("capsuleRecall", static_cast<std::uint32_t>(most), 1, space::withSignTable(q), rows, seedOf(spec), 1);
       p.keepAgents = p.agents;
-      p.meta = Value::object().set("dictionary", dictionary).set("shape", shape);
+      p.meta = Value::object().set("dictionary", dictionary).set("shape", shape).set("segments", source.at("segments")).set("stored", source.at("stored"));
       return std::vector<Plan>{p};
     };
     m.summarise = [](const Value&, const std::vector<Plan>& plans, const std::vector<Output>& out) {
@@ -436,6 +500,8 @@ const kernel::Model* capsuleRecallModel() {
       }
       return Value::object()
           .set("recalled", Value::object().set("dictionary", p.meta.at("dictionary")).set("passages", passages))
+          .set("segments", p.meta.at("segments"))
+          .set("stored", p.meta.at("stored"))
           .set("points", slots)
           .set("recovered", slots > 0 ? recovered / slots : 0.0);
     };
@@ -453,7 +519,8 @@ constexpr const char* qa_agent = R"wgsl(
   // Constants: P(0) start of the lexicon's coordinates (3 per word), P(1) start of the codes, P(2)
   // start of the vocabularies, P(3) start of the asked words (idf, first and count of their lexicon
   // forms), P(4) start of the lexicon forms, P(5..12) the constructing habits, P(13) τ, P(14) start
-  // of the facts (first slot, slots, first word of its capsule's vocabulary), P(15) start of the
+  // of the facts (first slot, slots, first word of its capsule's vocabulary, whether the next fact of
+  // its passage follows it), P(15) start of the
   // lexicon's flags (1 a digit, 2 a capital). Job (a part of a question): J(0) its first fact,
   // J(1) facts, J(3) first asked word, J(4) asked words, J(5) asks a number, J(6) asks a name,
   // J(7) the question's parts.
@@ -461,7 +528,8 @@ constexpr const char* qa_agent = R"wgsl(
   let f = A / 5u;
   let pattern = A % 5u;
   // One sentence per part: a question in parts says one fact for each (Claude's habit 4).
-  if (f >= nf || (pattern == 4u && (f + 1u >= nf || J(7u) > 1.5))) {
+  // The fact and the next: only when the next fact of its passage follows it.
+  if (f >= nf || (pattern == 4u && (f + 1u >= nf || J(7u) > 1.5 || P(u32(P(14u)) + 4u * (u32(J(0u)) + f) + 3u) < 0.5))) {
     for (var k = 0u; k < 9u; k = k + 1u) { quant(k, 0.0); }
     return;
   }
@@ -477,7 +545,7 @@ constexpr const char* qa_agent = R"wgsl(
   var firstPlace = 99u;
   for (var stage = 0u; stage < 2u; stage = stage + 1u) {
     for (var which = 0u; which < select(1u, 2u, pattern == 4u); which = which + 1u) {
-      let fact = u32(P(14u)) + 3u * (u32(J(0u)) + f + which);
+      let fact = u32(P(14u)) + 4u * (u32(J(0u)) + f + which);
       for (var s = 0u; s < u32(P(fact + 1u)); s = s + 1u) {
         let code = u32(P(u32(P(1u)) + u32(P(fact)) + s));
         let role = (code / 32u) % 3u;
@@ -556,8 +624,8 @@ const kernel::Model* capsuleQaModel() {
     m.helpersWgsl = memory::grammarWgsl();
     m.compile = [](const Value& spec) {
       const Value& c = spec.sub("capsuleQA");
-      const Value unpacked = c.has("packed") ? memory::unpackCapsule(c.at("packed").asString()) : Value();
-      const Value& capsule = c.has("packed") ? unpacked : c.has("capsule") ? c.at("capsule") : memory::storedCapsule();
+      const Value source = memory::capsuleOf(c);
+      const Value& capsule = source.at("capsule");
       const Value& dictionary = capsule.at("dictionary");
       const auto& passages = capsule.at("passages").asArray();
       // The questions: given, or the golden set (question i about capsule i).
@@ -647,7 +715,7 @@ const kernel::Model* capsuleQaModel() {
         const double d = it == df.end() ? 0.0 : it->second;
         return std::max(0.0, std::log((nFacts - d + 0.5) / (d + 0.5) + 1.0));
       };
-      const memory::Memory mem = memory::recall(!c.flag("memory", true), c.str("memoryFingerprint", ""));
+      const memory::Memory mem = memory::recallFor(c);
       std::vector<double> params(16, 0.0);
       for (int k = 0; k < 8; ++k) params[5 + static_cast<std::size_t>(k)] = mem.construct[k];
       params[13] = c.num("threshold", 1.0);
@@ -688,10 +756,12 @@ const kernel::Model* capsuleQaModel() {
             forms.insert(forms.end(), fs.begin(), fs.end());
           }
           // The facts of one capsule (open questions take their facts in order of what they share).
-          const double factFirst = double(factRows.size() / 3);
+          const double factFirst = double(factRows.size() / 4);
           Value from = Value::array();
-          for (const auto& af : asked[i]) {
-            factRows.insert(factRows.end(), {double(facts[af[0]][af[1]][0]), double(facts[af[0]][af[1]][1]), vocabStart[af[0]]});
+          for (std::size_t k = 0; k < asked[i].size(); ++k) {
+            const auto& af = asked[i][k];
+            const bool followed = k + 1 < asked[i].size() && asked[i][k + 1][0] == af[0] && asked[i][k + 1][1] == af[1] + 1;
+            factRows.insert(factRows.end(), {double(facts[af[0]][af[1]][0]), double(facts[af[0]][af[1]][1]), vocabStart[af[0]], followed ? 1.0 : 0.0});
             from.push(Value::Numbers({double(af[0]), double(af[1])}));
           }
           rows.push_back({factFirst, double(asked[i].size()), 0.0, stemFirst, double(stems.size()),

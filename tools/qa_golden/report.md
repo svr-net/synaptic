@@ -22,11 +22,13 @@ The grammar read the 600 passages (200 of the test, 400 of the lessons; 327626 w
 | | bytes |
 |---|---:|
 | the text | 1985545 |
-| **the capsule, packed** | **824417 (41.5% of the text)** |
+| **the capsule, packed** | **868089 (43.7% of the text)** |
 | codes: a word's place in its vocabulary, role and place (levels 1, 2) | 474030 |
 | the lexicon, front-coded | 151904 |
-| the vocabularies (level 1's codebooks) | 179477 |
+| the vocabularies (level 1's codebooks) | 179478 |
 | the facts, as run lengths (level 0) | 19004 |
+| the growing index: each new word's cell of S³ | 43656 |
+| the segment's header and checksum | 15 |
 
 Constructed answers are said by the grammar from the recalled facts — the whole fact, its predicate, its object, its subject or two facts — and chosen by the constructing habits; the text is never used.
 
@@ -198,3 +200,22 @@ Candidates: the sentences of a passage, before any question. 400 lessons (golden
 | reflection: one or two changes at a time | reflection | -0.005 | +0.008 |
 
 Its next memory (generation 5): reading, note-taking and constructing habits learned with all methods.
+
+## What it keeps, to grow
+
+| segment | passages | words new to it | words it knew | bytes | text bytes | routed |
+|---|---:|---:|---:|---:|---:|---:|
+| 000000 (the stored capsule) | 60 | 6987 | 0 | 115560 | 211733 | 1 |
+| 000001 (the knowledge corpus, on top) | 300 | 5238 | 6987 | 137912 | 266661 | 1 |
+
+Recalled from both segments: 360 passages, 100% of the words exactly.
+
+The records of this run's studies: what each would make of the memory — its weights folded in by their evidence — answering the test (the reading habits: remembering; the constructing habits: constructing). A record is kept only when the memory with it answers at least as well as without it.
+
+| record | generation | evidence (lessons) | its study alone | memory | memory with it | kept |
+|---|---:|---:|---:|---:|---:|---|
+| answer.rec | 5 | 6000 | 0.356 | 0.374 | 0.373 | not kept: the memory answers worse with it |
+| notes.rec | 5 | 6000 | 0.188 | – | – | it answers worse than its memory alone: not kept |
+| construct.rec | 5 | 1200 | 0.339 | 0.342 | 0.341 | not kept: the memory answers worse with it |
+
+Written to /tmp/claude-0/reader.

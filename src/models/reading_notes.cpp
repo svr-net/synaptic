@@ -67,7 +67,7 @@ const kernel::Model* readingNotesModel() {
           items.push_back({"", q.at("golden").asString(), ps[static_cast<std::size_t>(q.at("passage").asNumber())].asString()});
       }
       const auto cands = memory::noteCandidates(items);
-      const memory::Memory mem = memory::recall(!c.flag("memory", true), c.str("memoryFingerprint", ""));
+      const memory::Memory mem = memory::recallFor(c);
       std::vector<double> params(mem.notes, mem.notes + memory::kHabitCount);
       if (c.has("weights"))
         for (int k = 0; k < memory::kHabitCount && k < static_cast<int>(c.at("weights").size()); ++k)

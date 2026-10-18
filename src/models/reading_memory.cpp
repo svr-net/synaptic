@@ -208,7 +208,192 @@ std::vector<Candidates> noteCandidates(const std::vector<Item>& items) {
   return out;
 }
 
-Memory recall(bool fresh, const std::string& fingerprintOf) {
+const char* const kSectionNames[kSections] = {"answer", "notes", "construct"};
+
+namespace {
+
+// The fingerprint of one section of the habits.
+std::string sectionOf(const std::string& f, int section) {
+  const char* from[] = {"habits v", " notes v", " construct v"};
+  const char* to[] = {" notes v", " construct v", nullptr};
+  const auto a = f.find(from[section]);
+  if (a == std::string::npos) return std::string();
+  const auto b = to[section] ? f.find(to[section], a) : std::string::npos;
+  return f.substr(a, b == std::string::npos ? std::string::npos : b - a);
+}
+std::uint32_t hash32(const std::string& s) {
+  std::uint32_t h = 2166136261u;
+  for (unsigned char ch : s) h = (h ^ ch) * 16777619u;
+  return h;
+}
+
+}  // namespace
+
+namespace {
+
+constexpr std::uint8_t kRecordMagic[4] = {'S', 'Y', 'N', 'M'};
+constexpr std::uint32_t kRecordVersion = 1;
+
+void putVar(std::string& out, std::uint32_t v) {
+  while (v >= 0x80) {
+    out.push_back(static_cast<char>(v | 0x80));
+    v >>= 7;
+  }
+  out.push_back(static_cast<char>(v));
+}
+std::uint32_t getVar(const std::string& in, std::size_t& at) {
+  std::uint32_t v = 0;
+  for (int shift = 0; at < in.size() && shift < 35; shift += 7) {
+    const auto b = static_cast<std::uint8_t>(in[at++]);
+    v |= static_cast<std::uint32_t>(b & 0x7f) << shift;
+    if (!(b & 0x80)) break;
+  }
+  return v;
+}
+void put32(std::string& out, std::uint32_t v) {
+  for (int k = 0; k < 4; ++k) out.push_back(static_cast<char>(v >> (8 * k)));
+}
+std::uint32_t get32(const std::string& in, std::size_t& at) {
+  std::uint32_t v = 0;
+  for (int k = 0; k < 4 && at < in.size(); ++k) v |= std::uint32_t{static_cast<std::uint8_t>(in[at++])} << (8 * k);
+  return v;
+}
+void putF(std::string& out, double d) {
+  const auto f = static_cast<float>(d);
+  std::uint32_t v;
+  std::memcpy(&v, &f, 4);
+  put32(out, v);
+}
+double getF(const std::string& in, std::size_t& at) {
+  const std::uint32_t v = get32(in, at);
+  float f;
+  std::memcpy(&f, &v, 4);
+  return f;
+}
+void putStr(std::string& out, const std::string& s) {
+  putVar(out, static_cast<std::uint32_t>(s.size()));
+  out += s;
+}
+std::string getStr(const std::string& in, std::size_t& at) {
+  const std::uint32_t n = getVar(in, at);
+  std::string s = in.substr(std::min(at, in.size()), n);
+  at += n;
+  return s;
+}
+const char* const kB64 = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+std::string b64(const std::string& b) {
+  std::string out;
+  for (std::size_t i = 0; i < b.size(); i += 3) {
+    const auto at = [&](std::size_t k) { return k < b.size() ? std::uint32_t{static_cast<std::uint8_t>(b[k])} : 0u; };
+    const std::uint32_t n = (at(i) << 16) | (at(i + 1) << 8) | at(i + 2);
+    out += kB64[(n >> 18) & 63];
+    out += kB64[(n >> 12) & 63];
+    out += i + 1 < b.size() ? kB64[(n >> 6) & 63] : '=';
+    out += i + 2 < b.size() ? kB64[n & 63] : '=';
+  }
+  return out;
+}
+std::string unb64(const std::string& s) {
+  std::string out;
+  std::uint32_t acc = 0;
+  int have = 0;
+  for (char c : s) {
+    const char* at = std::strchr(kB64, c);
+    if (!at || c == '\0') continue;
+    acc = (acc << 6) | static_cast<std::uint32_t>(at - kB64);
+    have += 6;
+    if (have >= 8) {
+      have -= 8;
+      out.push_back(static_cast<char>((acc >> have) & 0xff));
+    }
+  }
+  return out;
+}
+
+// The stored memory with its records folded in, in order.
+Memory withRecords(Memory m, const Value& records) {
+  if (!records.isArray() && !(records.isNumbers() && records.size() == 0)) return m;
+  int last[kSections] = {m.used ? m.generation : 0, m.used ? m.generation : 0, m.used ? m.generation : 0};
+  for (std::size_t i = 0; i < records.size(); ++i) {
+    std::string error;
+    const Record r = unpackRecord(records[i].asString(), &error);
+    if (error.empty() && r.generation <= last[r.section])
+      error = "generation " + std::to_string(r.generation) + " does not follow generation " + std::to_string(last[r.section]) + " of its section";
+    Value row = Value::object().set("used", error.empty());
+    if (error.empty()) {
+      double* w = r.section == 0 ? m.habits : r.section == 1 ? m.notes : m.construct;
+      double next[kHabitCount];
+      fold(w, m.evidence[r.section], r, next);
+      std::copy(next, next + kHabitCount, w);
+      m.evidence[r.section] += r.lessons;
+      last[r.section] = r.generation;
+      m.generation = std::max(m.generation, r.generation);
+      m.lessons += r.lessons;
+      m.used = true;
+      (r.section == 0 ? m.test : r.section == 1 ? m.notesTest : m.constructTest) = r.test;
+      (r.section == 0 ? m.design : r.section == 1 ? m.notesDesign : m.constructDesign) = r.design;
+      row.set("section", kSectionNames[r.section]).set("generation", r.generation).set("lessons", r.lessons).set("test", r.test).set("source", r.source);
+    } else {
+      row.set("reason", error);
+    }
+    m.records.push(row);
+  }
+  return m;
+}
+
+}  // namespace
+
+std::string packRecord(const Record& r) {
+  std::string b(reinterpret_cast<const char*>(kRecordMagic), 4);
+  putVar(b, kRecordVersion);
+  b.push_back(static_cast<char>(r.section));
+  put32(b, hash32(sectionOf(fingerprint(), r.section)));
+  putVar(b, static_cast<std::uint32_t>(std::max(0, r.generation)));
+  putVar(b, static_cast<std::uint32_t>(std::max(0.0, std::round(r.lessons))));
+  putF(b, r.test);
+  for (int k = 0; k < kHabitCount; ++k) putF(b, r.weights[k]);
+  putStr(b, r.design);
+  putStr(b, r.source);
+  put32(b, hash32(b));
+  return b64(b);
+}
+
+Record unpackRecord(const std::string& base64, std::string* error) {
+  Record r;
+  const std::string b = unb64(base64);
+  auto fail = [&](const char* why) {
+    if (error) *error = why;
+    return r;
+  };
+  if (b.size() < 12 || b.compare(0, 4, reinterpret_cast<const char*>(kRecordMagic), 4) != 0) return fail("not a memory record");
+  std::size_t sumAt = b.size() - 4;
+  if (get32(b, sumAt) != hash32(b.substr(0, b.size() - 4))) return fail("its checksum does not match (damaged)");
+  std::size_t at = 4;
+  if (getVar(b, at) != kRecordVersion) return fail("written by another version of the record format");
+  r.section = static_cast<std::uint8_t>(b[at++]);
+  if (r.section < 0 || r.section >= kSections) return fail("an unknown section");
+  if (get32(b, at) != hash32(sectionOf(fingerprint(), r.section))) return fail("learned for other habits (its section's fingerprint differs)");
+  r.generation = static_cast<int>(getVar(b, at));
+  r.lessons = getVar(b, at);
+  r.test = getF(b, at);
+  for (int k = 0; k < kHabitCount; ++k) r.weights[k] = getF(b, at);
+  r.design = getStr(b, at);
+  r.source = getStr(b, at);
+  if (at != b.size() - 4) return fail("its parts do not add up (damaged)");
+  if (error) error->clear();
+  return r;
+}
+
+Memory recallFor(const Value& spec) {
+  return recall(!spec.flag("memory", true), spec.str("memoryFingerprint", ""), spec.has("memoryRecords") ? spec.at("memoryRecords") : Value());
+}
+
+void fold(const double* weights, double evidence, const Record& r, double* out) {
+  const double n = std::max(0.0, r.lessons), total = evidence + n;
+  for (int k = 0; k < kHabitCount; ++k) out[k] = total > 0 ? (evidence * weights[k] + n * r.weights[k]) / total : weights[k];
+}
+
+Memory recall(bool fresh, const std::string& fingerprintOf, const Value& records) {
   Memory m;
   std::copy(kHabitPrior, kHabitPrior + kHabitCount, m.habits);
   std::copy(kNotePrior, kNotePrior + kHabitCount, m.notes);
@@ -232,7 +417,7 @@ Memory recall(bool fresh, const std::string& fingerprintOf) {
   const bool construct = section(stored, " construct v", nullptr) == section(now, " construct v", nullptr);
   if (!habits && !notes && !construct) {
     m.reason = "the memory was learned for other habits (fingerprint differs); started from the prior";
-    return m;
+    return withRecords(m, records);
   }
   m.used = true;
   if (!habits || !notes || !construct)
@@ -256,7 +441,8 @@ Memory recall(bool fresh, const std::string& fingerprintOf) {
     m.constructTest = kStored.constructTest;
     std::copy(kStored.construct, kStored.construct + kHabitCount, m.construct);
   }
-  return m;
+  for (int sct = 0; sct < kSections; ++sct) m.evidence[sct] = (sct == 0 ? habits : sct == 1 ? notes : construct) ? kStored.lessons : 0.0;
+  return withRecords(m, records);
 }
 
 // ---- The grammar.
@@ -370,12 +556,15 @@ std::vector<Clause> clauses(const std::string& passage) {
 }
 
 void wordCoordinates(const std::string& word, float u[3]) {
-  std::uint32_t h = 2166136261u;  // FNV-1a
-  for (unsigned char c : word) h = (h ^ c) * 16777619u;
-  for (int k = 0; k < 3; ++k) {
-    h = h * 1664525u + 1013904223u;
-    u[k] = static_cast<float>((h >> 8) & 0xffffu) / 65535.0f * 4.0f - 2.0f;
-  }
+  // FNV-1a 64, finished by the 64-bit mixer, cut into three 16-bit coordinates: 48 bits of the word.
+  std::uint64_t h = 14695981039346656037ull;
+  for (unsigned char c : word) h = (h ^ c) * 1099511628211ull;
+  h ^= h >> 33;
+  h *= 0xff51afd7ed558ccdull;
+  h ^= h >> 33;
+  h *= 0xc4ceb9fe1a85ec53ull;
+  h ^= h >> 33;
+  for (int k = 0; k < 3; ++k) u[k] = static_cast<float>((h >> (16 * k)) & 0xffffu) / 65535.0f * 4.0f - 2.0f;
 }
 
 const char* grammarWgsl() {
@@ -646,14 +835,187 @@ const char* const kBase64 = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxy
 
 }  // namespace
 
-CapsuleBytes packCapsule(const Value& capsule) {
+namespace {
+
+constexpr std::uint8_t kMagic[4] = {'S', 'Y', 'N', 'K'};
+constexpr std::uint32_t kSegmentVersion = 1;
+constexpr unsigned kCellBits = 12;  // the index's 16³ cells
+
+std::uint32_t fnv(const std::uint8_t* b, std::size_t n) {
+  std::uint32_t h = 2166136261u;
+  for (std::size_t i = 0; i < n; ++i) h = (h ^ b[i]) * 16777619u;
+  return h;
+}
+void putU32(std::vector<std::uint8_t>& out, std::uint32_t v) {
+  for (int k = 0; k < 4; ++k) out.push_back(static_cast<std::uint8_t>(v >> (8 * k)));
+}
+std::uint32_t getU32(const std::vector<std::uint8_t>& in, std::size_t& at) {
+  std::uint32_t v = 0;
+  for (int k = 0; k < 4 && at < in.size(); ++k) v |= std::uint32_t{in[at++]} << (8 * k);
+  return v;
+}
+// Bit-packing: values of `bits` bits, least significant first.
+struct BitWriter {
+  std::vector<std::uint8_t>& b;
+  std::uint64_t acc = 0;
+  unsigned have = 0;
+  void put(std::uint64_t v, unsigned bits) {
+    acc |= v << have;
+    have += bits;
+    while (have >= 8) {
+      b.push_back(static_cast<std::uint8_t>(acc & 0xff));
+      acc >>= 8;
+      have -= 8;
+    }
+  }
+  void flush() {
+    if (have > 0) b.push_back(static_cast<std::uint8_t>(acc & 0xff));
+    acc = 0;
+    have = 0;
+  }
+};
+struct BitReader {
+  const std::vector<std::uint8_t>& b;
+  std::size_t& at;
+  std::uint64_t acc = 0;
+  unsigned have = 0;
+  std::uint64_t get(unsigned bits) {
+    while (have < bits && at < b.size()) {
+      acc |= static_cast<std::uint64_t>(b[at++]) << have;
+      have += 8;
+    }
+    const std::uint64_t v = acc & ((std::uint64_t{1} << bits) - 1);
+    acc >>= bits;
+    have -= std::min(have, bits);
+    return v;
+  }
+};
+std::string toBase64(const std::vector<std::uint8_t>& b) {
+  std::string out;
+  for (std::size_t i = 0; i < b.size(); i += 3) {
+    const std::uint32_t n = (std::uint32_t{b[i]} << 16) | (i + 1 < b.size() ? std::uint32_t{b[i + 1]} << 8 : 0u) | (i + 2 < b.size() ? b[i + 2] : 0u);
+    out += kBase64[(n >> 18) & 63];
+    out += kBase64[(n >> 12) & 63];
+    out += i + 1 < b.size() ? kBase64[(n >> 6) & 63] : '=';
+    out += i + 2 < b.size() ? kBase64[n & 63] : '=';
+  }
+  return out;
+}
+std::vector<std::uint8_t> fromBase64(const std::string& base64) {
+  std::vector<std::uint8_t> b;
+  std::uint32_t acc = 0;
+  int have = 0;
+  for (char c : base64) {
+    const char* at = std::strchr(kBase64, c);
+    if (!at || c == '\0') continue;  // '=' and anything else end or pad
+    acc = (acc << 6) | static_cast<std::uint32_t>(at - kBase64);
+    have += 6;
+    if (have >= 8) {
+      have -= 8;
+      b.push_back(static_cast<std::uint8_t>((acc >> have) & 0xff));
+    }
+  }
+  return b;
+}
+
+// One segment read: what it adds, or why it cannot be read.
+struct Read {
+  std::string error;
+  std::uint32_t baseWords = 0, basePassages = 0;
+  std::vector<std::string> words;
+  std::vector<double> cells;
+  Value passages = Value::array();
+  std::size_t bytes = 0;
+};
+
+Read readSegment(const std::string& base64) {
+  Read r;
+  const std::vector<std::uint8_t> b = fromBase64(base64);
+  r.bytes = b.size();
+  if (b.size() < 12 || !std::equal(kMagic, kMagic + 4, b.begin())) {
+    r.error = "not a capsule segment";
+    return r;
+  }
+  std::size_t end = b.size() - 4, sumAt = end;
+  if (getU32(b, sumAt) != fnv(b.data(), end)) {
+    r.error = "its checksum does not match (damaged)";
+    return r;
+  }
+  std::size_t at = 4;
+  if (getVarint(b, at) != kSegmentVersion) {
+    r.error = "written by another version of the segment format";
+    return r;
+  }
+  if (getU32(b, at) != capsuleFingerprint()) {
+    r.error = "written for another grammar or index (fingerprint differs)";
+    return r;
+  }
+  r.baseWords = getVarint(b, at);
+  r.basePassages = getVarint(b, at);
+  // The words it adds to the lexicon, front-coded, and the cell of the index each lies in.
+  std::string last;
+  const std::uint32_t words = getVarint(b, at);
+  for (std::uint32_t w = 0; w < words && at < end; ++w) {
+    const std::uint32_t shared = getVarint(b, at), rest = getVarint(b, at);
+    std::string word = last.substr(0, shared);
+    word.append(reinterpret_cast<const char*>(b.data() + at), std::min<std::size_t>(rest, end - at));
+    at += rest;
+    r.words.push_back(word);
+    last = word;
+  }
+  {
+    BitReader bits{b, at};
+    for (std::uint32_t w = 0; w < words; ++w) r.cells.push_back(static_cast<double>(bits.get(kCellBits)));
+  }
+  const std::uint32_t count = at < end ? getVarint(b, at) : 0;
+  for (std::uint32_t p = 0; p < count && at <= end; ++p) {
+    std::vector<double> vocabulary, facts, codes;
+    const std::uint32_t nv = getVarint(b, at);
+    std::uint32_t prev = 0;
+    for (std::uint32_t k = 0; k < nv; ++k) vocabulary.push_back(prev += getVarint(b, at));
+    const std::uint32_t nf = getVarint(b, at);
+    std::size_t slots = 0;
+    for (std::uint32_t k = 0; k < nf; ++k) {
+      facts.push_back(getVarint(b, at));
+      slots += static_cast<std::size_t>(facts.back());
+    }
+    BitReader bits{b, at};
+    const unsigned width = codeBits(nv);
+    for (std::size_t k = 0; k < slots; ++k) codes.push_back(static_cast<double>(bits.get(width)));
+    r.passages.push(Value::object().set("vocabulary", Value::Numbers(vocabulary)).set("facts", Value::Numbers(facts)).set("codes", Value::Numbers(codes)));
+  }
+  if (at != end) r.error = "its parts do not add up (damaged)";
+  return r;
+}
+
+}  // namespace
+
+std::uint32_t capsuleFingerprint() {
+  static const std::uint32_t f = [] {
+    const std::string s =
+        "capsule v2: slots (fact; word point lift(u) of wordCoordinates, fnv1a-64 + fmix64, 16-bit grid of [-2,2]^3; grammar bivector, "
+        "role 2.0943951, step 0.19634954); codes (vocabulary * 3 + role) * 32 + place; index cells 16^3 (spheres u_a = t, t = -2 + j/4); "
+        "lexicon front-coded";
+    return fnv(reinterpret_cast<const std::uint8_t*>(s.data()), s.size());
+  }();
+  return f;
+}
+
+CapsuleBytes packSegment(const Value& capsule, std::size_t baseWords, std::size_t basePassages) {
   CapsuleBytes out;
   std::vector<std::uint8_t>& b = out.bytes;
-  // The lexicon, front-coded: the prefix it shares with the word before, and the rest.
+  b.insert(b.end(), kMagic, kMagic + 4);
+  putVarint(b, kSegmentVersion);
+  putU32(b, capsuleFingerprint());
+  putVarint(b, static_cast<std::uint32_t>(baseWords));
+  putVarint(b, static_cast<std::uint32_t>(basePassages));
+  out.header = b.size();
+  // The lexicon's new words, front-coded: the prefix each shares with the word before, and the rest.
   const Value& dict = capsule.at("dictionary");
-  putVarint(b, static_cast<std::uint32_t>(dict.size()));
+  const std::size_t words = dict.size() > baseWords ? dict.size() - baseWords : 0;
+  putVarint(b, static_cast<std::uint32_t>(words));
   std::string last;
-  for (std::size_t w = 0; w < dict.size(); ++w) {
+  for (std::size_t w = baseWords; w < dict.size(); ++w) {
     const std::string word = dict[w].asString();
     std::size_t shared = 0;
     while (shared < last.size() && shared < word.size() && last[shared] == word[shared]) ++shared;
@@ -662,12 +1024,23 @@ CapsuleBytes packCapsule(const Value& capsule) {
     b.insert(b.end(), word.begin() + static_cast<std::ptrdiff_t>(shared), word.end());
     last = word;
   }
-  out.lexicon = b.size();
+  out.lexicon = b.size() - out.header;
+  // The index: the cell each new word lies in.
+  std::size_t at = b.size();
+  {
+    BitWriter bits{b};
+    const bool has = capsule.has("cells");
+    for (std::size_t w = baseWords; w < dict.size(); ++w)
+      bits.put(has && w < capsule.at("cells").size() ? static_cast<std::uint64_t>(capsule.at("cells")[w].asNumber()) : 0, kCellBits);
+    bits.flush();
+  }
+  out.cells = b.size() - at;
   const auto& passages = capsule.at("passages").asArray();
-  putVarint(b, static_cast<std::uint32_t>(passages.size()));
-  for (const auto& p : passages) {
+  putVarint(b, static_cast<std::uint32_t>(passages.size() > basePassages ? passages.size() - basePassages : 0));
+  for (std::size_t pi = basePassages; pi < passages.size(); ++pi) {
+    const Value& p = passages[pi];
     // Level 1's codebook: the passage's vocabulary (lexicon indices, ascending, as differences).
-    std::size_t at = b.size();
+    at = b.size();
     const Value& vocab = p.at("vocabulary");
     putVarint(b, static_cast<std::uint32_t>(vocab.size()));
     std::uint32_t prev = 0;
@@ -686,93 +1059,95 @@ CapsuleBytes packCapsule(const Value& capsule) {
     // Levels 1 and 2: each slot's code, bit-packed.
     at = b.size();
     const Value& codes = p.at("codes");
-    const unsigned bits = codeBits(vocab.size());
-    std::uint64_t acc = 0;
-    unsigned have = 0;
-    for (std::size_t k = 0; k < codes.size(); ++k) {
-      acc |= static_cast<std::uint64_t>(codes[k].asNumber()) << have;
-      have += bits;
-      while (have >= 8) {
-        b.push_back(static_cast<std::uint8_t>(acc & 0xff));
-        acc >>= 8;
-        have -= 8;
-      }
-    }
-    if (have > 0) b.push_back(static_cast<std::uint8_t>(acc & 0xff));
+    BitWriter bits{b};
+    const unsigned width = codeBits(vocab.size());
+    for (std::size_t k = 0; k < codes.size(); ++k) bits.put(static_cast<std::uint64_t>(codes[k].asNumber()), width);
+    bits.flush();
     out.codes += b.size() - at;
   }
-  for (std::size_t i = 0; i < b.size(); i += 3) {
-    const std::uint32_t n = (std::uint32_t{b[i]} << 16) | (i + 1 < b.size() ? std::uint32_t{b[i + 1]} << 8 : 0u) | (i + 2 < b.size() ? b[i + 2] : 0u);
-    out.base64 += kBase64[(n >> 18) & 63];
-    out.base64 += kBase64[(n >> 12) & 63];
-    out.base64 += i + 1 < b.size() ? kBase64[(n >> 6) & 63] : '=';
-    out.base64 += i + 2 < b.size() ? kBase64[n & 63] : '=';
-  }
+  putU32(b, fnv(b.data(), b.size()));
+  out.header += 4;
+  out.base64 = toBase64(b);
   return out;
 }
 
-Value unpackCapsule(const std::string& base64) {
-  std::vector<std::uint8_t> b;
-  std::uint32_t acc = 0;
-  int have = 0;
-  for (char c : base64) {
-    const char* at = std::strchr(kBase64, c);
-    if (!at || c == '\0') continue;  // '=' and anything else end or pad
-    acc = (acc << 6) | static_cast<std::uint32_t>(at - kBase64);
-    have += 6;
-    if (have >= 8) {
-      have -= 8;
-      b.push_back(static_cast<std::uint8_t>((acc >> have) & 0xff));
+CapsuleBytes packCapsule(const Value& capsule) { return packSegment(capsule, 0, 0); }
+
+Value joinSegments(const std::vector<std::string>& segments) {
+  Value dictionary = Value::array(), passages = Value::array(), report = Value::array();
+  std::vector<double> cells;
+  std::string refused;
+  for (std::size_t i = 0; i < segments.size(); ++i) {
+    Read r = readSegment(segments[i]);
+    if (r.error.empty() && (r.baseWords != dictionary.size() || r.basePassages != passages.size()))
+      r.error = "it extends a capsule of " + std::to_string(r.baseWords) + " words and " + std::to_string(r.basePassages) + " passages, not this one of " +
+                std::to_string(dictionary.size()) + " and " + std::to_string(passages.size());
+    // A segment numbers its words after those before it: once one is refused, those after it are too.
+    if (r.error.empty() && !refused.empty()) r.error = "an earlier segment was refused";
+    Value row = Value::object()
+                    .set("bytes", static_cast<double>(r.bytes))
+                    .set("words", static_cast<double>(r.words.size()))
+                    .set("passages", static_cast<double>(r.passages.size()))
+                    .set("used", r.error.empty());
+    if (!r.error.empty()) {
+      row.set("reason", r.error);
+      if (refused.empty()) refused = r.error;
+      report.push(row);
+      continue;
     }
+    for (const auto& w : r.words) dictionary.push(w);
+    cells.insert(cells.end(), r.cells.begin(), r.cells.end());
+    for (const auto& p : r.passages.asArray()) passages.push(p);
+    report.push(row);
   }
-  std::size_t at = 0;
-  Value dictionary = Value::array(), passages = Value::array();
-  std::string last;
-  const std::uint32_t words = getVarint(b, at);
-  for (std::uint32_t w = 0; w < words; ++w) {
-    const std::uint32_t shared = getVarint(b, at), rest = getVarint(b, at);
-    std::string word = last.substr(0, shared);
-    word.append(reinterpret_cast<const char*>(b.data() + at), std::min<std::size_t>(rest, b.size() - at));
-    at += rest;
-    dictionary.push(word);
-    last = word;
-  }
-  const std::uint32_t count = at < b.size() ? getVarint(b, at) : 0;
-  for (std::uint32_t p = 0; p < count; ++p) {
-    std::vector<double> vocabulary, facts, codes;
-    const std::uint32_t nv = getVarint(b, at);
-    std::uint32_t prev = 0;
-    for (std::uint32_t k = 0; k < nv; ++k) vocabulary.push_back(prev += getVarint(b, at));
-    const std::uint32_t nf = getVarint(b, at);
-    std::size_t slots = 0;
-    for (std::uint32_t k = 0; k < nf; ++k) {
-      facts.push_back(getVarint(b, at));
-      slots += static_cast<std::size_t>(facts.back());
-    }
-    const unsigned bits = codeBits(nv);
-    std::uint64_t bitsAcc = 0;
-    unsigned inAcc = 0;
-    for (std::size_t k = 0; k < slots; ++k) {
-      while (inAcc < bits && at < b.size()) {
-        bitsAcc |= static_cast<std::uint64_t>(b[at++]) << inAcc;
-        inAcc += 8;
+  return Value::object()
+      .set("capsule", Value::object().set("dictionary", dictionary).set("cells", Value::Numbers(cells)).set("passages", passages))
+      .set("segments", report);
+}
+
+Value unpackCapsule(const std::string& base64) { return joinSegments({base64}).at("capsule"); }
+
+const std::vector<std::string>& storedSegments() {
+  static const std::vector<std::string> v = [] {
+    std::vector<std::string> out(1);
+    for (const char* const* line = kCapsuleBlob; *line; ++line) {
+      if (**line == '\0') {  // an empty line ends a segment
+        out.emplace_back();
+        continue;
       }
-      codes.push_back(static_cast<double>(bitsAcc & ((std::uint64_t{1} << bits) - 1)));
-      bitsAcc >>= bits;
-      inAcc -= bits;
+      out.back() += *line;
     }
-    passages.push(Value::object().set("vocabulary", Value::Numbers(vocabulary)).set("facts", Value::Numbers(facts)).set("codes", Value::Numbers(codes)));
-  }
-  return Value::object().set("dictionary", dictionary).set("passages", passages);
+    if (out.back().empty()) out.pop_back();
+    return out;
+  }();
+  return v;
 }
 
 const Value& storedCapsule() {
-  static const Value v = [] {
-    std::string b64;
-    for (const char* const* line = kCapsuleBlob; *line; ++line) b64 += *line;
-    return unpackCapsule(b64);
-  }();
+  static const Value v = joinSegments(storedSegments()).at("capsule");
   return v;
+}
+
+Value capsuleOf(const Value& c) {
+  std::vector<std::string> given;
+  if (c.has("segments"))
+    for (std::size_t i = 0; i < c.at("segments").size(); ++i) given.push_back(c.at("segments")[i].asString());
+  else if (c.has("packed"))
+    given.push_back(c.at("packed").asString());
+  else if (c.has("capsule"))
+    return Value::object().set("capsule", c.at("capsule")).set("segments", Value::array()).set("stored", false);
+  // Segments that extend the stored capsule (their first one starts after it) are read on top of it.
+  bool stored = given.empty() || (c.has("stored") && c.at("stored").asBool());
+  if (!given.empty() && !stored) {
+    const Read first = readSegment(given.front());
+    stored = first.error.empty() && first.baseWords > 0;
+  }
+  std::vector<std::string> all;
+  if (stored) all = storedSegments();
+  all.insert(all.end(), given.begin(), given.end());
+  Value joined = joinSegments(all);
+  joined.set("stored", stored);
+  return joined;
 }
 
 }  // namespace syn::models::memory

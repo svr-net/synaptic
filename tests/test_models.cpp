@@ -508,6 +508,48 @@ TEST(reading_student_remembers) {
   CHECK(fresh.at("memory").num("generation", -1) == 0);
 }
 
+TEST(reading_memory_grows_by_records) {
+  // A study's habits become a record of the memory, folded in by its evidence: the next study starts
+  // from the stored memory with the record read on top — the next generation, holding the lessons of
+  // both — and a record that is damaged or repeats a generation is refused.
+  auto study = [&](Value records) {
+    Value s = spec(64);
+    Value c = Value::object().set("lessons", 40).set("students", 16);
+    if (records.size() > 0) c.set("memoryRecords", std::move(records));
+    s.set("readingStudent", c);
+    return run("readingStudent", s);
+  };
+  const Value first = study(Value::array());
+  const Value& next = first.at("remember");
+  CHECK(next.has("record") && next.at("accepted").isBool());
+  const std::string record = next.at("record").asString();
+  const Value second = study(Value::array().push(record));
+  const Value& m = second.at("memory");
+  CHECK(num(m, "generation") == num(first.at("memory"), "generation") + 1);
+  CHECK(std::fabs(num(m, "evidence") - num(next, "evidence")) < 1e-6);
+  CHECK(num(m, "lessons") > num(first.at("memory"), "lessons"));
+  double gap = 0;
+  for (std::size_t k = 0; k < 8; ++k) gap = std::max(gap, std::fabs(m.at("weights")[k].asNumber() - next.at("folded")[k].asNumber()));
+  CHECK(gap < 1e-5);
+  CHECK(m.at("records").asArray()[0].at("used").asBool());
+  // The next record follows it.
+  const Value third = study(Value::array().push(record).push(second.at("remember").at("record")));
+  CHECK(num(third.at("memory"), "generation") == num(m, "generation") + 1);
+  // Repeated, damaged: refused, and the memory is what it was without them.
+  std::string damaged = record;
+  damaged[damaged.size() / 2] = damaged[damaged.size() / 2] == 'A' ? 'B' : 'A';
+  const Value refused = study(Value::array().push(record).push(record).push(damaged));
+  const auto& rows = refused.at("memory").at("records").asArray();
+  CHECK(rows[0].at("used").asBool() && !rows[1].at("used").asBool() && !rows[2].at("used").asBool());
+  CHECK(rows[1].at("reason").asString().find("generation") != std::string::npos);
+  CHECK(rows[2].at("reason").asString().find("checksum") != std::string::npos);
+  CHECK(refused.at("memory").at("weights").json() == m.at("weights").json());
+  // The reader answers with it too.
+  Value q = spec(64);
+  q.set("readingQA", Value::object().set("set", "golden").set("questions", 10).set("memoryRecords", Value::array().push(record)));
+  CHECK(run("readingQA", q).at("memory").at("records").asArray()[0].at("used").asBool());
+}
+
 TEST(reading_memory_is_checked_and_anchored) {
   // A memory learned for other habits is refused: the student starts from the prior, as fresh.
   Value s = spec(64);
@@ -607,6 +649,89 @@ TEST(reading_capsule_recalls_words_and_grammar_from_points) {
   Value fromBytes = spec(64);
   fromBytes.set("capsuleRecall", Value::object().set("packed", ing.at("packed")));
   CHECK(run("capsuleRecall", fromBytes).at("recalled").json() == once.at("recalled").json());
+}
+
+// The facts a recall gives, as words, passage by passage.
+std::vector<std::string> recalledFacts(const Value& recalled) {
+  std::vector<std::string> out;
+  const Value& dict = recalled.at("dictionary");
+  for (const auto& p : recalled.at("passages").asArray()) {
+    std::string said;
+    for (const auto& f : p.at("facts").asArray()) {
+      for (const char* role : {"subject", "relation", "object"})
+        for (std::size_t k = 0; k < f.at(role).size(); ++k) said += dict[static_cast<std::size_t>(f.at(role)[k].asNumber())].asString() + " ";
+      said += "| ";
+    }
+    out.push_back(said);
+  }
+  return out;
+}
+
+TEST(reading_capsule_grows_by_segments) {
+  // Knowledge grows by appending: passages A ingested, then B on top of A — a segment of only what B
+  // adds, its new words routed through the growing index and numbered after A's. A's words keep
+  // their numbers, and A then B recalls the same facts as A and B ingested at once.
+  const char* a1 = "Honeybees communicate the location of flowers with a waggle dance. The length of the waggle run tells the other bees how far away the flowers are.";
+  const char* a2 = "Tides are caused by the gravitational pull of the moon. The sun also pulls on the oceans, but less strongly.";
+  const char* b1 = "Bumblebees visit flowers on cold mornings. The moon has no air, so its sky is black even during the day.";
+  auto ingest = [&](Value passages, Value base) {
+    Value s = spec(64);
+    Value c = Value::object().set("passages", std::move(passages));
+    if (base.size() > 0) c.set("base", std::move(base));
+    s.set("capsuleIngest", c);
+    return run("capsuleIngest", s);
+  };
+  auto recall = [&](Value segments) {
+    Value s = spec(64);
+    s.set("capsuleRecall", Value::object().set("segments", std::move(segments)));
+    return run("capsuleRecall", s);
+  };
+  const Value a = ingest(Value::array().push(a1).push(a2), Value::array());
+  const Value b = ingest(Value::array().push(b1), a.at("segments"));
+  const Value both = ingest(Value::array().push(a1).push(a2).push(b1), Value::array());
+  CHECK(num(a, "routed") == 1.0 && num(b, "routed") == 1.0);
+  CHECK(num(b, "knownWords") == num(a, "lexicon"));
+  CHECK(num(b, "newWords") > 0 && num(b, "newWords") == num(b, "lexicon") - num(a, "lexicon"));
+  CHECK(b.at("segments").size() == 2);
+  // B's segment holds only what it adds: smaller than A and B packed again.
+  CHECK(num(b.at("bytes"), "total") < num(both.at("bytes"), "total") - num(a.at("bytes"), "lexicon") / 2);
+  // A's words keep their numbers; words B shares with A ("flowers", "moon"?) route to A's.
+  const Value& lexA = a.at("capsule").at("dictionary");
+  const Value& lexB = b.at("capsule").at("dictionary");
+  bool kept = true;
+  for (std::size_t w = 0; w < lexA.size(); ++w) kept = kept && lexA[w].asString() == lexB[w].asString();
+  CHECK(kept);
+  int repeated = 0;
+  for (std::size_t w = lexA.size(); w < lexB.size(); ++w)
+    for (std::size_t v = 0; v < lexA.size(); ++v) repeated += lexB[w].asString() == lexA[v].asString();
+  CHECK(repeated == 0);
+  // The same facts as ingesting all at once.
+  const Value grown = recall(b.at("segments"));
+  CHECK(num(grown, "recovered") == 1.0);
+  CHECK(recalledFacts(grown.at("recalled")) == recalledFacts(recall(both.at("segments")).at("recalled")));
+  // A damaged segment is refused, and so is every segment after it; a segment that extends another
+  // capsule is refused.
+  std::string damaged = b.at("segment").asString();
+  damaged[damaged.size() / 2] = damaged[damaged.size() / 2] == 'A' ? 'B' : 'A';
+  const Value bad = recall(Value::array().push(a.at("segment")).push(damaged).push(b.at("segment")));
+  const auto& report = bad.at("segments").asArray();
+  CHECK(report[0].at("used").asBool() && !report[1].at("used").asBool() && !report[2].at("used").asBool());
+  CHECK(report[1].at("reason").asString().find("checksum") != std::string::npos);
+  CHECK(bad.at("recalled").at("passages").size() == 2);
+  // B without A extends a capsule that is not there (read on top of the stored one, it does not fit).
+  const Value alone = recall(Value::array().push(b.at("segment")));
+  CHECK(!alone.at("segments").asArray().back().at("used").asBool());
+  CHECK(alone.at("recalled").at("passages").size() == 60);
+  // Grown on top of the stored capsule: the golden passages' words are known, and a segment that
+  // extends the stored capsule is read on top of it.
+  Value s = spec(64);
+  s.set("capsuleIngest", Value::object().set("passages", Value::array().push(b1)).set("stored", true));
+  const Value onStored = run("capsuleIngest", s);
+  CHECK(num(onStored, "routed") == 1.0);
+  CHECK(num(onStored, "knownWords") > 6000 && num(onStored, "newWords") < 10);
+  const Value r = recall(Value::array().push(onStored.at("segment")));
+  CHECK(r.at("stored").asBool() && num(r, "recovered") == 1.0);
+  CHECK(r.at("recalled").at("passages").size() == 61);
 }
 
 TEST(reading_qa_constructs_answers_from_the_capsule_alone) {
