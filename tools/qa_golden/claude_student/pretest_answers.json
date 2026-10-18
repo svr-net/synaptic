@@ -1,0 +1,182 @@
+[
+ {
+  "id": 0,
+  "evidence": "the word perspective originally comes from the Latin words per meaning \"through\" and specere which means \"to look.\" These are combined to mean \"to look through\" or \"to look at.\"",
+  "reasoning": "The passage gives the Latin roots and their combined meaning directly.",
+  "answer": "It comes from the Latin per (\"through\") and specere (\"to look\"), so it originally meant \"to look through\" or \"to look at.\""
+ },
+ {
+  "id": 1,
+  "evidence": "Focused on STEAM (science, technology, engineering, art/aesthetics, and mathematics) ... to learn programming, prototyping, game design, paper crafts, comics, sewing, and other \"maker\" activities.",
+  "reasoning": "The program is described as focused on STEAM, and the activities listed show the concrete areas.",
+  "answer": "STEAM: science, technology, engineering, art/aesthetics and mathematics, through maker activities such as programming, prototyping, game design, paper crafts, comics and sewing."
+ },
+ {
+  "id": 2,
+  "evidence": "Liturgical Colour: Red ... The Pentecostal fire is thereby visibly divided and shared by everyone (cf. Acts 2:1-4)",
+  "reasoning": "The passage names red as the colour but does not explain it directly; it links the day to the Pentecostal fire of the Spirit (Acts 2), which is what red stands for.",
+  "answer": "The passage does not state the reason outright; it only connects the day with the Pentecostal fire of the Holy Spirit (Acts 2:1-4), which red symbolises."
+ },
+ {
+  "id": 3,
+  "evidence": "Slipping out from the covers, she walked to the kitchen... She moved toward the dining room... as she passed the basement. Opening the door, she gasped.",
+  "reasoning": "She followed the rattling from the bedroom through the kitchen toward the dining room and opened the basement door.",
+  "answer": "She got out of bed, went to the kitchen, moved toward the dining room, and finally opened the basement door, where she found John playing D&D."
+ },
+ {
+  "id": 4,
+  "evidence": "(Benefit of an action * Probability action will succeed) / Cost of Action ... For conservation benefit, they used the Biological Distinctiveness Index (BDI) ... together with an index of the present condition of habitat and management status ... the Ibrahim Index of African Governance (IIAG) to represent probability of success ... costs in two different ways - the cost of managing a protected area ... and the value of agriculture that a newly established conservation area would displace",
+  "reasoning": "The ROI formula has three terms, and the passage names the data source for each.",
+  "answer": "Benefit, probability of success and cost. Benefit: WWF's Biological Distinctiveness Index plus an index of habitat condition and management status. Probability of success: the Ibrahim Index of African Governance. Cost: the cost of managing a protected area (terrestrial and marine) and the value of agriculture a new conservation area would displace (terrestrial and freshwater)."
+ },
+ {
+  "id": 5,
+  "evidence": "Virtually everyone in their milieu perished in the Warsaw ghetto or Treblinka. Taking their place were new \"Aryan\" dealers and a clientele of \"new\" money.",
+  "reasoning": "The passage states their fate and who replaced them.",
+  "answer": "Nearly all of them perished in the Warsaw ghetto or at Treblinka, and new \"Aryan\" dealers and a \"new money\" clientele took their place."
+ },
+ {
+  "id": 6,
+  "evidence": "pledge to make reading a year-long commitment for your family.",
+  "reasoning": "The passage recommends this one resolution as the lasting commitment.",
+  "answer": "To pledge to make reading a year-long commitment for the family (in 2017 and beyond), even if it is the only resolution kept."
+ },
+ {
+  "id": 7,
+  "evidence": "The builder of Ruperra Castle was Thomas Morgan (b.1564 - d.1632), who made his fortune as the Steward for the Earls of Pembroke at Wilton House, Wiltshire... his own house, which was finished in 1626",
+  "reasoning": "The passage names the builder, his career and the completion date.",
+  "answer": "Thomas Morgan (1564-1632), who made his fortune as Steward to the Earls of Pembroke at Wilton House, Wiltshire, and was familiar with court fashions; it was finished in 1626."
+ },
+ {
+  "id": 8,
+  "evidence": "The cells in our bodies use CoQ10 primarily for two things: Energy metabolism and protection from damages.",
+  "reasoning": "The passage lists the two functions explicitly, later elaborated as mitochondrial energy production and protection from oxidative damage.",
+  "answer": "Energy metabolism (helping mitochondria produce energy/ATP) and protection from (oxidative) damage."
+ },
+ {
+  "id": 9,
+  "evidence": "Most of these complaints were on discrimination based on (1) race, (2) disability, (3) religion or belief and (4) age.",
+  "reasoning": "The passage ranks the complaint grounds for 2013.",
+  "answer": "Discrimination based on race, then disability, religion or belief, and age."
+ },
+ {
+  "id": 10,
+  "evidence": "Local anesthesia functions within a certain pH level of the tissues. An acute infection can decrease the pH so much that the local anesthesia is unable to penetrate the tissues and take effect.",
+  "reasoning": "Infection lowers tissue pH, which stops the anaesthetic working.",
+  "answer": "An acute infection lowers the pH of the tissues so much that the anesthetic cannot penetrate them and take effect; antibiotics can be used to reduce the infection before the procedure."
+ },
+ {
+  "id": 11,
+  "evidence": "A 2017 report by the Ocean Conservancy stated that China, Indonesia, the Philippines, Thailand, and Vietnam have been dumping more plastic into the ocean than the rest of the world combined.",
+  "reasoning": "The passage lists the five countries.",
+  "answer": "China, Indonesia, the Philippines, Thailand and Vietnam."
+ },
+ {
+  "id": 12,
+  "evidence": "We will achieve this by continuously upgrading our environmental, occupational health and safety performance, and by increasing our positive socio-economic contribution through best practice in ... water and energy efficiency, emissions reduction including greenhouse gases, and recycling of aluminium.",
+  "reasoning": "The passage states the commitment and the means.",
+  "answer": "By continuously upgrading its environmental, occupational health and safety performance and increasing its positive socio-economic contribution through best practice in management systems, water and energy efficiency, emissions reduction (including greenhouse gases) and aluminium recycling."
+ },
+ {
+  "id": 13,
+  "evidence": "Working in this online setting helped facilitate the otherwise arduous and costly ... process of transatlantic collaboration ... By studying a digital facsimile of the album within the Scholars' Workspace, team members in Paris and Los Angeles could examine, annotate, and discuss an object preserved in a vault.",
+  "reasoning": "The workspace let distant teams work on a digital copy instead of the fragile physical album.",
+  "answer": "It provided an online environment with a digital facsimile of the album, so team members in Paris and Los Angeles could examine, annotate and discuss it together without moving the original from its vault, making otherwise costly transatlantic collaboration possible."
+ },
+ {
+  "id": 14,
+  "evidence": "sometimes in a selfish and autocratic way like the West and sometimes in a servile and spontaneous way as that of the East ... a nation may assert its spontaneous flourishment without dominating other nations or it may hold the path demeaning or caricaturing other nations",
+  "reasoning": "The passage contrasts the West's domination of others with the East's non-dominating self-expression.",
+  "answer": "The West expresses cultural strength selfishly and autocratically, by dominating, defining and misrepresenting the East; the East expresses it in a servile, spontaneous way, flourishing without dominating others."
+ },
+ {
+  "id": 15,
+  "evidence": "Definition of discus: sport (part of speech: noun)",
+  "reasoning": "The passage only gives a minimal dictionary entry classifying discus as a sport (noun).",
+  "answer": "A discus is a noun meaning a sport (the throwing of the discus, as in the Discus Thrower)."
+ },
+ {
+  "id": 16,
+  "evidence": "suddenly it took off into the air with an increasing speed in the direction of the platform in front of the cave hole 250 meters high ... on a parabolic flight track approximately 500 meters long and 250 meters high.",
+  "reasoning": "The passage gives the height and the shape of the flight track.",
+  "answer": "About 250 meters high, following a parabolic flight track roughly 500 meters long; the ascent took about three minutes."
+ },
+ {
+  "id": 17,
+  "evidence": "There are 2 main theories: 1. Abnormal Intestinal Movement ... 2. Visceral Hypersensitivity",
+  "reasoning": "The passage names the two theories and explains each.",
+  "answer": "Abnormal intestinal movement (food moves too quickly or too slowly through the gut) and visceral hypersensitivity (people with IBS perceive normal gut movements as pain)."
+ },
+ {
+  "id": 18,
+  "evidence": "Per diem payments are daily allowances paid to employees to cover costs incurred while on a business trip ... can also refer to a structural compensation system in which an employee is paid by the day",
+  "reasoning": "The passage defines the term directly with two senses.",
+  "answer": "Daily allowances paid to employees to cover costs (lodging, transport, food, incidentals) on a business trip; the term can also mean being paid by the day rather than per hour or month."
+ },
+ {
+  "id": 19,
+  "evidence": "Fine hemp charcoal particles treated to increase the water-retentive properties of soil and can make a sandy soil behave like a clay, and with oxygen added it increases the porosity ... the most significant increase in hydrophility of hemp hurds was found in hemp hurds modified by NaOH",
+  "reasoning": "The passage gives both effects directly.",
+  "answer": "Activated hemp carbon increases the soil's water retention (making sandy soil behave like clay) and, with oxygen added, its porosity, adding surface area for adsorption and reactions. Sodium hydroxide treatment gives the largest increase in the hurds' hydrophility (water absorption)."
+ },
+ {
+  "id": 20,
+  "evidence": "For over forty years the communist threat and nuclear deterrence froze the march of history in Europe, under the double seal of relative stability for the whole continent",
+  "reasoning": "The Cold War arrangement is described as what kept Europe stable.",
+  "answer": "The Cold War order: for over forty years the communist threat and nuclear deterrence kept relative stability across the continent."
+ },
+ {
+  "id": 21,
+  "evidence": "si: Amount of memory swapped in from disk (s). so: Amount of memory swapped to disk (s).",
+  "reasoning": "The passage defines both fields.",
+  "answer": "si is the amount of memory swapped in from disk per second, and so is the amount swapped out to disk per second."
+ },
+ {
+  "id": 22,
+  "evidence": "The problem is the puny power of the chemical rocket ... All that non-fuel mass that falls into the sea is where most of the transport costs go ... If space vehicles could be fully reused ... the cost of getting to space could ... plummet by as much as a factor of 100.",
+  "reasoning": "Reusing the expensive hardware would cut launch costs dramatically and open new markets, but chemical rockets' weak performance makes it hard.",
+  "answer": "Because most launch cost is the hardware thrown away, not fuel; fully and quickly reusable vehicles could cut the cost of reaching space by up to 100 times, making markets like asteroid mining and space tourism viable, yet chemical rockets' limits make reusability a hard engineering challenge."
+ },
+ {
+  "id": 23,
+  "evidence": "how ranches used logs to build the physical infrastructure - the log snake fences, the gates, the log barns and other ranch structures",
+  "reasoning": "The 1984 observation names logs as the material.",
+  "answer": "Logs: log snake fences, gates, log barns and other ranch structures."
+ },
+ {
+  "id": 24,
+  "evidence": "NARBS, short for narrative bits is a term coined by Prof Ananda Mitra, from Wake Forest University.",
+  "reasoning": "The passage states both.",
+  "answer": "Narrative bits; coined by Prof. Ananda Mitra of Wake Forest University."
+ },
+ {
+  "id": 25,
+  "evidence": "write a response on a white board and hold it up to the camera ... type a response into the chat box ... Invite students to work on paper ... take a quick photo to upload ... Use your time in conferences and small groups ... Listen in to partnership talk ... Seesaw ... Flipgrid",
+  "reasoning": "The passage lists several strategies.",
+  "answer": "Capture everyone's responses during whole-class time (whiteboards held to the camera or chat responses), let students work on paper and share by photo or in conference, gather data during conferences and small groups, listen in on partner talk, and use quick-submission apps like Seesaw or Flipgrid, letting students choose the modality."
+ },
+ {
+  "id": 26,
+  "evidence": "In SketchUp, you have to let go of an object with the same point you used to pick it up ... colored lines appear when the motion is parallel to one of the axis directions.",
+  "reasoning": "Unlike real life, movement relies on axis and point inferences and snapping.",
+  "answer": "Unlike real life, you must release an object by the same point you picked it up with, and movement follows inferences: colored lines when moving parallel to an axis and highlighted points to snap to, which you must trust over your eye."
+ },
+ {
+  "id": 27,
+  "evidence": "The idea of the male honey bee as the lazy feckless drone ... has permeated our culture. To set the record straight the authors have devoted a whole chapter to males of the species carefully emphasising the vital role of male bees.",
+  "reasoning": "The passage states how the book counters the misconception.",
+  "answer": "It devotes a whole chapter to male bees, emphasising their vital role to correct the image of the lazy drone."
+ },
+ {
+  "id": 28,
+  "evidence": "EATS has been teaching children how to cook in Cooking Classes for Better Health (CCBH) since 2014 ... If you teach a child to cook, you give them lifelong skills to feed themselves.",
+  "reasoning": "The passage gives the year and the purpose.",
+  "answer": "Since 2014; to teach children to cook, giving them lifelong skills to feed themselves healthily and extending health education beyond the classroom."
+ },
+ {
+  "id": 29,
+  "evidence": "I wish we could say that Barack Obama's election will magically reduce the numbers of teenage pregnancies or the level of drug addiction ... make black children learn to read and write ... high school completion rates will become the best ... but I doubt that they will.",
+  "reasoning": "Gates lists his wishes and then says he doubts they will happen.",
+  "answer": "He wished the election would magically reduce teenage pregnancies and drug addiction and make black children read and write well with the best high school completion rates, but said he doubted these would happen; what he could proclaim was that the ultimate color line had been crossed."
+ }
+]

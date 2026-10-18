@@ -113,6 +113,19 @@ std::vector<std::vector<Fact>> factsOf(const Value& recalled);
  *  its subject), with the constructing habits as features and their token F1 against the golden
  *  answer. `facts[i]` are the facts item i may answer from. */
 std::vector<Candidates> constructCandidates(const std::vector<Item>& items, const std::vector<std::vector<Fact>>& facts);
+/** A part of a question (one sentence of the answer each): its words, and the words it refers back
+ *  to ("their", "they", "it" → the first part's subject). */
+struct QuestionPart {
+  std::string text;
+  std::vector<std::string> stems;     // its informative words (stemmed)
+  std::vector<std::string> referred;  // what its pronouns refer to, from the part before
+  bool asksNumber = false, asksName = false;
+};
+/** The parts of a question: split before a second question word ("What are X and what are their Y?"). */
+std::vector<QuestionPart> questionParts(const std::string& question);
+/** The informative words (stems) a word of the lexicon carries. */
+std::vector<std::string> stemsOf(const std::string& word);
+
 /** For a question with no capsule: the facts of all capsules that share most with it. */
 std::vector<Fact> factsFor(const std::string& question, const std::vector<std::vector<Fact>>& all, std::size_t keep);
 

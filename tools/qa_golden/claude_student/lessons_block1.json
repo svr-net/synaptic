@@ -1,0 +1,22 @@
+[
+ {"id": 0,
+  "evidence": "The name Austin has existed in Ireland since the fourteenth century and is usually of Anglo origin.",
+  "reasoning": "The question asks when; the passage gives the century directly.",
+  "answer": "Since the fourteenth century."},
+ {"id": 1,
+  "evidence": "Curated by Vera Longtoe Sheehan.",
+  "reasoning": "The exhibition is named in the sentence before; the curator line follows it.",
+  "answer": "Vera Longtoe Sheehan."},
+ {"id": 2,
+  "evidence": "Only eat frozen raw fish ... Buy refrigerated fish ... Don't leave fish out for too long ... Inspect your fish ... Buy from reputable suppliers ... Clean your kitchen and utensils ... Make sure it smells fresh.",
+  "reasoning": "The section 'How To Minimize The Health Risks Of Raw Fish' lists the ways; collect them.",
+  "answer": "Eat fish that has been frozen, buy refrigerated fish, don't leave it out for long, inspect it, buy from reputable suppliers, clean kitchen utensils and make sure it smells fresh."},
+ {"id": 3,
+  "evidence": "Flying a beautiful kite is exhilarating and all the more thrilling and rewarding when the kite soaring in the sunshine is your own creation!",
+  "reasoning": "The passage only says it is more rewarding because it is your own creation; the implied reason is the personal pride of seeing what you made fly.",
+  "answer": "Because the kite soaring in the sky is your own creation, which makes flying it all the more thrilling."},
+ {"id": 4,
+  "evidence": "Shine Brand seeds provides red with green shoulder, flat round in shape, determinate, sour taste ... tolerant to virus and disease.",
+  "reasoning": "The key-feature line describes the fruit the seeds produce.",
+  "answer": "Red fruit with a green shoulder, flat round shape, determinate growth, sour taste, and tolerance to virus and disease."}
+]

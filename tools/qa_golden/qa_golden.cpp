@@ -183,6 +183,11 @@ int main(int argc, char** argv) {
 
   // Answers: reading, open book and remembering from the text; constructed from the capsule alone.
   const Value result = run("readingQA", Value::object().set("passages", passages).set("questions", questions).set("corpus", docs).set("recalled", recalled));
+  // Reasoned: capsuleQA, from the packed capsule alone — the question in parts, the evidence in the
+  // space, each part's answer constructed by the grammar and weighed by the constructing habits.
+  Value asked = Value::array();
+  for (const auto& q : questions.asArray()) asked.push(Value::object().set("question", q.at("question")).set("golden", q.at("golden")).set("capsule", q.at("passage")));
+  const Value reasoned = run("capsuleQA", Value::object().set("packed", ingested.at("packed")).set("questions", asked));
   const auto& answers = result.at("answers").asArray();
   const Value& scores = result.at("scores");
   const Value& atLeastHalf = result.at("atLeastHalf");
@@ -198,6 +203,9 @@ int main(int argc, char** argv) {
   md << "# QA golden test\n\n" << answers.size() << " golden questions (edededdy/fineweb-edu-grounded-qa, FineWeb-Edu passages), "
      << result.num("passages", 0) << " passages + " << docs.size() << " knowledge documents read; vocabulary " << result.num("vocabulary", 0)
      << " words, " << result.at("sentences").size() << " sentences.\n\n| answer | token F1 | F1 ≥ 0.5 |\n|---|---:|---:|\n";
+  md << "| **reasoned from its capsule alone (capsuleQA: question parts, evidence in the space, answers constructed)** | **"
+     << r3(reasoned.num("f1", 0)) << "** | |\n";
+  metrics.set("reasoned", reasoned.num("f1", 0));
   const char* keys[7] = {"reading", "remembered", "constructed", "openBook", "firstSentence", "randomSentence", "oracle"};
   const char* names[7] = {"reader, its own passage (copies a sentence)", "reader with its remembered habits, its own passage (copies one or two sentences)",
                           "constructed from its knowledge capsule alone (never sees the text)", "reader, open book (the whole corpus)",
@@ -229,6 +237,40 @@ int main(int argc, char** argv) {
      << "facts — and chosen by the constructing habits; the text is never used.\n";
   metrics.set("capsuleRecovered", recall.num("recovered", 0));
   metrics.set("capsuleSaving", 1.0 - bytes.num("ratio", 0));
+
+  // ---- Reasoning: how capsuleQA worked out three answers.
+  {
+    int multi = 0;
+    for (const auto& a : reasoned.at("answers").asArray()) multi += a.at("parts").size() > 1 ? 1 : 0;
+    md << "\n## Reasoning from the capsule\n\ncapsuleQA splits a question into its parts (" << multi << " of " << reasoned.at("answers").size()
+       << " questions have two), finds for each part the evidence — the facts of the capsule that hold the question's informative words, by "
+       << "identity of their points — and weighs the grammar's ways of saying each fact by the constructing habits; each part's answer is one "
+       << "sentence. Memory: " << reasoned.at("memory").at("reason").asString() << ". Three worked answers:\n";
+    int shown = 0;
+    for (const auto& a : reasoned.at("answers").asArray()) {
+      if (shown >= 3 || (shown == 0 && a.at("parts").size() < 2)) continue;
+      md << "\n**Q:** " << a.at("question").asString() << "\n\n";
+      for (const auto& pt : a.at("parts").asArray()) {
+        md << "- part: *" << pt.at("part").asString() << "*";
+        if (pt.at("referred").size() > 0) {
+          md << " (its pronoun refers to:";
+          for (const auto& r : pt.at("referred").asArray()) md << " " << r.asString();
+          md << ")";
+        }
+        if (!pt.has("evidence")) {
+          md << " — nothing it knows says it\n";
+          continue;
+        }
+        const Value& e = pt.at("evidence");
+        md << "\n  - evidence: [" << e.at("subject").asString() << "] [" << e.at("relation").asString() << "] [" << e.at("object").asString()
+           << "], belief " << std::round(100 * pt.num("belief", 0)) << "%\n  - reasoning: says " << pt.at("saying").asString() << "; weighed by";
+        for (const auto& w : pt.at("reasoning").asArray()) md << " " << w.at("habit").asString() << " (" << r3(w.num("weight", 0)) << ");";
+        md << "\n  - answer: " << pt.at("answer").asString() << "\n";
+      }
+      md << "\n**Golden:** " << a.at("golden").asString() << " — F1 " << r3(a.num("f1", 0)) << "\n";
+      ++shown;
+    }
+  }
 
   // ---- The reader as a student, with every learning method of the library.
   auto signed3 = [](double x) {
@@ -291,7 +333,7 @@ int main(int argc, char** argv) {
     std::ifstream in(baselineIn);
     std::string text((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
     bool failed = false;
-    for (const char* k : {"reading", "openBook", "openBookFoundPassage", "student", "memory", "allMethods", "remembered", "constructed",
+    for (const char* k : {"reading", "openBook", "openBookFoundPassage", "student", "memory", "allMethods", "remembered", "constructed", "reasoned",
                           "constructingStudent", "capsuleRecovered", "capsuleSaving"}) {
       const auto at = text.find(std::string("\"") + k + "\":");
       if (at == std::string::npos) continue;

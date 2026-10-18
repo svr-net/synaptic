@@ -7,6 +7,7 @@
 #include <cmath>
 #include <cstdint>
 #include <cstring>
+#include <functional>
 #include <map>
 #include <set>
 
@@ -22,13 +23,19 @@ const char* const kHabits[kHabitCount] = {"overlap with the question (BM25)", "p
 const char* const kNoteHabits[kHabitCount] = {"informative words (idf mass)", "density of informative words", "shares words with the rest",
                                               "position in the passage", "first sentence", "length", "is itself a question",
                                               "holds a number or a name"};
-const char* const kConstructHabits[kHabitCount] = {"overlap of the fact with the question (BM25)", "says two facts (this one and the next)",
-                                                   "says the whole fact", "says the predicate (relation, object)", "says the object",
+// The constructing habits, the reasoning of an answer: the evidence (how much of the question's
+// information the fact holds), then how the answer is said — the whole fact restating its subject,
+// the detail next to it, or a part — and whether it holds what is asked and covers the question.
+const char* const kConstructHabits[kHabitCount] = {"evidence: the fact holds the question's informative words", "says the detail next to it (two facts)",
+                                                   "says the whole fact, restating its subject", "says the predicate (relation, object)", "says the object",
                                                    "says the subject", "holds what is asked (a number, a name)", "covers the question"};
 const char* const kRoleNames[kRoles] = {"subject", "relation", "object"};
 const double kHabitPrior[kHabitCount] = {1, 0, 0, 0, 0, -1, 0, 0};
 const double kNotePrior[kHabitCount] = {1, 0, 0, 0, 0, 0, 0, 0};
-const double kConstructPrior[kHabitCount] = {1, 0, 1, 0, 0, 0, 0, 0};
+// The prior of constructing: the habits Claude learned as a student of the same lessons
+// (tools/qa_golden/claude_student) — answer from the evidence, in full sentences restating the
+// subject, with the detail next to the fact, holding what is asked and covering the question.
+const double kConstructPrior[kHabitCount] = {1, 0.5, 1, 0, 0, 0, 0.5, 1};
 
 namespace {
 
@@ -108,7 +115,7 @@ std::string fingerprint() {
   for (const char* h : kHabits) f += std::string(" ") + h + ";";
   f += " notes v1:";
   for (const char* h : kNoteHabits) f += std::string(" ") + h + ";";
-  f += " construct v1:";
+  f += " construct v2:";
   for (const char* h : kConstructHabits) f += std::string(" ") + h + ";";
   return f;
 }
@@ -210,24 +217,45 @@ Memory recall(bool fresh, const std::string& fingerprintOf) {
     m.reason = "started fresh";
     return m;
   }
+  // Each set of habits is used only if it was learned for these habits: the fingerprint, section by
+  // section (reading, notes, constructing).
   const std::string stored = fingerprintOf.empty() ? kStored.fingerprint : fingerprintOf;
-  if (stored != fingerprint()) {
+  const std::string now = fingerprint();
+  auto section = [](const std::string& f, const char* from, const char* to) {
+    const auto a = f.find(from);
+    if (a == std::string::npos) return std::string();
+    const auto b = to ? f.find(to, a) : std::string::npos;
+    return f.substr(a, b == std::string::npos ? std::string::npos : b - a);
+  };
+  const bool habits = section(stored, "habits v", " notes v") == section(now, "habits v", " notes v");
+  const bool notes = section(stored, " notes v", " construct v") == section(now, " notes v", " construct v");
+  const bool construct = section(stored, " construct v", nullptr) == section(now, " construct v", nullptr);
+  if (!habits && !notes && !construct) {
     m.reason = "the memory was learned for other habits (fingerprint differs); started from the prior";
     return m;
   }
   m.used = true;
+  if (!habits || !notes || !construct)
+    m.reason = std::string("partly: ") + (habits ? "" : "reading habits ") + (notes ? "" : "note-taking habits ") +
+               (construct ? "" : "constructing habits ") + "were learned for other habits; those start from the prior";
   m.generation = kStored.generation;
   m.lessons = kStored.lessons;
-  m.design = kStored.design;
   m.source = kStored.source;
-  m.test = kStored.test;
-  m.notesDesign = kStored.notesDesign;
-  m.notesTest = kStored.notesTest;
-  std::copy(kStored.habits, kStored.habits + kHabitCount, m.habits);
-  std::copy(kStored.notes, kStored.notes + kHabitCount, m.notes);
-  m.constructDesign = kStored.constructDesign;
-  m.constructTest = kStored.constructTest;
-  std::copy(kStored.construct, kStored.construct + kHabitCount, m.construct);
+  if (habits) {
+    m.design = kStored.design;
+    m.test = kStored.test;
+    std::copy(kStored.habits, kStored.habits + kHabitCount, m.habits);
+  }
+  if (notes) {
+    m.notesDesign = kStored.notesDesign;
+    m.notesTest = kStored.notesTest;
+    std::copy(kStored.notes, kStored.notes + kHabitCount, m.notes);
+  }
+  if (construct) {
+    m.constructDesign = kStored.constructDesign;
+    m.constructTest = kStored.constructTest;
+    std::copy(kStored.construct, kStored.construct + kHabitCount, m.construct);
+  }
   return m;
 }
 
@@ -427,18 +455,97 @@ std::vector<std::vector<Fact>> factsOf(const Value& recalled) {
   return out;
 }
 
+std::vector<std::string> stemsOf(const std::string& word) { return words(word, true); }
+
+std::vector<QuestionPart> questionParts(const std::string& question) {
+  // A second question word after "and" starts a new part; its pronouns refer to the first part.
+  static const std::set<std::string> asking = {"what", "how", "why", "who", "when", "where", "which", "whose", "do", "does", "did",
+                                               "is", "are", "can", "could"};
+  static const std::set<std::string> pronouns = {"they", "their", "them", "it", "its", "this", "these", "those", "he", "she", "his", "her"};
+  std::vector<std::string> all;
+  std::string w;
+  auto flush = [&]() {
+    if (!w.empty()) all.push_back(w);
+    w.clear();
+  };
+  for (char ch : question) {
+    if (ch == ' ') flush();
+    else w += ch;
+  }
+  flush();
+  std::vector<std::string> texts(1);
+  for (std::size_t i = 0; i < all.size(); ++i) {
+    const std::string l = lower(all[i]);
+    if (i > 0 && lower(all[i - 1]) == "and" && asking.count(l) && !texts.back().empty()) {
+      texts.back() = texts.back().substr(0, texts.back().size() - 4);  // drop " and"
+      texts.emplace_back();
+    }
+    texts.back() += (texts.back().empty() ? "" : " ") + all[i];
+  }
+  std::vector<QuestionPart> out;
+  for (const auto& t : texts) {
+    QuestionPart p;
+    p.text = t;
+    p.stems = words(t, true);
+    const std::string lq = lower(t);
+    p.asksNumber = lq.find("how many") != std::string::npos || lq.find("how much") != std::string::npos || lq.find("percent") != std::string::npos ||
+                   lq.find("what year") != std::string::npos || lq.rfind("when", 0) == 0 || lq.find("how long") != std::string::npos ||
+                   lq.find("how old") != std::string::npos;
+    p.asksName = lq.rfind("who", 0) == 0 || lq.find(" who ") != std::string::npos || lq.find("which person") != std::string::npos;
+    if (!out.empty()) {
+      bool refers = false;
+      for (const auto& x : words(t, false)) refers = refers || pronouns.count(x);
+      if (refers)
+        for (const auto& st : out.front().stems)
+          if (std::find(p.stems.begin(), p.stems.end(), st) == p.stems.end()) p.referred.push_back(st);
+    }
+    out.push_back(std::move(p));
+  }
+  return out;
+}
+
+namespace {
+
+// The constructing features of saying `said` (words) from fact k: the shared definition of the
+// student's lessons and of capsuleQA's kernel (which computes the same in the space).
+std::vector<double> constructFeatures(const QuestionPart& q, const std::vector<std::string>& fact, const std::vector<std::string>& said, int pattern,
+                                      const std::function<double(const std::string&)>& idf) {
+  std::set<std::string> asked(q.stems.begin(), q.stems.end());
+  asked.insert(q.referred.begin(), q.referred.end());
+  std::set<std::string> inFact, inSaid;
+  for (const auto& w : fact)
+    for (const auto& st : stemsOf(w)) inFact.insert(st);
+  bool fit = false;
+  for (std::size_t k = 0; k < said.size(); ++k) {
+    for (const auto& st : stemsOf(said[k])) inSaid.insert(st);
+    const bool digit = hasDigit(said[k]);
+    const bool name = k > 0 && std::isupper(static_cast<unsigned char>(said[k][0]));
+    fit = fit || (q.asksNumber && digit) || (q.asksName && name);
+  }
+  double mass = 0, held = 0, covered = 0;
+  for (const auto& st : asked) {
+    mass += idf(st);
+    held += inFact.count(st) ? idf(st) : 0.0;
+    covered += inSaid.count(st) ? 1.0 : 0.0;
+  }
+  return {mass > 0 ? held / mass : 0.0, pattern == 4 ? 1.0 : 0.0, pattern == 0 || pattern == 4 ? 1.0 : 0.0, pattern == 1 ? 1.0 : 0.0,
+          pattern == 2 ? 1.0 : 0.0, pattern == 3 ? 1.0 : 0.0, fit ? 1.0 : 0.0, asked.empty() ? 0.0 : covered / static_cast<double>(asked.size())};
+}
+
+}  // namespace
+
 std::vector<Candidates> constructCandidates(const std::vector<Item>& items, const std::vector<std::vector<Fact>>& facts) {
   // How informative each word is, learned from the facts it recalls (each fact a document).
   std::map<std::string, double> df;
-  double n = 0, totalLen = 0;
+  double n = 0;
   for (const auto& fs : facts)
     for (const auto& f : fs) {
-      const auto ws = words(joined(wordsOf(f)), true);
-      for (const auto& w : std::set<std::string>(ws.begin(), ws.end())) df[w] += 1;
-      totalLen += static_cast<double>(ws.size());
+      std::set<std::string> seen;
+      for (const auto& w : wordsOf(f))
+        for (const auto& st : stemsOf(w)) seen.insert(st);
+      for (const auto& st : seen) df[st] += 1;
       n += 1;
     }
-  const double avg = totalLen / std::max(1.0, n);
   auto idf = [&](const std::string& w) {
     auto it = df.find(w);
     const double d = it == df.end() ? 0.0 : it->second;
@@ -446,57 +553,42 @@ std::vector<Candidates> constructCandidates(const std::vector<Item>& items, cons
   };
   std::vector<Candidates> out;
   for (std::size_t i = 0; i < items.size(); ++i) {
-    const auto& q = items[i].question;
-    std::set<std::string> qw;
-    for (const auto& w : words(q, true)) qw.insert(w);
-    const std::string lq = lower(q);
-    const bool asksNumber = lq.find("how many") != std::string::npos || lq.find("how much") != std::string::npos ||
-                            lq.find("percent") != std::string::npos || lq.find("what year") != std::string::npos || lq.rfind("when", 0) == 0 ||
-                            lq.find("how long") != std::string::npos || lq.find("how old") != std::string::npos;
-    const bool asksName = lq.rfind("who", 0) == 0 || lq.find(" who ") != std::string::npos || lq.find("which person") != std::string::npos;
+    // A lesson is the whole question as one part (the student learns how to say one answer).
+    QuestionPart q;
+    q.text = items[i].question;
+    q.stems = words(items[i].question, true);
+    const auto parts = questionParts(items[i].question);
+    for (const auto& pt : parts) {
+      q.asksNumber = q.asksNumber || pt.asksNumber;
+      q.asksName = q.asksName || pt.asksName;
+    }
     const auto& fs = facts[i];
     const std::size_t nf = std::min<std::size_t>(fs.size(), 24);
-    std::vector<double> bm(nf);
-    double maxBm = 1e-9;
-    for (std::size_t k = 0; k < nf; ++k) {
-      const auto ws = words(joined(wordsOf(fs[k])), true);
-      std::map<std::string, double> tf;
-      for (const auto& w : ws) tf[w] += 1;
-      const double norm = 1.2 * (1 - 0.75 + 0.75 * static_cast<double>(ws.size()) / avg);
-      for (const auto& w : qw)
-        if (tf.count(w)) bm[k] += idf(w) * tf[w] * 2.2 / (tf[w] + norm);
-      maxBm = std::max(maxBm, bm[k]);
-    }
     Candidates p;
     for (std::size_t k = 0; k < nf; ++k) {
       const Fact& f = fs[k];
+      const std::vector<std::string> whole = wordsOf(f);
       std::vector<std::string> predicate = f.relation;
       predicate.insert(predicate.end(), f.object.begin(), f.object.end());
-      const std::vector<std::string>* said[4] = {nullptr, &predicate, &f.object, &f.subject};
-      const std::vector<std::string> whole = wordsOf(f);
-      said[0] = &whole;
-      // The grammar's ways of saying it: the whole fact, its predicate, its object, its subject, and
-      // the whole fact with the next one.
       std::vector<std::string> two = whole;
       if (k + 1 < nf) {
         const auto after = wordsOf(fs[k + 1]);
         two.push_back(".");
         two.insert(two.end(), after.begin(), after.end());
       }
+      // The grammar's ways of saying it: the whole fact, its predicate, its object, its subject, and
+      // the whole fact with the next one.
+      const std::vector<std::string>* said[5] = {&whole, &predicate, &f.object, &f.subject, &two};
       for (int pattern = 0; pattern < 5; ++pattern) {
         if (pattern == 4 && k + 1 >= nf) continue;
-        const std::vector<std::string>& say = pattern == 4 ? two : *said[pattern];
-        if (say.empty() || (pattern == 1 && f.relation.empty())) continue;
-        const std::string t = realize(say);
-        const auto ws = words(t, true);
-        std::set<std::string> have(ws.begin(), ws.end());
-        double covered = 0;
-        for (const auto& w : qw) covered += have.count(w) ? 1.0 : 0.0;
-        const double fit = (asksNumber && hasDigit(t)) || (asksName && hasName(t)) ? 1.0 : 0.0;
+        if (said[pattern]->empty() || (pattern == 1 && f.relation.empty())) continue;
+        std::vector<std::string> words_;
+        for (const auto& w : *said[pattern])
+          if (w != ".") words_.push_back(w);
+        const std::string t = realize(*said[pattern]);
         p.texts.push_back(t);
         p.pair.push_back(false);
-        p.habits.push_back({bm[k] / maxBm, pattern == 4 ? 1.0 : 0.0, pattern == 0 || pattern == 4 ? 1.0 : 0.0, pattern == 1 ? 1.0 : 0.0,
-                            pattern == 2 ? 1.0 : 0.0, pattern == 3 ? 1.0 : 0.0, fit, qw.empty() ? 0.0 : covered / static_cast<double>(qw.size())});
+        p.habits.push_back(constructFeatures(q, whole, words_, pattern, idf));
         p.reward.push_back(items[i].golden.empty() ? 0.0 : tokenF1(t, items[i].golden));
       }
     }
