@@ -56,5 +56,7 @@ Cl(4,1) (pure elliptic CGA). Read README.md for the models; this file keeps the 
   discussion, self-direction, growth mindset, reflection; 24 designs. The memory is learned with all methods (owner's ask).
 - Results: reader 0.343; remembered habits (gen 4) 0.374; constructed from the capsule alone 0.348 (prior habits 0.297;
   best constructible 0.504). All methods together interfere slightly; don't tune method strengths on the test questions.
-  Next: verb finding as geometry (word-class caps), and vocabulary/association learning.
+  Verb finding is geometry (owner's ask): `memory::clauses()` gives cue bits only; the ingest kernel dilates a point by the
+  cues and tests it against the verb class's cap (`word_classes` in reading_capsule.cpp). Next: learn the cue weights as
+  a student, and vocabulary/association learning.
 - JS may send an empty array as a numeric array: read spec arrays by index (`size()`, `operator[]`), not `asArray()`.

@@ -149,7 +149,7 @@ runButton(page, 'Run', async (spec) => {
   roles, facts.map((f) => roles.map((k) => el('div', { style: 'white-space:normal', text: Array.from(f[k]).map((i) => dict[i]).join(' ') }))));
   callout(page.content, 'The belief is a point of the <a href="core.html">space</a>, as everywhere in the library. The reader and its remembered habits copy ' +
     'sentences of the passage; the constructed answer copies nothing: the grammar says it from facts recalled from the packed capsule, by the ' +
-    'rotors of role and place. Its grammar still finds the verb with a word list, and it does not paraphrase or reason. Learning meaning in the algebra is the ' +
+    'rotors of role and place; even the verb is found in the space (a word\'s cues dilate a point, the verb class is a cap). It does not paraphrase or reason. Learning meaning in the algebra is the ' +
     '<a href="fga.html">FGA page</a>.');
   return note;
 });

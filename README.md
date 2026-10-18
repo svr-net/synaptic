@@ -383,7 +383,7 @@ library and the WASM build.
   habits back towards where it started (drift over 20 lessons 0.36 → 0.06).
 - **Knowledge: a capsule in the space, packed by an index router of grades** (`reading_capsule.cpp`; stored:
   `reader_capsule.inc`, the 60 embedded golden passages). `capsuleIngest`: the grammar reads every clause as a fact — subject,
-  relation, object — and every word of a fact becomes one multivector of Cl(4, 1) whose grades are the levels of the index:
+  relation, object, the verb found by a cap of the space (below) — and every word of a fact becomes one multivector of Cl(4, 1) whose grades are the levels of the index:
   grade 0 its fact, grade 1 its word's point of S³, grade 2 the grammar's bivector θ/2·e_N∧e_A + φ/2·e_B∧e_C (role and
   place), the generator of the rotor that binds the word. The index router isolates each grade (⟨M⟩_k) and routes it to its
   level's codebook — the passage's vocabulary, the lattice of 3 roles × 32 places, the runs of facts — and the capsule keeps
@@ -417,8 +417,13 @@ generation. On the 200 golden questions:
 | constructed with the prior constructing habits (before learning) | 0.297 |
 | the best answer the grammar could construct | 0.504 |
 
-The grammar's rotors, word order and recall are operators of the space; finding the verb of a clause is still a word list
-(auxiliaries, verb endings), not geometry. The golden test fails if a score drops (`baseline.json`: `constructed`,
+The grammar is the space's too. Which word of a clause is the verb is decided in the ingest kernel: what the reader knows of
+a word on its own — its word class's closed lists (auxiliaries, prepositions, the words that go with a verb), its ending, its
+capital, its neighbour — are cues that dilate a point of the cognitive channel (each adds its weight to the logit), and the
+word is the verb if its point lies inside the verb class's cap, `inside(atLogit(Σ cues), chanceCap(0.75))`; the verb is the
+clause's first word inside it, and the words that go with it lie inside a second cap. The weights are the kernel's constants
+(`capsuleIngest.auxiliary`, `verbEnding`, `against`, `goesWithVerb`, `afterPlural`, `verbCap`), so a student can learn
+them. The golden test fails if a score drops (`baseline.json`: `constructed`,
 `capsuleRecovered`, `constructingStudent`, `remembered`, …).
 
 ## Conventions

@@ -296,39 +296,6 @@ std::vector<std::vector<std::string>> clausesOf(const std::string& sentence) {
   return out;
 }
 
-Fact factOf(const std::vector<std::string>& t) {
-  // The verb: the earliest auxiliary, or word with a verb's ending (-s, -ed) that does not follow a
-  // preposition or determiner (as "of flowers" does); else, after a plural first word, the next
-  // word ("Honeybees communicate").
-  static const std::set<std::string> before = {"of", "with", "in", "on", "for", "by", "to", "from", "other", "many", "some", "all",
-                                               "these", "those", "their", "its", "his", "her", "our", "your", "and", "or"};
-  std::size_t verb = t.size();
-  for (std::size_t i = 0; i < t.size(); ++i) {
-    const std::string l = lower(t[i]);
-    const bool ending = i > 0 && ((l.size() > 3 && l.compare(l.size() - 2, 2, "ed") == 0) || (l.size() > 3 && l.back() == 's' && l[l.size() - 2] != 's')) &&
-                        !text::stopwords().count(l) && !std::isupper(static_cast<unsigned char>(t[i][0])) && !before.count(lower(t[i - 1]));
-    if (auxiliaries().count(l) || ending) {
-      verb = i;
-      break;
-    }
-  }
-  if (verb == t.size() && t.size() > 2) {
-    const std::string first = lower(t[0]), second = lower(t[1]);
-    if (first.size() > 3 && first.back() == 's' && !text::stopwords().count(second) && !std::isupper(static_cast<unsigned char>(t[1][0]))) verb = 1;
-  }
-  Fact f;
-  if (verb == t.size()) {
-    f.object.assign(t.begin(), t.begin() + static_cast<std::ptrdiff_t>(std::min<std::size_t>(t.size(), 24)));
-    return f;
-  }
-  std::size_t end = verb + 1;
-  while (end < t.size() && end < verb + 4 && followsVerb(t[end])) ++end;
-  f.subject.assign(t.begin() + static_cast<std::ptrdiff_t>(verb > 8 ? verb - 8 : 0), t.begin() + static_cast<std::ptrdiff_t>(verb));
-  f.relation.assign(t.begin() + static_cast<std::ptrdiff_t>(verb), t.begin() + static_cast<std::ptrdiff_t>(end));
-  f.object.assign(t.begin() + static_cast<std::ptrdiff_t>(end), t.begin() + static_cast<std::ptrdiff_t>(std::min(t.size(), end + 16)));
-  return f;
-}
-
 std::vector<std::string> wordsOf(const Fact& f) {
   std::vector<std::string> w = f.subject;
   w.insert(w.end(), f.relation.begin(), f.relation.end());
@@ -343,11 +310,34 @@ std::string joined(const std::vector<std::string>& ws) {
 
 }  // namespace
 
-std::vector<Fact> grammar(const std::string& passage) {
-  std::vector<Fact> out;
+std::vector<Clause> clauses(const std::string& passage) {
+  // What a reader knows of each word on its own — its word class's closed lists (auxiliaries,
+  // prepositions and determiners, the words that go with a verb), its ending, its capital — as
+  // cues; which word is the verb is the geometry's to decide (capsuleIngest).
+  static const std::set<std::string> before = {"of", "with", "in", "on", "for", "by", "to", "from", "other", "many", "some", "all",
+                                               "these", "those", "their", "its", "his", "her", "our", "your", "and", "or"};
+  std::vector<Clause> out;
   for (const auto& sentence : sentences(passage))
-    for (const auto& clause : clausesOf(sentence))
-      if (clause.size() >= 3) out.push_back(factOf(clause));
+    for (const auto& t : clausesOf(sentence)) {
+      if (t.size() < 3) continue;
+      Clause c;
+      c.words = t;
+      const std::string first = lower(t[0]);
+      for (std::size_t i = 0; i < t.size(); ++i) {
+        const std::string l = lower(t[i]);
+        std::uint32_t cue = 0;
+        if (auxiliaries().count(l)) cue |= kCueAuxiliary;
+        if ((l.size() > 3 && l.compare(l.size() - 2, 2, "ed") == 0) || (l.size() > 3 && l.back() == 's' && l[l.size() - 2] != 's')) cue |= kCueVerbEnding;
+        if (text::stopwords().count(l)) cue |= kCueFunctionWord;
+        if (std::isupper(static_cast<unsigned char>(t[i][0]))) cue |= kCueCapital;
+        if (i > 0 && before.count(lower(t[i - 1]))) cue |= kCueAfterPreposition;
+        if (i == 0) cue |= kCueFirst;
+        if (followsVerb(t[i])) cue |= kCueGoesWithVerb;
+        if (i == 1 && first.size() > 3 && first.back() == 's') cue |= kCueAfterPlural;
+        c.cues.push_back(cue);
+      }
+      out.push_back(std::move(c));
+    }
   return out;
 }
 

@@ -21,10 +21,10 @@ The grammar read the 600 passages (200 of the test, 400 of the lessons; 327626 w
 | | bytes |
 |---|---:|
 | the text | 1985545 |
-| **the capsule, packed** | **824418 (41.5% of the text)** |
+| **the capsule, packed** | **824417 (41.5% of the text)** |
 | codes: a word's place in its vocabulary, role and place (levels 1, 2) | 474030 |
 | the lexicon, front-coded | 151904 |
-| the vocabularies (level 1's codebooks) | 179478 |
+| the vocabularies (level 1's codebooks) | 179477 |
 | the facts, as run lengths (level 0) | 19004 |
 
 Constructed answers are said by the grammar from the recalled facts — the whole fact, its predicate, its object, its subject or two facts — and chosen by the constructing habits; the text is never used.
@@ -162,3 +162,4 @@ Candidates: the sentences of a passage, before any question. 400 lessons (golden
 | reflection: one or two changes at a time | reflection | -0.005 | +0.008 |
 
 Its next memory (generation 5): reading, note-taking and constructing habits learned with all methods.
+Capsule of 60 passages (105064 bytes, 49.6% of their text) written to src/models/reader_capsule.inc.

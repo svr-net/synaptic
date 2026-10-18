@@ -578,6 +578,15 @@ TEST(reading_capsule_recalls_words_and_grammar_from_points) {
     for (std::size_t k = 0; k < fact.at(role).size(); ++k) said += dict[static_cast<std::size_t>(fact.at(role)[k].asNumber())].asString() + " ";
   CHECK(said == "length of waggle run tells other bees how far away flowers are ");  // articles dropped
   CHECK(fact.at("relation").size() == 1);  // "tells": the verb
+  // The verb is decided in the space: a word's cues dilate a point, the verb class is a cap. With
+  // no weight on a verb's ending, "tells" lies outside the cap and the clause's verb is "are".
+  Value plain = spec(64);
+  plain.set("capsuleIngest", in.at("capsuleIngest"));
+  plain.fields()["capsuleIngest"].set("verbEnding", 0);
+  const Value other = recall(run("capsuleIngest", plain).at("capsule"));
+  const Value& otherFact = other.at("recalled").at("passages").asArray()[0].at("facts").asArray()[1];
+  const Value& otherDict = other.at("recalled").at("dictionary");
+  CHECK(otherFact.at("relation").size() == 1 && otherDict[static_cast<std::size_t>(otherFact.at("relation")[0].asNumber())].asString() == "are");
   // The codes of each fact reversed: the same facts (the order is in the grammar's bivectors).
   Value::Numbers codes = capsule.at("passages").asArray()[0].at("codes").asNumbers();
   const Value::Numbers sizes = capsule.at("passages").asArray()[0].at("facts").asNumbers();
