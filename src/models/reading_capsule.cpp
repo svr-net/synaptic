@@ -28,6 +28,7 @@
 // construct answers from the recalled facts (reading_memory.hpp), never from the text.
 #include <algorithm>
 #include <array>
+#include <cctype>
 #include <map>
 #include <set>
 #include <string>
@@ -437,6 +438,387 @@ const kernel::Model* capsuleRecallModel() {
           .set("recalled", Value::object().set("dictionary", p.meta.at("dictionary")).set("passages", passages))
           .set("points", slots)
           .set("recovered", slots > 0 ? recovered / slots : 0.0);
+    };
+    return m;
+  }();
+  return &model;
+}
+
+}  // namespace syn::models
+
+// ---- capsuleQA: recall, reasoning and answering, in one kernel, from the capsule alone.
+
+// Reasoning and answering, in WGSL: one agent per way of saying one fact for one part of a question.
+constexpr const char* qa_agent = R"wgsl(
+  // Constants: P(0) start of the lexicon's coordinates (3 per word), P(1) start of the codes, P(2)
+  // start of the vocabularies, P(3) start of the asked words (idf, first and count of their lexicon
+  // forms), P(4) start of the lexicon forms, P(5..12) the constructing habits, P(13) τ, P(14) start
+  // of the facts (first slot, slots, first word of its capsule's vocabulary), P(15) start of the
+  // lexicon's flags (1 a digit, 2 a capital). Job (a part of a question): J(0) its first fact,
+  // J(1) facts, J(3) first asked word, J(4) asked words, J(5) asks a number, J(6) asks a name,
+  // J(7) the question's parts.
+  let nf = u32(J(1u));
+  let f = A / 5u;
+  let pattern = A % 5u;
+  // One sentence per part: a question in parts says one fact for each (Claude's habit 4).
+  if (f >= nf || (pattern == 4u && (f + 1u >= nf || J(7u) > 1.5))) {
+    for (var k = 0u; k < 9u; k = k + 1u) { quant(k, 0.0); }
+    return;
+  }
+  let asked = min(u32(J(4u)), 16u);
+  var held : array<bool, 16>;
+  var said : array<bool, 16>;
+  for (var t = 0u; t < 16u; t = t + 1u) {
+    held[t] = false;
+    said[t] = false;
+  }
+  var count = 0u;
+  var fit = false;
+  var firstPlace = 99u;
+  for (var stage = 0u; stage < 2u; stage = stage + 1u) {
+    for (var which = 0u; which < select(1u, 2u, pattern == 4u); which = which + 1u) {
+      let fact = u32(P(14u)) + 3u * (u32(J(0u)) + f + which);
+      for (var s = 0u; s < u32(P(fact + 1u)); s = s + 1u) {
+        let code = u32(P(u32(P(1u)) + u32(P(fact)) + s));
+        let role = (code / 32u) % 3u;
+        let place = code % 32u;
+        let word = u32(P(u32(P(2u)) + u32(P(fact + 2u)) + code / 96u));
+        let c = u32(P(0u)) + 3u * word;
+        let w = lift(P(c), P(c + 1u), P(c + 2u), 1.0);
+        // Recall: the grammar's rotor of the code turns the word, and is read back off the point.
+        if (grammarOf(bindWord(w, role, place), w) != i32(code % 96u)) { continue; }
+        let inSaid = pattern == 0u || pattern == 4u || (pattern == 1u && role >= 1u) || (pattern == 2u && role == 2u) || (pattern == 3u && role == 0u);
+        if (stage == 0u) {
+          if (inSaid && which == 0u) { firstPlace = min(firstPlace, place); }
+          continue;
+        }
+        // Evidence: the question's words in the fact, by identity of their points.
+        for (var t = 0u; t < asked; t = t + 1u) {
+          let row = u32(P(3u)) + 3u * (u32(J(3u)) + t);
+          for (var l = 0u; l < u32(P(row + 2u)); l = l + 1u) {
+            let o = u32(P(0u)) + 3u * u32(P(u32(P(4u)) + u32(P(row + 1u)) + l));
+            if (dot5(w, lift(P(o), P(o + 1u), P(o + 2u), 1.0)) > -1e-5) {
+              if (which == 0u) { held[t] = true; }
+              if (inSaid) { said[t] = true; }
+            }
+          }
+        }
+        if (inSaid) {
+          count = count + 1u;
+          let flags = u32(P(u32(P(15u)) + word));
+          let first = which == 0u && place == firstPlace;
+          fit = fit || (J(5u) > 0.5 && (flags & 1u) != 0u) || (J(6u) > 0.5 && (flags & 2u) != 0u && !first);
+        }
+      }
+    }
+  }
+  if (count == 0u) {
+    for (var k = 0u; k < 9u; k = k + 1u) { quant(k, 0.0); }
+    return;
+  }
+  var mass = 0.0;
+  var weight = 0.0;
+  var covered = 0.0;
+  for (var t = 0u; t < asked; t = t + 1u) {
+    let idf = P(u32(P(3u)) + 3u * (u32(J(3u)) + t));
+    mass = mass + idf;
+    weight = weight + select(0.0, idf, held[t]);
+    covered = covered + select(0.0, 1.0, said[t]);
+  }
+  // The reasoning: the evidence and the ways of saying it, weighed by the constructing habits.
+  var feature : array<f32, 8>;
+  feature[0] = select(0.0, weight / mass, mass > 0.0);
+  feature[1] = select(0.0, 1.0, pattern == 4u);
+  feature[2] = select(0.0, 1.0, pattern == 0u || pattern == 4u);
+  feature[3] = select(0.0, 1.0, pattern == 1u);
+  feature[4] = select(0.0, 1.0, pattern == 2u);
+  feature[5] = select(0.0, 1.0, pattern == 3u);
+  feature[6] = select(0.0, 1.0, fit);
+  feature[7] = select(0.0, covered / f32(asked), asked > 0u);
+  var score = 0.0;
+  for (var k = 0u; k < 8u; k = k + 1u) {
+    score = score + P(5u + k) * feature[k];
+    quant(1u + k, feature[k]);
+  }
+  // The belief that this is the answer: a point of the space.
+  quant(0u, chance(atLogit(clamp(score - P(13u), -30.0, 30.0), kA)));
+)wgsl";
+
+namespace syn::models {
+
+const kernel::Model* capsuleQaModel() {
+  static const kernel::Model model = [] {
+    kernel::Model m;
+    m.name = "capsuleQA";
+    m.title = "Reasoning and answering from the knowledge capsule alone: question parts, evidence in the space, answers constructed by the grammar";
+    m.maxStats = 1;
+    m.agentSource = qa_agent;
+    m.helpersWgsl = memory::grammarWgsl();
+    m.compile = [](const Value& spec) {
+      const Value& c = spec.sub("capsuleQA");
+      const Value unpacked = c.has("packed") ? memory::unpackCapsule(c.at("packed").asString()) : Value();
+      const Value& capsule = c.has("packed") ? unpacked : c.has("capsule") ? c.at("capsule") : memory::storedCapsule();
+      const Value& dictionary = capsule.at("dictionary");
+      const auto& passages = capsule.at("passages").asArray();
+      // The questions: given, or the golden set (question i about capsule i).
+      std::vector<std::array<std::string, 2>> questions;
+      std::vector<double> capsuleOf;
+      const bool given = c.has("questions") && c.at("questions").size() > 0;  // a list, or the golden set's size
+      if (given)
+        for (std::size_t i = 0; i < c.at("questions").size(); ++i) {
+          const Value& q = c.at("questions").asArray()[i];
+          questions.push_back({q.at("question").asString(), q.str("golden", "")});
+          capsuleOf.push_back(q.num("capsule", -1));
+        }
+      else {
+        const Value g = text::goldenSet(c.integer("questions", 60));
+        for (const auto& q : g.at("questions").asArray()) {
+          questions.push_back({q.at("question").asString(), q.at("golden").asString()});
+          capsuleOf.push_back(q.at("passage").asNumber());
+        }
+      }
+      // The facts of every capsule: their slots (from the codes) and the stems of their words.
+      std::vector<std::vector<std::array<std::size_t, 2>>> facts(passages.size());  // (first slot, slots)
+      std::vector<double> codes;
+      for (std::size_t p = 0; p < passages.size(); ++p) {
+        const Value& sizes = passages[p].at("facts");
+        const Value& cs = passages[p].at("codes");
+        std::size_t at = codes.size();
+        for (std::size_t k = 0; k < cs.size(); ++k) codes.push_back(cs[k].asNumber());
+        for (std::size_t f = 0; f < sizes.size(); ++f) {
+          const auto n = static_cast<std::size_t>(sizes[f].asNumber());
+          facts[p].push_back({at, n});
+          at += n;
+        }
+      }
+      auto wordOf = [&](std::size_t p, double code) {
+        return static_cast<std::size_t>(passages[p].at("vocabulary")[static_cast<std::size_t>(code) / 96].asNumber());
+      };
+      std::map<std::string, std::vector<double>> formsOf;  // a stem's lexicon forms
+      std::vector<double> flags;
+      for (std::size_t w = 0; w < dictionary.size(); ++w) {
+        const std::string word = dictionary[w].asString();
+        for (const auto& st : memory::stemsOf(word)) formsOf[st].push_back(double(w));
+        flags.push_back((std::any_of(word.begin(), word.end(), [](unsigned char ch) { return std::isdigit(ch) != 0; }) ? 1.0 : 0.0) +
+                        (std::isupper(static_cast<unsigned char>(word[0])) ? 2.0 : 0.0));
+      }
+      // Each question's facts: its capsule's, or, with none, the facts of all capsules that share most with it.
+      std::vector<std::vector<std::array<std::size_t, 3>>> asked(questions.size());  // (passage, fact, -)
+      std::set<std::size_t> used;
+      auto stemsOfFact = [&](std::size_t p, std::size_t f) {
+        std::set<std::string> out;
+        for (std::size_t k = 0; k < facts[p][f][1]; ++k)
+          for (const auto& st : memory::stemsOf(dictionary[wordOf(p, codes[facts[p][f][0] + k])].asString())) out.insert(st);
+        return out;
+      };
+      for (std::size_t i = 0; i < questions.size(); ++i) {
+        const double cp = capsuleOf[i];
+        if (cp >= 0 && cp < static_cast<double>(passages.size())) {
+          const auto p = static_cast<std::size_t>(cp);
+          for (std::size_t f = 0; f < std::min<std::size_t>(facts[p].size(), 24); ++f) asked[i].push_back({p, f, 0});
+          used.insert(p);
+        } else {
+          std::set<std::string> qs;
+          for (const auto& st : text::words(questions[i][0], true)) qs.insert(st);
+          std::vector<std::pair<double, std::array<std::size_t, 3>>> ranked;
+          for (std::size_t p = 0; p < passages.size(); ++p)
+            for (std::size_t f = 0; f < facts[p].size(); ++f) {
+              double shared = 0;
+              for (const auto& st : stemsOfFact(p, f)) shared += qs.count(st) ? 1.0 : 0.0;
+              ranked.push_back({shared, {p, f, 0}});
+            }
+          std::stable_sort(ranked.begin(), ranked.end(), [](const auto& a, const auto& b) { return a.first > b.first; });
+          for (std::size_t k = 0; k < ranked.size() && k < 24; ++k) {
+            asked[i].push_back(ranked[k].second);
+            used.insert(ranked[k].second[0]);
+          }
+        }
+      }
+      // How informative each stem is, over the facts of the capsules it answers from.
+      std::map<std::string, double> df;
+      double nFacts = 0;
+      for (std::size_t p : used)
+        for (std::size_t f = 0; f < facts[p].size(); ++f) {
+          for (const auto& st : stemsOfFact(p, f)) df[st] += 1;
+          nFacts += 1;
+        }
+      auto idf = [&](const std::string& w) {
+        auto it = df.find(w);
+        const double d = it == df.end() ? 0.0 : it->second;
+        return std::max(0.0, std::log((nFacts - d + 0.5) / (d + 0.5) + 1.0));
+      };
+      const memory::Memory mem = memory::recall(!c.flag("memory", true), c.str("memoryFingerprint", ""));
+      std::vector<double> params(16, 0.0);
+      for (int k = 0; k < 8; ++k) params[5 + static_cast<std::size_t>(k)] = mem.construct[k];
+      params[13] = c.num("threshold", 1.0);
+      params[0] = double(params.size());
+      const auto coords = coordinates(dictionary);
+      params.insert(params.end(), coords.begin(), coords.end());
+      params[1] = double(params.size());
+      params.insert(params.end(), codes.begin(), codes.end());
+      params[2] = double(params.size());
+      std::vector<double> vocabStart;
+      for (const auto& p : passages) {
+        vocabStart.push_back(double(params.size()) - params[2]);
+        const Value& v = p.at("vocabulary");
+        for (std::size_t k = 0; k < v.size(); ++k) params.push_back(v[k].asNumber());
+      }
+      params[15] = double(params.size());
+      params.insert(params.end(), flags.begin(), flags.end());
+      // The parts of every question, their asked words, and the facts they answer from.
+      std::vector<double> stemRows, forms, factRows;
+      std::vector<std::vector<double>> rows;
+      Value partsMeta = Value::array();
+      for (std::size_t i = 0; i < questions.size(); ++i) {
+        const auto parts = memory::questionParts(questions[i][0]);
+        for (std::size_t pi = 0; pi < parts.size(); ++pi) {
+          const auto& part = parts[pi];
+          std::vector<std::string> stems = part.stems;
+          for (const auto& r : part.referred) stems.push_back(r);
+          std::sort(stems.begin(), stems.end());
+          stems.erase(std::unique(stems.begin(), stems.end()), stems.end());
+          if (stems.size() > 16) {
+            std::stable_sort(stems.begin(), stems.end(), [&](const std::string& a, const std::string& b) { return idf(a) > idf(b); });
+            stems.resize(16);
+          }
+          const double stemFirst = double(stemRows.size() / 3);
+          for (const auto& st : stems) {
+            const auto& fs = formsOf[st];
+            stemRows.insert(stemRows.end(), {idf(st), double(forms.size()), double(fs.size())});
+            forms.insert(forms.end(), fs.begin(), fs.end());
+          }
+          // The facts of one capsule (open questions take their facts in order of what they share).
+          const double factFirst = double(factRows.size() / 3);
+          Value from = Value::array();
+          for (const auto& af : asked[i]) {
+            factRows.insert(factRows.end(), {double(facts[af[0]][af[1]][0]), double(facts[af[0]][af[1]][1]), vocabStart[af[0]]});
+            from.push(Value::Numbers({double(af[0]), double(af[1])}));
+          }
+          rows.push_back({factFirst, double(asked[i].size()), 0.0, stemFirst, double(stems.size()),
+                          part.asksNumber ? 1.0 : 0.0, part.asksName ? 1.0 : 0.0, double(parts.size())});
+          Value referred = Value::array();
+          for (const auto& r : part.referred) referred.push(r);
+          partsMeta.push(Value::object().set("question", static_cast<double>(i)).set("part", part.text).set("facts", from).set("referred", referred));
+        }
+      }
+      params[3] = double(params.size());
+      params.insert(params.end(), stemRows.begin(), stemRows.end());
+      params[4] = double(params.size());
+      params.insert(params.end(), forms.begin(), forms.end());
+      params[14] = double(params.size());
+      params.insert(params.end(), factRows.begin(), factRows.end());
+      std::uint32_t most = 5;
+      for (const auto& r : rows) most = std::max<std::uint32_t>(most, static_cast<std::uint32_t>(r[1]) * 5);
+      Plan p = makePlan("capsuleQA", most, 1, params, rows, seedOf(spec), 9);
+      p.keepAgents = p.agents;
+      Value qs = Value::array();
+      for (const auto& q : questions) qs.push(Value::object().set("question", q[0]).set("golden", q[1]));
+      p.meta = Value::object().set("questions", qs).set("parts", partsMeta).set("capsule", capsule)
+                   .set("memory", Value::object().set("used", mem.used).set("reason", mem.reason).set("generation", mem.generation)
+                                      .set("design", mem.constructDesign));
+      return std::vector<Plan>{p};
+    };
+    m.summarise = [](const Value&, const std::vector<Plan>& plans, const std::vector<Output>& out) {
+      const Plan& p = plans[0];
+      const auto& v = out[0].agentValues;
+      const Value& capsule = p.meta.at("capsule");
+      const Value& dictionary = capsule.at("dictionary");
+      const auto& passages = capsule.at("passages").asArray();
+      const char* patterns[5] = {"the whole fact", "its predicate", "its object", "its subject", "the fact and the next"};
+      // A fact's words by role, in order of their places (read off the codes).
+      auto factWords = [&](std::size_t pi, std::size_t f) {
+        const Value& sizes = passages[pi].at("facts");
+        std::size_t at = 0;
+        for (std::size_t k = 0; k < f; ++k) at += static_cast<std::size_t>(sizes[k].asNumber());
+        std::vector<std::array<std::uint32_t, 3>> slots;  // (place, role, word)
+        for (std::size_t k = 0; k < static_cast<std::size_t>(sizes[f].asNumber()); ++k) {
+          const auto code = static_cast<std::uint32_t>(passages[pi].at("codes")[at + k].asNumber());
+          slots.push_back({code % 32u, (code / 32u) % 3u, static_cast<std::uint32_t>(passages[pi].at("vocabulary")[code / 96u].asNumber())});
+        }
+        std::sort(slots.begin(), slots.end());
+        std::array<std::vector<std::string>, 3> roles;
+        for (const auto& s : slots) roles[s[1]].push_back(dictionary[s[2]].asString());
+        return roles;
+      };
+      auto join = [](const std::vector<std::string>& ws) {
+        std::string s;
+        for (const auto& w : ws) s += (s.empty() ? "" : " ") + w;
+        return s;
+      };
+      const auto& questions = p.meta.at("questions").asArray();
+      std::vector<Value> traces(questions.size(), Value::array());
+      std::vector<std::vector<std::string>> sentences(questions.size());
+      for (std::uint32_t j = 0; j < p.jobs; ++j) {
+        const Value& part = p.meta.at("parts").asArray()[j];
+        const auto qi = static_cast<std::size_t>(part.at("question").asNumber());
+        const auto& from = part.at("facts").asArray();
+        std::size_t best = 0;
+        double belief = 0;
+        for (std::size_t a = 0; a < from.size() * 5 && a < p.keepAgents; ++a) {
+          const double b = v[(static_cast<std::size_t>(j) * p.keepAgents + a) * 9];
+          if (b > belief) {
+            belief = b;
+            best = a;
+          }
+        }
+        Value trace = Value::object().set("part", part.at("part")).set("referred", part.at("referred"));
+        if (belief <= 0) {
+          traces[qi].push(trace.set("answer", ""));
+          continue;
+        }
+        const std::size_t f = best / 5, pattern = best % 5;
+        const auto pi = static_cast<std::size_t>(from[f][0].asNumber()), fi = static_cast<std::size_t>(from[f][1].asNumber());
+        const auto roles = factWords(pi, fi);
+        std::vector<std::string> said;
+        if (pattern == 0 || pattern == 4) {
+          for (const auto& r : roles) said.insert(said.end(), r.begin(), r.end());
+        } else if (pattern == 1) {
+          said = roles[1];
+          said.insert(said.end(), roles[2].begin(), roles[2].end());
+        } else {
+          said = roles[pattern == 2 ? 2 : 0];
+        }
+        if (pattern == 4 && f + 1 < from.size()) {
+          const auto next = factWords(static_cast<std::size_t>(from[f + 1][0].asNumber()), static_cast<std::size_t>(from[f + 1][1].asNumber()));
+          said.push_back(".");
+          for (const auto& r : next) said.insert(said.end(), r.begin(), r.end());
+        }
+        const std::string sentence = memory::realize(said);
+        // The reasoning: which habits weighed most for this answer.
+        Value why = Value::array();
+        std::vector<std::pair<double, int>> parts;
+        for (int k = 0; k < 8; ++k)
+          parts.push_back({p.params[5 + static_cast<std::size_t>(k)] * v[(static_cast<std::size_t>(j) * p.keepAgents + best) * 9 + 1 + static_cast<std::size_t>(k)], k});
+        std::sort(parts.begin(), parts.end(), [](const auto& x, const auto& y) { return x.first > y.first; });
+        for (const auto& [c, k] : parts)
+          if (c > 0.05) why.push(Value::object().set("habit", memory::kConstructHabits[k]).set("weight", c));
+        trace.set("evidence", Value::object().set("subject", join(roles[0])).set("relation", join(roles[1])).set("object", join(roles[2]))
+                                  .set("capsule", static_cast<double>(pi)).set("fact", static_cast<double>(fi)))
+            .set("saying", patterns[pattern])
+            .set("reasoning", why)
+            .set("belief", belief)
+            .set("answer", sentence);
+        traces[qi].push(trace);
+        if (std::find(sentences[qi].begin(), sentences[qi].end(), sentence) == sentences[qi].end()) sentences[qi].push_back(sentence);
+      }
+      Value answers = Value::array();
+      double sum = 0, scored = 0;
+      for (std::size_t i = 0; i < questions.size(); ++i) {
+        std::string answer;
+        for (const auto& s : sentences[i]) answer += (answer.empty() ? "" : " ") + s;
+        Value a = Value::object().set("question", questions[i].at("question")).set("answer", answer).set("parts", traces[i]);
+        const std::string golden = questions[i].at("golden").asString();
+        if (!golden.empty()) {
+          const double f1 = text::tokenF1(answer, golden);
+          a.set("golden", golden).set("f1", f1);
+          sum += f1;
+          scored += 1;
+        }
+        answers.push(a);
+      }
+      Value result = Value::object().set("answers", answers).set("memory", p.meta.at("memory"));
+      if (scored > 0) result.set("f1", sum / scored).set("scored", scored);
+      return result;
     };
     return m;
   }();

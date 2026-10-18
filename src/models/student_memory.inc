@@ -5,7 +5,7 @@
  "all methods",  // study design the reading habits were learned with
  "400 lessons of edededdy/fineweb-edu-grounded-qa (tools/qa_golden/prepare.py, seed 2026)",  // lessons it was learned from
  0.36311611533164978,  // test F1 of its answers on the golden test when it was written
- "habits v1: overlap with the question (BM25); position in the passage; first sentence; length; is itself a question; two sentences; holds what is asked (a number, a name); covers the question; notes v1: informative words (idf mass); density of informative words; shares words with the rest; position in the passage; first sentence; length; is itself a question; holds a number or a name; construct v1: overlap of the fact with the question (BM25); says two facts (this one and the next); says the whole fact; says the predicate (relation, object); says the object; says the subject; holds what is asked (a number, a name); covers the question;",  // the habits these weights are for
+ "habits v1: overlap with the question (BM25); position in the passage; first sentence; length; is itself a question; two sentences; holds what is asked (a number, a name); covers the question; notes v1: informative words (idf mass); density of informative words; shares words with the rest; position in the passage; first sentence; length; is itself a question; holds a number or a name; construct v1 (superseded)",  // the habits these weights are for
  {-0.57924079895019531,  // overlap with the question (BM25)
   -0.26822015643119812,  // position in the passage
   -0.55282580852508545,  // first sentence

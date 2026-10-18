@@ -4,9 +4,10 @@
 
 | answer | token F1 | F1 ≥ 0.5 |
 |---|---:|---:|
+| **reasoned from its capsule alone (capsuleQA: question parts, evidence in the space, answers constructed)** | **0.337** | |
 | reader, its own passage (copies a sentence) | 0.343 | 25.5% |
 | reader with its remembered habits, its own passage (copies one or two sentences) | 0.374 | 31% |
-| constructed from its knowledge capsule alone (never sees the text) | 0.348 | 23.5% |
+| constructed from its knowledge capsule alone (never sees the text) | 0.342 | 23% |
 | reader, open book (the whole corpus) | 0.34 | 25.5% |
 | first sentence of the passage | 0.171 | 4% |
 | a random sentence of the passage | 0.154 | 3% |
@@ -28,6 +29,41 @@ The grammar read the 600 passages (200 of the test, 400 of the lessons; 327626 w
 | the facts, as run lengths (level 0) | 19004 |
 
 Constructed answers are said by the grammar from the recalled facts — the whole fact, its predicate, its object, its subject or two facts — and chosen by the constructing habits; the text is never used.
+
+## Reasoning from the capsule
+
+capsuleQA splits a question into its parts (28 of 200 questions have two), finds for each part the evidence — the facts of the capsule that hold the question's informative words, by identity of their points — and weighs the grammar's ways of saying each fact by the constructing habits; each part's answer is one sentence. Memory: partly: constructing habits were learned for other habits; those start from the prior. Three worked answers:
+
+**Q:** What are the three main components used to calculate the ROI for conservation in the described project, and which data sources were used for each?
+
+- part: *What are the three main components used to calculate the ROI for conservation in the described project,*
+  - evidence: [project] [described in] [recent article in journal Biological Conservation was first to compare terrestrial freshwater and coastal habitats in], belief 66%
+  - reasoning: says the whole fact; weighed by says the whole fact, restating its subject (1); covers the question (0.333); evidence: the fact holds the question's informative words (0.312);
+  - answer: Project described in recent article in journal Biological Conservation was first to compare terrestrial freshwater and coastal habitats in.
+- part: *which data sources were used for each?*
+  - evidence: [It also] [takes] [advantage of new sources of geographic data developed in past decade], belief 81%
+  - reasoning: says the whole fact; weighed by says the whole fact, restating its subject (1); evidence: the fact holds the question's informative words (0.787); covers the question (0.667);
+  - answer: It also takes advantage of new sources of geographic data developed in past decade.
+
+**Golden:** The three components are benefit, probability of success, and cost. The authors used the Biological Distinctiveness Index (BDI) and habitat condition for benefit; the Ibrahim Index of African Governance (IIAG) for probability of success; and the costs of managing protected areas or displacing agriculture for the cost component. — F1 0.107
+
+**Q:** What happened to the Jewish dealers and their clientele during World War II?
+
+- part: *What happened to the Jewish dealers and their clientele during World War II?*
+  - evidence: [substantial number of Jewish art and antiques] [dealers] [operated in pre-World War II Warsaw], belief 85%
+  - reasoning: says the fact and the next; weighed by says the whole fact, restating its subject (1); evidence: the fact holds the question's informative words (0.626); covers the question (0.625); says the detail next to it (two facts) (0.5);
+  - answer: Substantial number of Jewish art and antiques dealers operated in pre-World War II Warsaw. Particularly respected were salons of brothers Bernard and Abe Gutnajer.
+
+**Golden:** Virtually everyone in the Jewish dealers' milieu perished, with members either perishing in the Warsaw ghetto or in Treblinka. — F1 0.195
+
+**Q:** What is the recommended long-term commitment parents should make regarding reading for their family in 2017?
+
+- part: *What is the recommended long-term commitment parents should make regarding reading for their family in 2017?*
+  - evidence: [] [] [However even if you only stick to one resolution this year pledge to make reading year-long commitment for your family], belief 81%
+  - reasoning: says the fact and the next; weighed by says the whole fact, restating its subject (1); says the detail next to it (two facts) (0.5); covers the question (0.5); evidence: the fact holds the question's informative words (0.463);
+  - answer: However even if you only stick to one resolution this year pledge to make reading year-long commitment for your family. Ability to read is precious commodity.
+
+**Golden:** Parents should pledge to make reading a year-long commitment for their family. Even if they can only stick to one resolution, prioritizing reading ensures children benefit from consistent encouragement and exposure to literacy. — F1 0.552
 
 ## The reader as a student: picking an answer
 
@@ -79,43 +115,43 @@ Candidates: what the grammar can say from each fact recalled from the capsule �
 
 | study design | test F1 | lessons F1 |
 |---|---:|---:|
-| no feedback (the lexical reader) | 0.297 | 0.294 |
-| its memory alone, no feedback | 0.348 | 0.362 |
-| reinforcement | 0.345 | 0.353 |
-| reinforcement + schema: starts from its memory | 0.347 | 0.354 |
-| reinforcement + interleaving question kinds | 0.344 | 0.353 |
-| reinforcement + worked examples | 0.348 | 0.362 |
-| reinforcement + spaced retrieval of mistakes | 0.348 | 0.355 |
-| reinforcement + equilibration: assimilate or accommodate | 0.348 | 0.355 |
-| reinforcement + scaffolding: easy before hard | 0.344 | 0.353 |
-| reinforcement + peer discussion | 0.325 | 0.321 |
-| reinforcement + self-direction | 0.344 | 0.353 |
-| reinforcement + growth mindset | 0.344 | 0.353 |
-| reinforcement + reflection: one or two changes at a time | 0.344 | 0.353 |
-| all methods | 0.335 | 0.344 |
-| all methods but schema: starts from its memory | 0.336 | 0.346 |
-| all methods but interleaving question kinds | 0.324 | 0.333 |
-| all methods but worked examples | 0.306 | 0.3 |
-| all methods but spaced retrieval of mistakes | 0.325 | 0.333 |
-| all methods but equilibration: assimilate or accommodate | 0.33 | 0.336 |
-| all methods but scaffolding: easy before hard | 0.328 | 0.335 |
-| all methods but peer discussion | 0.339 | 0.353 |
-| all methods but self-direction | 0.333 | 0.34 |
-| all methods but growth mindset | 0.335 | 0.343 |
-| all methods but reflection: one or two changes at a time | 0.339 | 0.35 |
+| no feedback (the lexical reader) | 0.342 | 0.357 |
+| its memory alone, no feedback | 0.342 | 0.357 |
+| reinforcement | 0.342 | 0.358 |
+| reinforcement + schema: starts from its memory | 0.342 | 0.358 |
+| reinforcement + interleaving question kinds | 0.342 | 0.358 |
+| reinforcement + worked examples | 0.34 | 0.361 |
+| reinforcement + spaced retrieval of mistakes | 0.343 | 0.357 |
+| reinforcement + equilibration: assimilate or accommodate | 0.343 | 0.358 |
+| reinforcement + scaffolding: easy before hard | 0.342 | 0.358 |
+| reinforcement + peer discussion | 0.342 | 0.358 |
+| reinforcement + self-direction | 0.342 | 0.358 |
+| reinforcement + growth mindset | 0.342 | 0.358 |
+| reinforcement + reflection: one or two changes at a time | 0.342 | 0.358 |
+| all methods | 0.339 | 0.358 |
+| all methods but schema: starts from its memory | 0.339 | 0.358 |
+| all methods but interleaving question kinds | 0.341 | 0.361 |
+| all methods but worked examples | 0.342 | 0.358 |
+| all methods but spaced retrieval of mistakes | 0.337 | 0.354 |
+| all methods but equilibration: assimilate or accommodate | 0.34 | 0.358 |
+| all methods but scaffolding: easy before hard | 0.339 | 0.358 |
+| all methods but peer discussion | 0.336 | 0.356 |
+| all methods but self-direction | 0.34 | 0.359 |
+| all methods but growth mindset | 0.34 | 0.358 |
+| all methods but reflection: one or two changes at a time | 0.341 | 0.36 |
 
 | method | library models | added to reinforcement | left out of all |
 |---|---|---:|---:|
-| schema: starts from its memory | schema | +0.002 | +0.001 |
-| interleaving question kinds | interleaving | -0.001 | -0.011 |
-| worked examples | gagne, lecture | +0.003 | -0.029 |
-| spaced retrieval of mistakes | memory | +0.003 | -0.01 |
-| equilibration: assimilate or accommodate | equilibration | +0.003 | -0.005 |
-| scaffolding: easy before hard | zpd, scaffolding | -0.001 | -0.007 |
-| peer discussion | dialogue, discussion | -0.02 | +0.004 |
-| self-direction | andragogy | -0.001 | -0.002 |
-| growth mindset | motivation | -0.001 | -0 |
-| reflection: one or two changes at a time | reflection | -0.002 | +0.004 |
+| schema: starts from its memory | schema | +0 | +-0 |
+| interleaving question kinds | interleaving | +0 | +0.002 |
+| worked examples | gagne, lecture | -0.002 | +0.003 |
+| spaced retrieval of mistakes | memory | +0 | -0.002 |
+| equilibration: assimilate or accommodate | equilibration | +0 | +0.001 |
+| scaffolding: easy before hard | zpd, scaffolding | +0 | -0 |
+| peer discussion | dialogue, discussion | +0 | -0.003 |
+| self-direction | andragogy | +0 | +0.001 |
+| growth mindset | motivation | +0 | +0.001 |
+| reflection: one or two changes at a time | reflection | +0 | +0.002 |
 
 ## The reader as a student: taking notes
 
@@ -162,4 +198,3 @@ Candidates: the sentences of a passage, before any question. 400 lessons (golden
 | reflection: one or two changes at a time | reflection | -0.005 | +0.008 |
 
 Its next memory (generation 5): reading, note-taking and constructing habits learned with all methods.
-Capsule of 60 passages (105064 bytes, 49.6% of their text) written to src/models/reader_capsule.inc.

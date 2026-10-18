@@ -5,7 +5,7 @@ import { callout, card, el, grid, initPage, runButton, table, tiles, toolbarNumb
 const page = initPage({
   id: 'qa',
   title: 'Reading for answers (QA)',
-  context: 'models: capsuleIngest · capsuleRecall · readingQA · readingStudent · readingNotes · fused kernels in the space Cl(4, 1) · golden answers from FineWeb-Edu',
+  context: 'models: capsuleIngest · capsuleQA · capsuleRecall · readingQA · readingStudent · readingNotes · fused kernels in the space Cl(4, 1) · golden answers from FineWeb-Edu',
   description: 'A reader reads FineWeb-Edu passages and answers questions about them; its answers are compared with <b>golden answers</b> ' +
     '(<a href="https://huggingface.co/datasets/edededdy/fineweb-edu-grounded-qa">edededdy/fineweb-edu-grounded-qa</a>, ODC-By). The reader ' +
     '<b>learns how informative each word is</b> from everything it reads, weighs every sentence by the question\'s informative words in it ' +
@@ -20,6 +20,26 @@ const page = initPage({
 });
 
 const questions = toolbarNumber(page, 'questions', 60, { step: 10, width: 50 });
+
+// How capsuleQA worked out an answer: for each part of the question, the evidence, the reasoning
+// (the habits that weighed most) and the answer.
+function traceOf(a) {
+  const list = el('ol', { style: 'margin:4px 0 0 0;padding-left:20px' });
+  for (const p of a.parts) {
+    const item = el('li', { style: 'margin-bottom:6px' }, el('div', {}, el('i', { text: p.part })));
+    if (p.referred && p.referred.length) item.append(el('div', { class: 'note', text: `its pronoun refers to: ${Array.from(p.referred).join(' ')}` }));
+    if (!p.evidence) {
+      item.append(el('div', { class: 'note', text: 'nothing it knows says it' }));
+    } else {
+      const e = p.evidence;
+      item.append(el('div', { class: 'note', text: `evidence: [${e.subject}] [${e.relation}] [${e.object}] — belief ${fmt.pct(p.belief, 0)}` }),
+        el('div', { class: 'note', text: `reasoning: says ${p.saying}; weighed by ${Array.from(p.reasoning).map((w) => `${w.habit} (${w.weight.toFixed(2)})`).join('; ')}` }),
+        el('div', { text: `answer: ${p.answer}` }));
+    }
+    list.append(item);
+  }
+  return list;
+}
 
 // Ask the reader: about a passage of your own, or, with no passage, from what it knows (outside
 // page.content, which each run clears).
@@ -40,14 +60,13 @@ ask.addEventListener('click', async () => {
       const { results: [ing] } = await runModels([['capsuleIngest', { capsuleIngest: { passages: [own] } }]], page);
       packed = ing.packed;
     }
-    const { results: [rec] } = await runModels([['capsuleRecall', { capsuleRecall: packed ? { packed } : {} }]], page);
-    const q = { passages: [], recalled: rec.recalled, questions: [own ? { question: question.value, capsule: 0 } : { question: question.value }] };
-    const { results: [r] } = await runModels([['readingQA', { readingQA: q }]], page);
+    // Recall, reasoning and answering in one kernel (capsuleQA), from the capsule alone.
+    const q = packed ? { packed, questions: [{ question: question.value, capsule: 0 }] } : { questions: [{ question: question.value }] };
+    const { results: [r] } = await runModels([['capsuleQA', { capsuleQA: q }]], page);
     const a = r.answers[0];
     reply.innerHTML = '';
-    reply.append(el('p', {}, el('b', { text: a.constructed || '(nothing it knows says that)' }),
-      ` — constructed from its capsule (belief ${fmt.pct(a.constructedBelief || 0, 0)}; ${r.capsule.facts} facts recalled from ${rec.points} codes, ` +
-      `${fmt.pct(rec.recovered, 0)} exactly)`));
+    reply.append(el('p', {}, el('b', { text: a.answer || '(nothing it knows says that)' }), ' — reasoned from its capsule'));
+    reply.append(traceOf(a));
   } catch (e) {
     reply.textContent = 'Error: ' + e.message;
   } finally {
@@ -59,7 +78,8 @@ page.content.before(el('section', { class: 'card' }, el('h2', { text: 'Ask the r
 runButton(page, 'Run', async (spec) => {
   // The golden passages ingested and packed; recalled from the packed bytes alone.
   const { results: [ing] } = await runModels([['capsuleIngest', { ...spec, capsuleIngest: { questions: questions() } }]], page);
-  const { results: [rec] } = await runModels([['capsuleRecall', { ...spec, capsuleRecall: { packed: ing.packed } }]], page);
+  const { results: [rec, reasoned] } = await runModels([['capsuleRecall', { ...spec, capsuleRecall: { packed: ing.packed } }],
+    ['capsuleQA', { ...spec, capsuleQA: { packed: ing.packed, questions: questions() } }]], page);
   const { results: [r, student, notes], note } = await runModels([
     ['readingQA', { ...spec, readingQA: { set: 'golden', questions: questions(), recalled: rec.recalled } }],
     ['readingStudent', { ...spec, readingStudent: { questions: questions(), students: 32 } }],
@@ -69,6 +89,7 @@ runButton(page, 'Run', async (spec) => {
   tiles(page.content, [
     { label: 'Reader', value: s.reading.toFixed(3), hint: `token F1 against the golden answers (${r.scored} questions)` },
     { label: 'Remembering', value: s.remembered.toFixed(3), hint: `with the reading habits of its memory (generation ${r.memory.generation})` },
+    { label: 'Reasoned', value: reasoned.f1.toFixed(3), hint: 'capsuleQA: the question in parts, the evidence in the space, each part\'s answer constructed — from the capsule alone' },
     { label: 'Constructed', value: s.constructed.toFixed(3), hint: `from its knowledge capsule alone, never the text: ${r.capsule.facts} facts recalled from ${ing.bytes.total.toLocaleString()} bytes, ${fmt.pct(ing.bytes.ratio, 0)} of the text (${fmt.pct(rec.recovered, 0)} exactly)` },
     { label: 'Open book', value: s.openBook.toFixed(3), hint: `from all ${r.sentences.length} sentences; the right passage ${fmt.pct(s.openBookFoundPassage, 0)} of the time` },
     { label: 'Ceiling', value: s.oracle.toFixed(3), hint: 'the passage sentence closest to the golden answer' },
@@ -130,6 +151,16 @@ runButton(page, 'Run', async (spec) => {
   table(remembers, ['answering habit', 'weight'], student.memory.weights.map((w, k) => [sd[0].habits[k].habit, w.toFixed(2)]));
   table(remembers, ['note-taking habit', 'weight'], notes.memory.weights.map((w, k) => [notes.memory.habits[k], w.toFixed(2)]));
   table(remembers, ['constructing habit', 'weight'], r.memory.constructing.map((h) => [h.habit, h.weight.toFixed(2)]));
+  // ---- How it reasoned: worked answers (a question in parts first).
+  const worked = [...reasoned.answers.filter((a) => a.parts.length > 1).slice(0, 1), ...reasoned.answers.filter((a) => a.parts.length === 1).slice(0, 2)];
+  const rc = card(grid(page.content, true), 'How it reasoned', 'capsuleQA works out each answer as Claude did as a student of the same lessons ' +
+    '(its habits are the constructing prior): the question in parts, one sentence each; for each part the evidence — the facts of the capsule ' +
+    'holding the question\'s informative words, by identity of their points; the reasoning — the grammar\'s ways of saying it weighed by the habits; ' +
+    'and the answer. All in one kernel, from the capsule alone.');
+  for (const a of worked) {
+    rc.append(el('p', { style: 'margin:12px 0 2px' }, el('b', { text: a.question })), traceOf(a),
+      el('div', { class: 'note', text: `Golden: ${a.golden} — F1 ${a.f1.toFixed(2)}` }));
+  }
   // ---- The knowledge capsule: the index router of grades, the bytes, one passage's facts recalled.
   const roles = ['subject', 'relation', 'object'];
   const dict = rec.recalled.dictionary;

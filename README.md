@@ -316,6 +316,7 @@ Each model is one file in `src/models/`, and its tests are in `tests/test_models
 | The reader as a student | `reading_student.cpp` | A student learns reading and note-taking habits from golden lessons with every learning method of the library as a switch — reinforcement, schema, interleaving, worked examples, spaced retrieval, equilibration, scaffolding, peer discussion, self-direction, growth mindset, reflection — in 24 study designs, scored on held-out golden answers; it starts from and returns the reader's memory |
 | QA golden test | `reading_qa.cpp` | A reader learns word informativeness (idf) from a corpus and believes the sentence that answers a question (BM25 evidence read as a point); reading and open book; scored against golden answers in `tools/qa_golden` |
 | Taking notes | `reading_notes.cpp` | Before any question, the reader keeps the sentences of each passage it believes are worth keeping (learned note-taking habits read as a point) |
+| Reasoning from the capsule | `reading_capsule.cpp` (`capsuleQA`) | Recall, reasoning and answering in one kernel: question parts, evidence by identity of points, the grammar's ways of saying each fact weighed by the constructing habits (Claude's, as the prior); answers with their traces |
 | Knowledge capsule | `reading_capsule.cpp` | The grammar reads clauses as facts; every word a multivector whose grades — fact, word point, grammar bivector — an index router isolates and routes to packed codes (41.5% of the text); recalled from the codes by rebuilding the rotor from grade 2; answers constructed from the recalled facts |
 | FGA: rotors | `fga_rotors.cpp` | Regular polysemy as a rotor family: a rotor of Cl(4, 1) learned by exact plane steps against a learned 5 × 5 projection, from one to six words |
 | Combining the theories | `classroom.cpp` (`classroom`) | Every theory acting on the same learners over a course; score, recall and risk profiles; equity; per-learner read-back |
@@ -416,6 +417,20 @@ generation. On the 200 golden questions:
 | **constructed from its knowledge capsule alone (never sees the text)** | **0.348** |
 | constructed with the prior constructing habits (before learning) | 0.297 |
 | the best answer the grammar could construct | 0.504 |
+
+**Reasoning and answering in one kernel** (`capsuleQA`, from the packed capsule alone): the question is split into its
+parts ("What are X and what are their Y?" — a second question word after "and"; a part's pronouns refer back to the first
+part's words); for each part, every fact of its capsule (or, with no capsule named, the facts of all capsules that share most
+with it) is recalled in the kernel — each code's rotor rebuilt and read back — and its evidence is the share of the question's
+informative words it holds, by identity of their points; the grammar's ways of saying it (the whole fact, the fact and the
+next, its predicate, object, subject) are weighed by the constructing habits, and the belief in each is a point of the space.
+Each part's best is one sentence of the answer; every answer carries its trace — part, evidence (subject | relation | object),
+reasoning (the habits that weighed most), answer. The constructing prior is the habits Claude learned as a student of the same
+lessons (`tools/qa_golden/claude_student`); one-part questions give exactly the answers of `readingQA`'s constructed plan (the
+same features, computed in the space). On the 200 golden questions: **reasoned 0.337**, constructed 0.342 — the reasoning is
+lexical: it finds facts that share the question's words, which on a question in parts is not yet better than one answer
+(28 questions have two parts). Feedback on these features adds nothing to Claude's habits: the student starts confident and
+stays where they are.
 
 The grammar is the space's too. Which word of a clause is the verb is decided in the ingest kernel: what the reader knows of
 a word on its own — its word class's closed lists (auxiliaries, prepositions, the words that go with a verb), its ending, its

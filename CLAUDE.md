@@ -59,4 +59,9 @@ Cl(4,1) (pure elliptic CGA). Read README.md for the models; this file keeps the 
   Verb finding is geometry (owner's ask): `memory::clauses()` gives cue bits only; the ingest kernel dilates a point by the
   cues and tests it against the verb class's cap (`word_classes` in reading_capsule.cpp). Next: learn the cue weights as
   a student, and vocabulary/association learning.
+- capsuleQA (owner's ask: ingestion, reasoning and answering as one model): recall + reasoning + answering in one kernel
+  from the codes; question parts (`memory::questionParts`), evidence by point identity, construct features v2 shared with
+  `memory::constructCandidates` (one-part answers must equal readingQA's constructed — tested). The constructing prior is
+  Claude's study habits (`tools/qa_golden/claude_student`); the memory's constructing section (v1) is refused per section,
+  so constructing runs on that prior. Results: reasoned 0.337, constructed 0.342 (v1-learned was 0.348).
 - JS may send an empty array as a numeric array: read spec arrays by index (`size()`, `operator[]`), not `asArray()`.
