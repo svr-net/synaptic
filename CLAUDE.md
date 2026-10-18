@@ -39,13 +39,16 @@ Cl(4,1) (pure elliptic CGA). Read README.md for the models; this file keeps the 
 - `tools/qa_golden/run.sh /path/to/knowledge` (data from `prepare.py`, pinned sha256, seed 2026); `--baseline` fails on a
   drop of more than 0.01 below `tools/qa_golden/baseline.json`. The data lives outside the repo (e.g. build/qa_golden).
 - What the reader keeps: `src/models/reading_memory.{hpp,cpp}` loads `student_memory.inc` (reading, note-taking and
-  constructing weights, generation, provenance, fingerprint of the habits) and the knowledge capsule
-  `reader_capsule_{lexicon,points}.inc` (points of the 60 embedded golden passages; no text).
+  constructing weights, generation, provenance, fingerprint of the habits) and the knowledge capsule `reader_capsule.inc`
+  (the 60 embedded golden passages, packed: base64 of `memory::packCapsule`; no text).
   Changing a habit's definition: bump its version in `memory::fingerprint()` — the old memory is then refused, not misapplied.
-- Owner's rule: constructed answers must never use the original text — only the capsule (points + lexicon), the grammar
-  and the learned habits. The grammar's operators are in `grammarWgsl()` (role and place rotors; `grammarOf` reads the rotor
-  off the angles; recall re-binds to check exactly). Changing the grammar or the rotors: regenerate the capsule.
-- To grow them: `build/qa_golden DATA --write-memory src/models/student_memory.inc --write-capsule src/models/reader_capsule`,
+- Owner's rule: constructed answers must never use the original text — only the capsule (codes + lexicon), the grammar
+  and the learned habits. The capsule is an index router of grades (owner's ask): a slot is a multivector, grade 0 fact,
+  grade 1 word point, grade 2 the grammar bivector; ingest isolates each grade and routes it to its codebook (code =
+  (vocabulary index · 3 + role) · 32 + place); recall rebuilds the rotor from grade 2 and reads role/place back
+  (`grammarOf`). The capsule must stay smaller than the text (`capsuleSaving` in the baseline). Changing the grammar, the
+  rotors or the packing: regenerate the capsule.
+- To grow them: `build/qa_golden DATA --write-memory src/models/student_memory.inc --write-capsule src/models/reader_capsule.inc`,
   rebuild, `--write-baseline tools/qa_golden/baseline.json`, copy DATA/report.md to tools/qa_golden/report.md, rebuild
   web/wasm (Docker), commit. Don't write a new memory generation if it scores below the current one.
 - The student studies with every learning method of the library (`kMethods` in reading_student.cpp, one bit each of the

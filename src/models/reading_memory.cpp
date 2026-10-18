@@ -52,14 +52,10 @@ const Stored kStored =
 #include "student_memory.inc"
     ;
 
-// The stored capsule: the lexicon, and a stream of numbers — the passages; for each, its vocabulary
-// (lexicon indices), its facts (slots in each) and the points of its slots (5 coordinates each).
-const char* const kCapsuleLexicon[] = {
-#include "reader_capsule_lexicon.inc"
-    nullptr};
-const float kCapsulePoints[] = {
-#include "reader_capsule_points.inc"
-};
+// The stored capsule: its packed bytes (packCapsule), in base64.
+const char* const kCapsuleBlob =
+#include "reader_capsule.inc"
+    ;
 
 bool hasDigit(const std::string& s) { return std::any_of(s.begin(), s.end(), [](unsigned char c) { return std::isdigit(c) != 0; }); }
 bool hasName(const std::string& s) {
@@ -537,29 +533,159 @@ std::vector<Fact> factsFor(const std::string& question, const std::vector<std::v
   return out;
 }
 
-const Value& storedCapsule() {
-  static const Value v = [] {
-    Value dictionary = Value::array(), passages = Value::array();
-    for (const char* const* w = kCapsuleLexicon; *w; ++w) dictionary.push(*w);
-    std::size_t at = 0;
-    const std::size_t size = sizeof(kCapsulePoints) / sizeof(kCapsulePoints[0]);
-    auto next = [&]() { return at < size ? static_cast<double>(kCapsulePoints[at++]) : 0.0; };
-    const auto count = static_cast<std::size_t>(next());
-    for (std::size_t p = 0; p < count; ++p) {
-      std::vector<double> vocabulary, facts, points;
-      const auto nv = static_cast<std::size_t>(next());
-      for (std::size_t k = 0; k < nv; ++k) vocabulary.push_back(next());
-      const auto nf = static_cast<std::size_t>(next());
-      std::size_t slots = 0;
-      for (std::size_t k = 0; k < nf; ++k) {
-        facts.push_back(next());
-        slots += static_cast<std::size_t>(facts.back());
-      }
-      for (std::size_t k = 0; k < 5 * slots; ++k) points.push_back(next());
-      passages.push(Value::object().set("vocabulary", Value::Numbers(vocabulary)).set("facts", Value::Numbers(facts)).set("points", Value::Numbers(points)));
+// ---- Packing the capsule: the codes of the index router, bit by bit.
+
+namespace {
+
+void putVarint(std::vector<std::uint8_t>& out, std::uint32_t v) {
+  while (v >= 0x80) {
+    out.push_back(static_cast<std::uint8_t>(v | 0x80));
+    v >>= 7;
+  }
+  out.push_back(static_cast<std::uint8_t>(v));
+}
+std::uint32_t getVarint(const std::vector<std::uint8_t>& in, std::size_t& at) {
+  std::uint32_t v = 0;
+  for (int shift = 0; at < in.size(); shift += 7) {
+    const std::uint8_t b = in[at++];
+    v |= static_cast<std::uint32_t>(b & 0x7f) << shift;
+    if (!(b & 0x80)) break;
+  }
+  return v;
+}
+// Bits per code of a passage: the codebooks of its levels — its vocabulary × the grammar's
+// 3 roles × 32 places.
+unsigned codeBits(std::size_t vocabulary) {
+  unsigned b = 1;
+  while ((std::size_t{1} << b) < std::max<std::size_t>(2, vocabulary * 96)) ++b;
+  return b;
+}
+const char* const kBase64 = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+
+}  // namespace
+
+CapsuleBytes packCapsule(const Value& capsule) {
+  CapsuleBytes out;
+  std::vector<std::uint8_t>& b = out.bytes;
+  // The lexicon, front-coded: the prefix it shares with the word before, and the rest.
+  const Value& dict = capsule.at("dictionary");
+  putVarint(b, static_cast<std::uint32_t>(dict.size()));
+  std::string last;
+  for (std::size_t w = 0; w < dict.size(); ++w) {
+    const std::string word = dict[w].asString();
+    std::size_t shared = 0;
+    while (shared < last.size() && shared < word.size() && last[shared] == word[shared]) ++shared;
+    putVarint(b, static_cast<std::uint32_t>(shared));
+    putVarint(b, static_cast<std::uint32_t>(word.size() - shared));
+    b.insert(b.end(), word.begin() + static_cast<std::ptrdiff_t>(shared), word.end());
+    last = word;
+  }
+  out.lexicon = b.size();
+  const auto& passages = capsule.at("passages").asArray();
+  putVarint(b, static_cast<std::uint32_t>(passages.size()));
+  for (const auto& p : passages) {
+    // Level 1's codebook: the passage's vocabulary (lexicon indices, ascending, as differences).
+    std::size_t at = b.size();
+    const Value& vocab = p.at("vocabulary");
+    putVarint(b, static_cast<std::uint32_t>(vocab.size()));
+    std::uint32_t prev = 0;
+    for (std::size_t k = 0; k < vocab.size(); ++k) {
+      const auto v = static_cast<std::uint32_t>(vocab[k].asNumber());
+      putVarint(b, v - prev);
+      prev = v;
     }
-    return Value::object().set("dictionary", dictionary).set("passages", passages);
-  }();
+    out.vocabulary += b.size() - at;
+    // Level 0: the facts, as run lengths of their slots.
+    at = b.size();
+    const Value& facts = p.at("facts");
+    putVarint(b, static_cast<std::uint32_t>(facts.size()));
+    for (std::size_t k = 0; k < facts.size(); ++k) putVarint(b, static_cast<std::uint32_t>(facts[k].asNumber()));
+    out.facts += b.size() - at;
+    // Levels 1 and 2: each slot's code, bit-packed.
+    at = b.size();
+    const Value& codes = p.at("codes");
+    const unsigned bits = codeBits(vocab.size());
+    std::uint64_t acc = 0;
+    unsigned have = 0;
+    for (std::size_t k = 0; k < codes.size(); ++k) {
+      acc |= static_cast<std::uint64_t>(codes[k].asNumber()) << have;
+      have += bits;
+      while (have >= 8) {
+        b.push_back(static_cast<std::uint8_t>(acc & 0xff));
+        acc >>= 8;
+        have -= 8;
+      }
+    }
+    if (have > 0) b.push_back(static_cast<std::uint8_t>(acc & 0xff));
+    out.codes += b.size() - at;
+  }
+  for (std::size_t i = 0; i < b.size(); i += 3) {
+    const std::uint32_t n = (std::uint32_t{b[i]} << 16) | (i + 1 < b.size() ? std::uint32_t{b[i + 1]} << 8 : 0u) | (i + 2 < b.size() ? b[i + 2] : 0u);
+    out.base64 += kBase64[(n >> 18) & 63];
+    out.base64 += kBase64[(n >> 12) & 63];
+    out.base64 += i + 1 < b.size() ? kBase64[(n >> 6) & 63] : '=';
+    out.base64 += i + 2 < b.size() ? kBase64[n & 63] : '=';
+  }
+  return out;
+}
+
+Value unpackCapsule(const std::string& base64) {
+  std::vector<std::uint8_t> b;
+  std::uint32_t acc = 0;
+  int have = 0;
+  for (char c : base64) {
+    const char* at = std::strchr(kBase64, c);
+    if (!at || c == '\0') continue;  // '=' and anything else end or pad
+    acc = (acc << 6) | static_cast<std::uint32_t>(at - kBase64);
+    have += 6;
+    if (have >= 8) {
+      have -= 8;
+      b.push_back(static_cast<std::uint8_t>((acc >> have) & 0xff));
+    }
+  }
+  std::size_t at = 0;
+  Value dictionary = Value::array(), passages = Value::array();
+  std::string last;
+  const std::uint32_t words = getVarint(b, at);
+  for (std::uint32_t w = 0; w < words; ++w) {
+    const std::uint32_t shared = getVarint(b, at), rest = getVarint(b, at);
+    std::string word = last.substr(0, shared);
+    word.append(reinterpret_cast<const char*>(b.data() + at), std::min<std::size_t>(rest, b.size() - at));
+    at += rest;
+    dictionary.push(word);
+    last = word;
+  }
+  const std::uint32_t count = at < b.size() ? getVarint(b, at) : 0;
+  for (std::uint32_t p = 0; p < count; ++p) {
+    std::vector<double> vocabulary, facts, codes;
+    const std::uint32_t nv = getVarint(b, at);
+    std::uint32_t prev = 0;
+    for (std::uint32_t k = 0; k < nv; ++k) vocabulary.push_back(prev += getVarint(b, at));
+    const std::uint32_t nf = getVarint(b, at);
+    std::size_t slots = 0;
+    for (std::uint32_t k = 0; k < nf; ++k) {
+      facts.push_back(getVarint(b, at));
+      slots += static_cast<std::size_t>(facts.back());
+    }
+    const unsigned bits = codeBits(nv);
+    std::uint64_t bitsAcc = 0;
+    unsigned inAcc = 0;
+    for (std::size_t k = 0; k < slots; ++k) {
+      while (inAcc < bits && at < b.size()) {
+        bitsAcc |= static_cast<std::uint64_t>(b[at++]) << inAcc;
+        inAcc += 8;
+      }
+      codes.push_back(static_cast<double>(bitsAcc & ((std::uint64_t{1} << bits) - 1)));
+      bitsAcc >>= bits;
+      inAcc -= bits;
+    }
+    passages.push(Value::object().set("vocabulary", Value::Numbers(vocabulary)).set("facts", Value::Numbers(facts)).set("codes", Value::Numbers(codes)));
+  }
+  return Value::object().set("dictionary", dictionary).set("passages", passages);
+}
+
+const Value& storedCapsule() {
+  static const Value v = unpackCapsule(kCapsuleBlob);
   return v;
 }
 

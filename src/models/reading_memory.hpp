@@ -6,12 +6,13 @@
 //     to a question), of its note-taking habits (which sentences are worth keeping) and of its
 //     constructing habits (how to say an answer from what it knows), learned from golden answers,
 //     with a fingerprint of the habits they were learned for;
-//   - its knowledge, a capsule (reader_capsule_*.inc): the passages it read, ingested as points of
-//     the space — each word a point, turned by the rotor of its grammatical role — and a lexicon of
-//     the words it knows. Answers are constructed from the capsule by the grammar, never copied
-//     from the text.
+//   - its knowledge, a capsule (reader_capsule.inc): the passages it read, ingested into the space —
+//     each word a multivector whose grades (fact, word point, grammar bivector) an index router
+//     routes to packed codes — and a lexicon of the words it knows. Answers are constructed from the
+//     capsule by the grammar, never copied from the text.
 // Host-side preparation only: parsing, the habits as features of candidates; encoding, recall and
 // scoring run in WGSL.
+#include <cstdint>
 #include <string>
 #include <vector>
 
@@ -105,7 +106,19 @@ std::vector<Candidates> constructCandidates(const std::vector<Item>& items, cons
 /** For a question with no capsule: the facts of all capsules that share most with it. */
 std::vector<Fact> factsFor(const std::string& question, const std::vector<std::vector<Fact>>& all, std::size_t keep);
 
-/** The stored capsule (reader_capsule_*.inc): the golden passages, ingested; capsuleRecall's default. */
+/** The capsule packed: the lexicon front-coded, and per passage its vocabulary (level 1's
+ *  codebook), its facts as run lengths (level 0) and each slot's code (levels 1 and 2: the word in
+ *  the vocabulary, the role and the place), bit-packed. The bytes of each part, and all in base64. */
+struct CapsuleBytes {
+  std::vector<std::uint8_t> bytes;
+  std::size_t lexicon = 0, vocabulary = 0, facts = 0, codes = 0;
+  std::string base64;
+};
+CapsuleBytes packCapsule(const Value& capsule);
+/** The capsule from its packed bytes (base64). */
+Value unpackCapsule(const std::string& base64);
+
+/** The stored capsule (reader_capsule.inc): the golden passages, ingested; capsuleRecall's default. */
 const Value& storedCapsule();
 
 }  // namespace syn::models::memory

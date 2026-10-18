@@ -316,7 +316,7 @@ Each model is one file in `src/models/`, and its tests are in `tests/test_models
 | The reader as a student | `reading_student.cpp` | A student learns reading and note-taking habits from golden lessons with every learning method of the library as a switch — reinforcement, schema, interleaving, worked examples, spaced retrieval, equilibration, scaffolding, peer discussion, self-direction, growth mindset, reflection — in 24 study designs, scored on held-out golden answers; it starts from and returns the reader's memory |
 | QA golden test | `reading_qa.cpp` | A reader learns word informativeness (idf) from a corpus and believes the sentence that answers a question (BM25 evidence read as a point); reading and open book; scored against golden answers in `tools/qa_golden` |
 | Taking notes | `reading_notes.cpp` | Before any question, the reader keeps the sentences of each passage it believes are worth keeping (learned note-taking habits read as a point) |
-| Knowledge capsule | `reading_capsule.cpp` | The grammar reads clauses as facts; every word a point of S³ turned by the rotors of its role and place; recalled from the points alone by reading the rotor off the rotation angles; answers constructed from the recalled facts |
+| Knowledge capsule | `reading_capsule.cpp` | The grammar reads clauses as facts; every word a multivector whose grades — fact, word point, grammar bivector — an index router isolates and routes to packed codes (41.5% of the text); recalled from the codes by rebuilding the rotor from grade 2; answers constructed from the recalled facts |
 | FGA: rotors | `fga_rotors.cpp` | Regular polysemy as a rotor family: a rotor of Cl(4, 1) learned by exact plane steps against a learned 5 × 5 projection, from one to six words |
 | Combining the theories | `classroom.cpp` (`classroom`) | Every theory acting on the same learners over a course; score, recall and risk profiles; equity; per-learner read-back |
 | Activity 3.3 | `classroom.cpp` (`theories`) | The lesson each theory designs (16 levers), on children, teenagers and adults: 24 jobs, one dispatch |
@@ -381,20 +381,32 @@ library and the WASM build.
   the prior. Each `readingStudent` run starts from the memory (`memory: false` starts fresh; `notes: true` learns
   note-taking; `construct: true` learns constructing) and returns `remember`. With `anchor`, every lesson also pulls the
   habits back towards where it started (drift over 20 lessons 0.36 → 0.06).
-- **Knowledge: a capsule in the space** (`reading_capsule.cpp`; stored: `reader_capsule_{lexicon,points}.inc`, the 60
-  embedded golden passages). `capsuleIngest`: the grammar reads every clause as a fact — subject, relation, object — and
-  every word of a fact becomes a point of S³ (its coordinates lifted), turned by the grammar's operators: the rotor R_r of
-  its role in the (N, A) plane and S^k of its place in the (B, C) plane. The capsule keeps only these points — each fact's
-  out of order — and a lexicon of the words it knows; not the text. `capsuleRecall`: from the points alone, the word of the
-  passage's vocabulary that a rotor of the grammar turns into each point, and that rotor, read off the two rotation angles
-  and checked exactly; the facts are put back in order by the rotors. On the 600 passages of the golden test (247,289
-  points) every point comes back as its word, role and place.
+- **Knowledge: a capsule in the space, packed by an index router of grades** (`reading_capsule.cpp`; stored:
+  `reader_capsule.inc`, the 60 embedded golden passages). `capsuleIngest`: the grammar reads every clause as a fact — subject,
+  relation, object — and every word of a fact becomes one multivector of Cl(4, 1) whose grades are the levels of the index:
+  grade 0 its fact, grade 1 its word's point of S³, grade 2 the grammar's bivector θ/2·e_N∧e_A + φ/2·e_B∧e_C (role and
+  place), the generator of the rotor that binds the word. The index router isolates each grade (⟨M⟩_k) and routes it to its
+  level's codebook — the passage's vocabulary, the lattice of 3 roles × 32 places, the runs of facts — and the capsule keeps
+  only the codes, bit-packed, with the lexicon front-coded; not the text. `capsuleRecall` (from the codes, or the `packed`
+  bytes): each slot's multivector rebuilt, the rotor exp(−B) formed from its isolated grade 2, the word bound by it (R w R̃),
+  and the role and place read back off the bound point and checked; each fact's codes are kept out of order and put back by
+  the places. On the 600 passages of the golden test every one of 249,064 words comes back exactly, from **41.5% of the bytes
+  of the text** (824 KB for 1.99 MB; the 60 stored passages: 105 KB for 212 KB, 49.6%):
+
+  | part | bytes (600 passages) |
+  |---|---:|
+  | codes: a word's place in its vocabulary, its role and place (grades 1, 2) | 474,030 |
+  | vocabularies (grade 1's codebooks) | 179,478 |
+  | lexicon, front-coded | 151,904 |
+  | facts, as run lengths (grade 0) | 19,004 |
+  | **capsule** | **824,418** |
+  | text | 1,985,545 |
 - **Constructed answers** (`readingQA` with `recalled`): the grammar says candidate answers from the recalled facts — the
   whole fact, its predicate, its object, its subject, or two facts — and the constructing habits (learned as a student,
   with all methods) choose one. The text never reaches this answer. With no passage at all, it answers from the facts of all
   its capsules that share most with the question.
 
-`qa_golden DATA_DIR --write-memory src/models/student_memory.inc --write-capsule src/models/reader_capsule` writes the next
+`qa_golden DATA_DIR --write-memory src/models/student_memory.inc --write-capsule src/models/reader_capsule.inc` writes the next
 generation. On the 200 golden questions:
 
 | answer | token F1 |

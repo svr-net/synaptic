@@ -1,5 +1,6 @@
 // Every model of the library, run as its fused kernel on the CPU in 64-bit floats: the results
 // reproduce what the chapters describe. (test_space checks that the 32-bit engines agree.)
+#include <algorithm>
 #include <cmath>
 #include <utility>
 #include <string>
@@ -550,6 +551,10 @@ TEST(reading_capsule_recalls_words_and_grammar_from_points) {
   const Value r = run("capsuleRecall", spec(64));
   CHECK(num(r, "recovered") == 1.0);
   CHECK(r.at("recalled").at("passages").size() == 60);
+  // The 60 golden passages ingested: routed grade by grade, packed in half the bytes of their text.
+  const Value all = run("capsuleIngest", spec(64));
+  CHECK(num(all, "routed") > 0.9999);
+  CHECK(num(all.at("bytes"), "ratio") < 0.6);
   // A passage ingested: its facts, then the same facts recalled from the points alone — also when the
   // points of each fact are kept in another order, since the order is in the rotors.
   Value in = spec(64);
@@ -573,22 +578,26 @@ TEST(reading_capsule_recalls_words_and_grammar_from_points) {
     for (std::size_t k = 0; k < fact.at(role).size(); ++k) said += dict[static_cast<std::size_t>(fact.at(role)[k].asNumber())].asString() + " ";
   CHECK(said == "length of waggle run tells other bees how far away flowers are ");  // articles dropped
   CHECK(fact.at("relation").size() == 1);  // "tells": the verb
-  // The points of each fact reversed: the same facts.
-  Value::Numbers points = capsule.at("passages").asArray()[0].at("points").asNumbers();
+  // The codes of each fact reversed: the same facts (the order is in the grammar's bivectors).
+  Value::Numbers codes = capsule.at("passages").asArray()[0].at("codes").asNumbers();
   const Value::Numbers sizes = capsule.at("passages").asArray()[0].at("facts").asNumbers();
   std::size_t at = 0;
   for (double n : sizes) {
     const auto slots = static_cast<std::size_t>(n);
-    for (std::size_t k = 0; k < slots / 2; ++k)
-      for (std::size_t c = 0; c < 5; ++c) std::swap(points[5 * (at + k) + c], points[5 * (at + slots - 1 - k) + c]);
+    std::reverse(codes.begin() + static_cast<std::ptrdiff_t>(at), codes.begin() + static_cast<std::ptrdiff_t>(at + slots));
     at += slots;
   }
   Value shuffled = capsule;
   shuffled.fields()["passages"] = Value(Value::Array{Value::object()
                                                         .set("vocabulary", capsule.at("passages").asArray()[0].at("vocabulary"))
                                                         .set("facts", capsule.at("passages").asArray()[0].at("facts"))
-                                                        .set("points", Value(points))});
+                                                        .set("codes", Value(codes))});
   CHECK(recall(shuffled).at("recalled").json() == once.at("recalled").json());
+  // Packed, it recalls the same from its bytes alone (a capsule of many passages is smaller than
+  // their text: see above; two sentences are mostly their lexicon).
+  Value fromBytes = spec(64);
+  fromBytes.set("capsuleRecall", Value::object().set("packed", ing.at("packed")));
+  CHECK(run("capsuleRecall", fromBytes).at("recalled").json() == once.at("recalled").json());
 }
 
 TEST(reading_qa_constructs_answers_from_the_capsule_alone) {
