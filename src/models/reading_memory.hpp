@@ -86,8 +86,18 @@ struct Fact {
 constexpr int kRoles = 3;
 extern const char* const kRoleNames[kRoles];
 
-/** The facts of a passage: its sentences split into clauses, each read as subject, relation, object. */
-std::vector<Fact> grammar(const std::string& passage);
+/** The cues a reader knows of a word on its own (bits): its word class's closed lists, its ending,
+ *  its capital, its neighbour. Which word of a clause is the verb, and so every word's role, is
+ *  decided in the space (capsuleIngest): the cues dilate a point, the verb class is a cap. */
+constexpr std::uint32_t kCueAuxiliary = 1, kCueVerbEnding = 2, kCueFunctionWord = 4, kCueCapital = 8, kCueAfterPreposition = 16,
+                        kCueFirst = 32, kCueGoesWithVerb = 64, kCueAfterPlural = 128;
+/** A clause of a passage (at least three words, articles dropped) and the cues of its words. */
+struct Clause {
+  std::vector<std::string> words;
+  std::vector<std::uint32_t> cues;
+};
+/** The clauses of a passage: its sentences split at ; : and at a comma before a conjunction. */
+std::vector<Clause> clauses(const std::string& passage);
 /** Where a word lives in the space: three coordinates that `lift` takes to a point of S³ (a hash
  *  of the word, the same for every reader). */
 void wordCoordinates(const std::string& word, float u[3]);
