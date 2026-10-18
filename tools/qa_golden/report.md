@@ -16,7 +16,18 @@ Open book, the reader's answer came from the question's own passage for 96% of t
 
 ## The knowledge capsule
 
-The grammar read the 600 passages (200 of the test, 400 of the lessons; 327626 words) as 18404 facts — subject, relation, object — and ingested them as 249064 points of the space, each word turned by the grammar's rotors of its role and place (and kept out of order), over a lexicon of 29104 words. Recalled from the points alone, 100% of them came back as their word, role and place. Constructed answers are said by the grammar from the recalled facts — the whole fact, its predicate, its object or its subject — and chosen by the constructing habits; the text is never used.
+The grammar read the 600 passages (200 of the test, 400 of the lessons; 327626 words) as 18404 facts — subject, relation, object. Every word of a fact is one multivector of the space whose grades are the levels of the index: grade 0 its fact, grade 1 its word's point, grade 2 the grammar's bivector (role and place). The index router isolates each grade and routes it to its codebook — the passage's vocabulary, the grammar's lattice of 3 roles × 32 places, the runs of facts — and the capsule keeps only the codes, over a lexicon of 29104 words. Recalled from the codes alone — the rotor rebuilt from grade 2, the word bound by it, its role and place read back off the bound point — 100% of the 249064 words came back exactly.
+
+| | bytes |
+|---|---:|
+| the text | 1985545 |
+| **the capsule, packed** | **824418 (41.5% of the text)** |
+| codes: a word's place in its vocabulary, role and place (levels 1, 2) | 474030 |
+| the lexicon, front-coded | 151904 |
+| the vocabularies (level 1's codebooks) | 179478 |
+| the facts, as run lengths (level 0) | 19004 |
+
+Constructed answers are said by the grammar from the recalled facts — the whole fact, its predicate, its object, its subject or two facts — and chosen by the constructing habits; the text is never used.
 
 ## The reader as a student: picking an answer
 
@@ -81,30 +92,30 @@ Candidates: what the grammar can say from each fact recalled from the capsule �
 | reinforcement + self-direction | 0.344 | 0.353 |
 | reinforcement + growth mindset | 0.344 | 0.353 |
 | reinforcement + reflection: one or two changes at a time | 0.344 | 0.353 |
-| all methods | 0.33 | 0.336 |
-| all methods but schema: starts from its memory | 0.332 | 0.34 |
-| all methods but interleaving question kinds | 0.323 | 0.333 |
+| all methods | 0.335 | 0.344 |
+| all methods but schema: starts from its memory | 0.336 | 0.346 |
+| all methods but interleaving question kinds | 0.324 | 0.333 |
 | all methods but worked examples | 0.306 | 0.3 |
-| all methods but spaced retrieval of mistakes | 0.327 | 0.334 |
-| all methods but equilibration: assimilate or accommodate | 0.332 | 0.337 |
+| all methods but spaced retrieval of mistakes | 0.325 | 0.333 |
+| all methods but equilibration: assimilate or accommodate | 0.33 | 0.336 |
 | all methods but scaffolding: easy before hard | 0.328 | 0.335 |
-| all methods but peer discussion | 0.34 | 0.354 |
+| all methods but peer discussion | 0.339 | 0.353 |
 | all methods but self-direction | 0.333 | 0.34 |
-| all methods but growth mindset | 0.334 | 0.344 |
-| all methods but reflection: one or two changes at a time | 0.338 | 0.349 |
+| all methods but growth mindset | 0.335 | 0.343 |
+| all methods but reflection: one or two changes at a time | 0.339 | 0.35 |
 
 | method | library models | added to reinforcement | left out of all |
 |---|---|---:|---:|
-| schema: starts from its memory | schema | +0.002 | +0.002 |
-| interleaving question kinds | interleaving | -0.001 | -0.008 |
-| worked examples | gagne, lecture | +0.003 | -0.024 |
-| spaced retrieval of mistakes | memory | +0.003 | -0.003 |
-| equilibration: assimilate or accommodate | equilibration | +0.003 | +0.002 |
-| scaffolding: easy before hard | zpd, scaffolding | -0.001 | -0.002 |
-| peer discussion | dialogue, discussion | -0.02 | +0.01 |
-| self-direction | andragogy | -0.001 | +0.002 |
-| growth mindset | motivation | -0.001 | +0.004 |
-| reflection: one or two changes at a time | reflection | -0.002 | +0.008 |
+| schema: starts from its memory | schema | +0.002 | +0.001 |
+| interleaving question kinds | interleaving | -0.001 | -0.011 |
+| worked examples | gagne, lecture | +0.003 | -0.029 |
+| spaced retrieval of mistakes | memory | +0.003 | -0.01 |
+| equilibration: assimilate or accommodate | equilibration | +0.003 | -0.005 |
+| scaffolding: easy before hard | zpd, scaffolding | -0.001 | -0.007 |
+| peer discussion | dialogue, discussion | -0.02 | +0.004 |
+| self-direction | andragogy | -0.001 | -0.002 |
+| growth mindset | motivation | -0.001 | -0 |
+| reflection: one or two changes at a time | reflection | -0.002 | +0.004 |
 
 ## The reader as a student: taking notes
 

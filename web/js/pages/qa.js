@@ -14,8 +14,8 @@ const page = initPage({
     'with SQuAD\'s token F1 against the golden answer, next to the passage\'s first sentence, a random sentence, and the oracle: the passage ' +
     'sentence closest to the golden answer, the ceiling of any one-sentence answer. It also answers with what it <b>remembers</b> (the ' +
     'reading habits it learned as a student), and from its <b>knowledge capsule</b> alone: every passage it reads is ingested into the space ' +
-    '— its grammar reads each clause as a fact (subject, relation, object) and every word becomes a point of S³ turned by the rotors of its ' +
-    'role and place — and recalled from the points; the answer is <b>constructed</b> by the grammar from the recalled facts, chosen by the ' +
+    '— its grammar reads each clause as a fact (subject, relation, object), every word becomes a multivector routed grade by grade to a ' +
+    'packed code (half the bytes of the text) — and recalled from the codes; the answer is <b>constructed</b> by the grammar from the recalled facts, chosen by the ' +
     'constructing habits it learned as a student, and never copied from the text. The full test (200 questions) is <code>tools/qa_golden</code>.',
 });
 
@@ -35,18 +35,18 @@ ask.addEventListener('click', async () => {
     // The passage is ingested into a capsule and recalled; the answer is constructed from the capsule
     // alone (no passage reaches readingQA). With no passage, from the stored capsule.
     const own = passage.value.trim();
-    let capsule;
+    let packed;
     if (own) {
       const { results: [ing] } = await runModels([['capsuleIngest', { capsuleIngest: { passages: [own] } }]], page);
-      capsule = ing.capsule;
+      packed = ing.packed;
     }
-    const { results: [rec] } = await runModels([['capsuleRecall', { capsuleRecall: capsule ? { capsule } : {} }]], page);
+    const { results: [rec] } = await runModels([['capsuleRecall', { capsuleRecall: packed ? { packed } : {} }]], page);
     const q = { passages: [], recalled: rec.recalled, questions: [own ? { question: question.value, capsule: 0 } : { question: question.value }] };
     const { results: [r] } = await runModels([['readingQA', { readingQA: q }]], page);
     const a = r.answers[0];
     reply.innerHTML = '';
     reply.append(el('p', {}, el('b', { text: a.constructed || '(nothing it knows says that)' }),
-      ` — constructed from its capsule (belief ${fmt.pct(a.constructedBelief || 0, 0)}; ${r.capsule.facts} facts recalled from ${rec.points} points, ` +
+      ` — constructed from its capsule (belief ${fmt.pct(a.constructedBelief || 0, 0)}; ${r.capsule.facts} facts recalled from ${rec.points} codes, ` +
       `${fmt.pct(rec.recovered, 0)} exactly)`));
   } catch (e) {
     reply.textContent = 'Error: ' + e.message;
@@ -57,7 +57,9 @@ ask.addEventListener('click', async () => {
 page.content.before(el('section', { class: 'card' }, el('h2', { text: 'Ask the reader' }), passage, question, ask, reply));
 
 runButton(page, 'Run', async (spec) => {
-  const { results: [rec] } = await runModels([['capsuleRecall', { ...spec }]], page);
+  // The golden passages ingested and packed; recalled from the packed bytes alone.
+  const { results: [ing] } = await runModels([['capsuleIngest', { ...spec, capsuleIngest: { questions: questions() } }]], page);
+  const { results: [rec] } = await runModels([['capsuleRecall', { ...spec, capsuleRecall: { packed: ing.packed } }]], page);
   const { results: [r, student, notes], note } = await runModels([
     ['readingQA', { ...spec, readingQA: { set: 'golden', questions: questions(), recalled: rec.recalled } }],
     ['readingStudent', { ...spec, readingStudent: { questions: questions(), students: 32 } }],
@@ -67,7 +69,7 @@ runButton(page, 'Run', async (spec) => {
   tiles(page.content, [
     { label: 'Reader', value: s.reading.toFixed(3), hint: `token F1 against the golden answers (${r.scored} questions)` },
     { label: 'Remembering', value: s.remembered.toFixed(3), hint: `with the reading habits of its memory (generation ${r.memory.generation})` },
-    { label: 'Constructed', value: s.constructed.toFixed(3), hint: `from its knowledge capsule alone, never the text: ${r.capsule.facts} facts recalled from ${rec.points} points (${fmt.pct(rec.recovered, 0)} exactly)` },
+    { label: 'Constructed', value: s.constructed.toFixed(3), hint: `from its knowledge capsule alone, never the text: ${r.capsule.facts} facts recalled from ${ing.bytes.total.toLocaleString()} bytes, ${fmt.pct(ing.bytes.ratio, 0)} of the text (${fmt.pct(rec.recovered, 0)} exactly)` },
     { label: 'Open book', value: s.openBook.toFixed(3), hint: `from all ${r.sentences.length} sentences; the right passage ${fmt.pct(s.openBookFoundPassage, 0)} of the time` },
     { label: 'Ceiling', value: s.oracle.toFixed(3), hint: 'the passage sentence closest to the golden answer' },
   ]);
@@ -128,18 +130,26 @@ runButton(page, 'Run', async (spec) => {
   table(remembers, ['answering habit', 'weight'], student.memory.weights.map((w, k) => [sd[0].habits[k].habit, w.toFixed(2)]));
   table(remembers, ['note-taking habit', 'weight'], notes.memory.weights.map((w, k) => [notes.memory.habits[k], w.toFixed(2)]));
   table(remembers, ['constructing habit', 'weight'], r.memory.constructing.map((h) => [h.habit, h.weight.toFixed(2)]));
-  // ---- The knowledge capsule: one passage's facts, recalled from points.
+  // ---- The knowledge capsule: the index router of grades, the bytes, one passage's facts recalled.
   const roles = ['subject', 'relation', 'object'];
   const dict = rec.recalled.dictionary;
   const facts = rec.recalled.passages[0].facts.slice(0, 8);
-  table(card(grid(page.content, true), 'The knowledge capsule', `${rec.points} points of the space hold the ${rec.recalled.passages.length} golden ` +
-    'passages: every word of a fact is the point of S³ its coordinates lift to, turned by the rotor of its grammatical role (the (N, A) plane) and ' +
-    'of its place (the (B, C) plane); each fact\'s points are kept out of order. Recalling reads every point back: the word a rotor of the grammar ' +
-    `turns into it, and that rotor — role and place. ${fmt.pct(rec.recovered, 0)} came back exactly. The first passage's facts, as recalled:`),
+  const b = ing.bytes;
+  const g5 = grid(page.content);
+  table(card(g5, 'The knowledge capsule, packed', `Every word of a fact is one multivector of the space whose grades are the levels of the index: ` +
+    'grade 0 its fact, grade 1 its word\'s point of S³, grade 2 the grammar\'s bivector (its role in the (N, A) plane, its place in the (B, C) plane). ' +
+    'The index router isolates each grade and routes it to its codebook — the passage\'s vocabulary, the lattice of 3 roles × 32 places, the runs ' +
+    `of facts — and only the codes are kept: ${b.total.toLocaleString()} bytes for ${b.text.toLocaleString()} bytes of text (${fmt.pct(b.ratio, 0)}).`),
+  ['part', 'bytes'], [['codes: word in its vocabulary, role, place (grades 1, 2)', b.codes.toLocaleString()], ['lexicon, front-coded', b.lexicon.toLocaleString()],
+    ['vocabularies (grade 1\'s codebooks)', b.vocabulary.toLocaleString()], ['facts, as run lengths (grade 0)', b.facts.toLocaleString()],
+    ['total', b.total.toLocaleString()], ['the text', b.text.toLocaleString()]]);
+  table(card(g5, 'Recalled from the codes', 'Each code rebuilt as a multivector; the rotor formed from its grade 2 binds the word, and its role and place ' +
+    `are read back off the bound point — ${fmt.pct(rec.recovered, 0)} exactly; each fact's codes are kept out of order and put back by the places. ` +
+    'The first passage\'s facts:'),
   roles, facts.map((f) => roles.map((k) => el('div', { style: 'white-space:normal', text: Array.from(f[k]).map((i) => dict[i]).join(' ') }))));
   callout(page.content, 'The belief is a point of the <a href="core.html">space</a>, as everywhere in the library. The reader and its remembered habits copy ' +
-    'sentences of the passage; the constructed answer copies nothing: the grammar says it from facts recalled from points, by the rotors of role and ' +
-    'place. Its grammar still finds the verb with a word list, and it does not paraphrase or reason. Learning meaning in the algebra is the ' +
+    'sentences of the passage; the constructed answer copies nothing: the grammar says it from facts recalled from the packed capsule, by the ' +
+    'rotors of role and place. Its grammar still finds the verb with a word list, and it does not paraphrase or reason. Learning meaning in the algebra is the ' +
     '<a href="fga.html">FGA page</a>.');
   return note;
 });

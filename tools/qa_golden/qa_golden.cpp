@@ -12,14 +12,14 @@
 // the library.
 //
 //   qa_golden DATA_DIR [--baseline FILE] [--write-baseline FILE] [--write-memory FILE]
-//                      [--write-capsule PREFIX] [--capsule-passages N]
+//                      [--write-capsule FILE] [--capsule-passages N]
 //
 // DATA_DIR holds qa.tsv, corpus.tsv and train.tsv (tools/qa_golden/prepare.py). Writes
 // DATA_DIR/report.md and DATA_DIR/answers.tsv. With --baseline, fails (exit 1) if a score drops
 // more than 0.01 below the recorded one. With --write-memory, writes what the student learned in
 // this run, starting from its memory, as its next memory (src/models/student_memory.inc); with
-// --write-capsule, the capsule of the first N test passages (default 60, the embedded golden set)
-// as PREFIX_lexicon.inc and PREFIX_points.inc (src/models/reader_capsule).
+// --write-capsule, the packed capsule of the first N test passages (default 60, the embedded
+// golden set; src/models/reader_capsule.inc).
 #include <algorithm>
 #include <cctype>
 #include <cmath>
@@ -90,33 +90,18 @@ std::string memoryInc(const Value& habits, const Value& notes, const Value& cons
   return o.str();
 }
 
-// The capsule as C++ (src/models/reader_capsule_{lexicon,points}.inc): the lexicon, and a stream of
-// numbers — the passages; for each, its vocabulary, its facts (slots in each) and its points.
-void writeCapsule(const std::string& prefix, const Value& capsule, std::size_t passages) {
-  std::ofstream lex(prefix + "_lexicon.inc");
-  lex << "// The lexicon of the reader's knowledge capsule: the words it knows (no text). Written by tools/qa_golden\n"
-      << "// (qa_golden DATA_DIR --write-capsule src/models/reader_capsule). Do not edit by hand.\n";
-  const Value& dict = capsule.at("dictionary");
-  for (std::size_t w = 0; w < dict.size(); ++w) lex << quoted(dict[w].asString()) << (w % 8 == 7 ? ",\n" : ", ");
-  lex << "\n";
-  std::ofstream pts(prefix + "_points.inc");
-  pts << "// The reader's knowledge capsule: the " << passages << " golden passages it read, as points of the space — every word of a fact\n"
-      << "// the point of S³ its coordinates lift to, turned by the rotor of its grammatical role (capsuleIngest). Per passage: its\n"
-      << "// vocabulary (lexicon indices), its facts (slots in each), its points (5 coordinates per slot). Written by tools/qa_golden\n"
-      << "// (qa_golden DATA_DIR --write-capsule src/models/reader_capsule). Do not edit by hand.\n"
-      << passages << ",\n";
-  pts.precision(7);
-  const auto& ps = capsule.at("passages").asArray();
-  for (std::size_t i = 0; i < passages && i < ps.size(); ++i) {
-    for (const char* part : {"vocabulary", "facts"}) {
-      const Value& v = ps[i].at(part);
-      pts << v.size() << ",";
-      for (std::size_t k = 0; k < v.size(); ++k) pts << v[k].asNumber() << ",";
-      pts << "\n";
-    }
-    const Value& points = ps[i].at("points");
-    for (std::size_t k = 0; k < points.size(); ++k) pts << points[k].asNumber() << (k % 5 == 4 ? ",\n" : ",");
-  }
+// The capsule as C++ (src/models/reader_capsule.inc): its packed bytes in base64, as a string.
+void writeCapsule(const std::string& file, const Value& ingested) {
+  const Value& bytes = ingested.at("bytes");
+  auto n = [&](const char* k) { return static_cast<long long>(bytes.num(k, 0)); };
+  std::ofstream out(file);
+  out << "// The reader's knowledge capsule: the " << ingested.num("passages", 0) << " embedded golden passages, packed by the index router of\n"
+      << "// grades (capsuleIngest) — " << n("total") << " bytes for " << n("text") << " bytes of text: the lexicon front-coded ("
+      << n("lexicon") << "), the vocabularies (" << n("vocabulary") << "), the facts as run lengths ("
+      << n("facts") << ") and a code per word (" << n("codes") << "). No text.\n"
+      << "// Written by tools/qa_golden (qa_golden DATA_DIR --write-capsule src/models/reader_capsule.inc). Do not edit by hand.\n";
+  const std::string b64 = ingested.at("packed").asString();
+  for (std::size_t i = 0; i < b64.size(); i += 120) out << "\"" << b64.substr(i, 120) << "\",\n";
 }
 
 std::string field(const std::string& s) {
@@ -129,7 +114,7 @@ std::string field(const std::string& s) {
 
 int main(int argc, char** argv) {
   if (argc < 2) {
-    std::cerr << "usage: qa_golden DATA_DIR [--baseline FILE] [--write-baseline FILE] [--write-memory FILE] [--write-capsule PREFIX] "
+    std::cerr << "usage: qa_golden DATA_DIR [--baseline FILE] [--write-baseline FILE] [--write-memory FILE] [--write-capsule FILE] "
                  "[--capsule-passages N]\n";
     return 2;
   }
@@ -182,7 +167,7 @@ int main(int argc, char** argv) {
   // The knowledge capsule: every passage it reads (the test's, then the lessons'), ingested into the
   // space and recalled from it.
   const Value ingested = run("capsuleIngest", Value::object().set("passages", read));
-  const Value recall = run("capsuleRecall", Value::object().set("capsule", ingested.at("capsule")));
+  const Value recall = run("capsuleRecall", Value::object().set("packed", ingested.at("packed")));
   const Value& recalled = recall.at("recalled");
 
   // The reader as a student: how to pick an answer, how to take notes, how to construct an answer.
@@ -226,13 +211,24 @@ int main(int argc, char** argv) {
   metrics.set("openBookFoundPassage", found);
 
   // ---- The knowledge capsule.
+  const Value& bytes = ingested.at("bytes");
+  auto n = [&](const char* k) { return static_cast<long long>(bytes.num(k, 0)); };
   md << "\n## The knowledge capsule\n\nThe grammar read the " << read.size() << " passages (" << passages.size() << " of the test, " << train.size()
-     << " of the lessons; " << ingested.num("wordsRead", 0) << " words) as " << ingested.num("facts", 0) << " facts — subject, relation, object — and "
-     << "ingested them as " << ingested.num("points", 0) << " points of the space, each word turned by the grammar's rotors of its role and place (and kept out of order), over a lexicon of "
-     << ingested.num("lexicon", 0) << " words. Recalled from the points alone, " << std::round(100000 * recall.num("recovered", 0)) / 1000
-     << "% of them came back as their word, role and place. Constructed answers are said by the grammar from the recalled facts — the whole fact, "
-     << "its predicate, its object or its subject — and chosen by the constructing habits; the text is never used.\n";
+     << " of the lessons; " << ingested.num("wordsRead", 0) << " words) as " << ingested.num("facts", 0) << " facts — subject, relation, object. Every "
+     << "word of a fact is one multivector of the space whose grades are the levels of the index: grade 0 its fact, grade 1 its word's point, "
+     << "grade 2 the grammar's bivector (role and place). The index router isolates each grade and routes it to its codebook — the passage's "
+     << "vocabulary, the grammar's lattice of 3 roles × 32 places, the runs of facts — and the capsule keeps only the codes, over a lexicon of "
+     << ingested.num("lexicon", 0) << " words. Recalled from the codes alone — the rotor rebuilt from grade 2, the word bound by it, its role "
+     << "and place read back off the bound point — " << std::round(100000 * recall.num("recovered", 0)) / 1000 << "% of the "
+     << ingested.num("points", 0) << " words came back exactly.\n\n| | bytes |\n|---|---:|\n| the text | " << n("text")
+     << " |\n| **the capsule, packed** | **" << n("total") << " (" << std::round(1000 * bytes.num("ratio", 0)) / 10
+     << "% of the text)** |\n| codes: a word's place in its vocabulary, role and place (levels 1, 2) | " << n("codes")
+     << " |\n| the lexicon, front-coded | " << n("lexicon") << " |\n| the vocabularies (level 1's codebooks) | "
+     << n("vocabulary") << " |\n| the facts, as run lengths (level 0) | " << n("facts") << " |\n\n"
+     << "Constructed answers are said by the grammar from the recalled facts — the whole fact, its predicate, its object, its subject or two "
+     << "facts — and chosen by the constructing habits; the text is never used.\n";
   metrics.set("capsuleRecovered", recall.num("recovered", 0));
+  metrics.set("capsuleSaving", 1.0 - bytes.num("ratio", 0));
 
   // ---- The reader as a student, with every learning method of the library.
   auto signed3 = [](double x) {
@@ -282,9 +278,9 @@ int main(int argc, char** argv) {
     Value first = Value::array();
     for (std::size_t i = 0; i < capsulePassages && i < passages.size(); ++i) first.push(passages[i]);
     const Value own = run("capsuleIngest", Value::object().set("passages", first));
-    writeCapsule(capsuleOut, own.at("capsule"), first.size());
-    md << "Capsule of " << first.size() << " passages (" << own.num("points", 0) << " points, lexicon " << own.num("lexicon", 0) << ") written to "
-       << capsuleOut << "_{lexicon,points}.inc.\n";
+    writeCapsule(capsuleOut, own);
+    md << "Capsule of " << first.size() << " passages (" << own.at("bytes").num("total", 0) << " bytes, " << std::round(1000 * own.at("bytes").num("ratio", 0)) / 10
+       << "% of their text) written to " << capsuleOut << ".\n";
   }
   std::ofstream(dir + "/report.md") << md.str();
   std::cout << md.str();
@@ -296,7 +292,7 @@ int main(int argc, char** argv) {
     std::string text((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
     bool failed = false;
     for (const char* k : {"reading", "openBook", "openBookFoundPassage", "student", "memory", "allMethods", "remembered", "constructed",
-                          "constructingStudent", "capsuleRecovered"}) {
+                          "constructingStudent", "capsuleRecovered", "capsuleSaving"}) {
       const auto at = text.find(std::string("\"") + k + "\":");
       if (at == std::string::npos) continue;
       const double recorded = std::stod(text.substr(at + std::string(k).size() + 3));
