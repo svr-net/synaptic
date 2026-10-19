@@ -673,11 +673,20 @@ const kernel::Model* capsuleQaModel() {
       // Each question's facts: its capsule's, or, with none, the facts of all capsules that share most with it.
       std::vector<std::vector<std::array<std::size_t, 3>>> asked(questions.size());  // (passage, fact, -)
       std::set<std::size_t> used;
-      auto stemsOfFact = [&](std::size_t p, std::size_t f) {
-        std::set<std::string> out;
-        for (std::size_t k = 0; k < facts[p][f][1]; ++k)
-          for (const auto& st : memory::stemsOf(dictionary[wordOf(p, codes[facts[p][f][0] + k])].asString())) out.insert(st);
-        return out;
+      // A fact's stems, read once (open questions rank every fact of every capsule).
+      std::vector<std::vector<std::set<std::string>>> factStems(passages.size());
+      std::vector<std::vector<bool>> factStemsRead(passages.size());
+      auto stemsOfFact = [&](std::size_t p, std::size_t f) -> const std::set<std::string>& {
+        if (factStems[p].empty()) {
+          factStems[p].resize(facts[p].size());
+          factStemsRead[p].assign(facts[p].size(), false);
+        }
+        if (!factStemsRead[p][f]) {
+          for (std::size_t k = 0; k < facts[p][f][1]; ++k)
+            for (const auto& st : memory::stemsOf(dictionary[wordOf(p, codes[facts[p][f][0] + k])].asString())) factStems[p][f].insert(st);
+          factStemsRead[p][f] = true;
+        }
+        return factStems[p][f];
       };
       for (std::size_t i = 0; i < questions.size(); ++i) {
         const double cp = capsuleOf[i];
@@ -864,6 +873,8 @@ const kernel::Model* capsuleQaModel() {
           if (c > 0.05) why.push(Value::object().set("habit", memory::kConstructHabits[k]).set("weight", c));
         trace.set("evidence", Value::object().set("subject", join(roles[0])).set("relation", join(roles[1])).set("object", join(roles[2]))
                                   .set("capsule", static_cast<double>(pi)).set("fact", static_cast<double>(fi)))
+            .set("holds", v[(static_cast<std::size_t>(j) * p.keepAgents + best) * 9 + 1])
+            .set("covers", v[(static_cast<std::size_t>(j) * p.keepAgents + best) * 9 + 8])
             .set("saying", patterns[pattern])
             .set("reasoning", why)
             .set("belief", belief)

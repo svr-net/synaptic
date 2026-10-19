@@ -430,6 +430,12 @@ library and the WASM build.
   reason). The 300 documents of the knowledge corpus grown on top of the stored capsule: 5,238 new words, 6,987 routed to
   the words it knew (100%), 138 KB for 267 KB of text, and both segments recall all 360 passages exactly. A word's point
   is three 16-bit coordinates of its 64-bit FNV hash (48 bits of the word), so two words of a lexicon never coincide.
+- **The reader as a native tool** (`tools/reader`, `synaptic_reader`; `action.yml` makes synaptic a component other
+  svr-net builds fetch): `version`, `info`, `ask QUESTION`, `session` (a question per line, its answer — capsuleQA's,
+  with `found` and `confident` from how much of each part its evidence covers — as a JSON line), `batch`, and
+  `ingest OUT TSV` (passages on top of what it knows, as a new segment); `--segments` / `--records` name what it
+  knows and remembers. svr-net/ui links it into its binary as `synaptic reader`, reading the segments from the
+  knowledge repo's `reader/` log, and answers with it beside the frame engine.
 - **Kept where it lives.** In the browser, the QA page keeps the segments it was taught and the records of what it studied
   in IndexedDB (`web/js/knowledge.js`, storage only) and passes them back to the models. In a knowledge repo
   (svr-net/knowledge), they are an append-only log on its branch — `reader/log.tsv`, `reader/segments/`, `reader/records/`,

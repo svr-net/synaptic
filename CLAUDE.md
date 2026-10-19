@@ -75,3 +75,6 @@ Cl(4,1) (pure elliptic CGA). Read README.md for the models; this file keeps the 
   svr-net/knowledge's `reader/` by svr-net/store's `ReaderLog` (`synstore_reader`); `qa_golden --write-knowledge DIR` writes
   segments and only records whose folded memory answers the test at least as well. compute, store and knowledge are private:
   synaptic's CI (public) cannot fetch them, so it carries the compute helpers verbatim.
+- svr-net/ui answers with the reader too (`tools/reader`: `synaptic reader session`, linked into ui's binary from this
+  repo through `action.yml`; segments from the knowledge repo's `reader/` log). Keep `tools/reader/reader.hpp`'s
+  `syn::reader::run` stable: ui's `docker/synaptic.cpp` calls it.
