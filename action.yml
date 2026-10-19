@@ -1,0 +1,20 @@
+# synaptic as a component: its sources (the library and the reader tool, tools/reader), for svr-net/ui's build. A
+# workflow in another svr-net repository takes it with
+#
+#   - id: synaptic
+#     uses: svr-net/synaptic@main
+#   - run: SYNAPTIC_DIR=${{ steps.synaptic.outputs.dir }} ...
+#
+# GitHub fetches this repository into the job, so no copy lives in the consumer and no token is needed.
+name: synaptic
+description: The synaptic library and its reader tool (capsule segments, capsuleQA), as a component.
+outputs:
+  dir:
+    description: synaptic's checkout (include/, src/ and tools/reader/)
+    value: ${{ steps.path.outputs.dir }}
+runs:
+  using: composite
+  steps:
+    - id: path
+      shell: bash
+      run: echo "dir=$GITHUB_ACTION_PATH" >> "$GITHUB_OUTPUT"
