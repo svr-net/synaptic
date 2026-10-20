@@ -521,16 +521,17 @@ constexpr const char* qa_agent = R"wgsl(
   // forms), P(4) start of the lexicon forms, P(5..12) the constructing habits, P(13) τ, P(14) start
   // of the facts (first slot, slots, first word of its capsule's vocabulary, whether the next fact of
   // its passage follows it), P(15) start of the
-  // lexicon's flags (1 a digit, 2 a capital). Job (a part of a question): J(0) its first fact,
+  // lexicon's flags (1 a digit, 2 a capital, 4 says what something is: a form of "be", "means", "is called"). Job (a part of a question): J(0) its first fact,
   // J(1) facts, J(3) first asked word, J(4) asked words, J(5) asks a number, J(6) asks a name,
-  // J(7) the question's parts.
+  // J(7) the question's parts, J(8) whether it asks what something is; P(16) the weight of a fact that says what
+  // something is, for such a part.
   let nf = u32(J(1u));
   let f = A / 5u;
   let pattern = A % 5u;
   // One sentence per part: a question in parts says one fact for each (Claude's habit 4).
   // The fact and the next: only when the next fact of its passage follows it.
   if (f >= nf || (pattern == 4u && (f + 1u >= nf || J(7u) > 1.5 || P(u32(P(14u)) + 4u * (u32(J(0u)) + f) + 3u) < 0.5))) {
-    for (var k = 0u; k < 9u; k = k + 1u) { quant(k, 0.0); }
+    for (var k = 0u; k < 10u; k = k + 1u) { quant(k, 0.0); }
     return;
   }
   let asked = min(u32(J(4u)), 16u);
@@ -542,6 +543,7 @@ constexpr const char* qa_agent = R"wgsl(
   }
   var count = 0u;
   var fit = false;
+  var copula = false;   // the fact's relation is a form of "be" (or "means", "is called"): it says what something is
   var firstPlace = 99u;
   for (var stage = 0u; stage < 2u; stage = stage + 1u) {
     for (var which = 0u; which < select(1u, 2u, pattern == 4u); which = which + 1u) {
@@ -560,6 +562,7 @@ constexpr const char* qa_agent = R"wgsl(
           if (inSaid && which == 0u) { firstPlace = min(firstPlace, place); }
           continue;
         }
+        if (which == 0u && role == 1u && (u32(P(u32(P(15u)) + word)) & 4u) != 0u) { copula = true; }
         // Evidence: the question's words in the fact, by identity of their points.
         for (var t = 0u; t < asked; t = t + 1u) {
           let row = u32(P(3u)) + 3u * (u32(J(3u)) + t);
@@ -581,7 +584,7 @@ constexpr const char* qa_agent = R"wgsl(
     }
   }
   if (count == 0u) {
-    for (var k = 0u; k < 9u; k = k + 1u) { quant(k, 0.0); }
+    for (var k = 0u; k < 10u; k = k + 1u) { quant(k, 0.0); }
     return;
   }
   var mass = 0.0;
@@ -608,8 +611,11 @@ constexpr const char* qa_agent = R"wgsl(
     score = score + P(5u + k) * feature[k];
     quant(1u + k, feature[k]);
   }
+  // Asked what something is, the fact that says what something is weighs more.
+  score = score + select(0.0, P(16u), J(8u) > 0.5 && copula);
   // The belief that this is the answer: a point of the space.
   quant(0u, chance(atLogit(clamp(score - P(13u), -30.0, 30.0), kA)));
+  quant(9u, select(0.0, 1.0, copula));
 )wgsl";
 
 namespace syn::models {
@@ -667,8 +673,12 @@ const kernel::Model* capsuleQaModel() {
       for (std::size_t w = 0; w < dictionary.size(); ++w) {
         const std::string word = dictionary[w].asString();
         for (const auto& st : memory::stemsOf(word)) formsOf[st].push_back(double(w));
+        static const std::set<std::string> saysWhat = {"is", "are", "was", "were", "be", "been", "being", "means", "mean", "meant",
+                                                        "refers", "called", "known", "defined", "consists", "describes"};
+        std::string lw = word;
+        std::transform(lw.begin(), lw.end(), lw.begin(), [](unsigned char ch) { return static_cast<char>(std::tolower(ch)); });
         flags.push_back((std::any_of(word.begin(), word.end(), [](unsigned char ch) { return std::isdigit(ch) != 0; }) ? 1.0 : 0.0) +
-                        (std::isupper(static_cast<unsigned char>(word[0])) ? 2.0 : 0.0));
+                        (std::isupper(static_cast<unsigned char>(word[0])) ? 2.0 : 0.0) + (saysWhat.count(lw) ? 4.0 : 0.0));
       }
       // Each question's facts: its capsule's, or, with none, the facts of all capsules that share most with it.
       std::vector<std::vector<std::array<std::size_t, 3>>> asked(questions.size());  // (passage, fact, -)
@@ -725,7 +735,9 @@ const kernel::Model* capsuleQaModel() {
         return std::max(0.0, std::log((nFacts - d + 0.5) / (d + 0.5) + 1.0));
       };
       const memory::Memory mem = memory::recallFor(c);
-      std::vector<double> params(16, 0.0);
+      std::vector<double> params(17, 0.0);
+      // A part asking what something is prefers the fact that says what something is (its relation a form of "be").
+      params[16] = c.num("definitionWeight", 0.0);  // the reader (tools/reader) weighs it; readingQA does not
       for (int k = 0; k < 8; ++k) params[5 + static_cast<std::size_t>(k)] = mem.construct[k];
       params[13] = c.num("threshold", 1.0);
       params[0] = double(params.size());
@@ -774,10 +786,11 @@ const kernel::Model* capsuleQaModel() {
             from.push(Value::Numbers({double(af[0]), double(af[1])}));
           }
           rows.push_back({factFirst, double(asked[i].size()), 0.0, stemFirst, double(stems.size()),
-                          part.asksNumber ? 1.0 : 0.0, part.asksName ? 1.0 : 0.0, double(parts.size())});
+                          part.asksNumber ? 1.0 : 0.0, part.asksName ? 1.0 : 0.0, double(parts.size()), part.asksDefinition ? 1.0 : 0.0});
           Value referred = Value::array();
           for (const auto& r : part.referred) referred.push(r);
-          partsMeta.push(Value::object().set("question", static_cast<double>(i)).set("part", part.text).set("facts", from).set("referred", referred));
+          partsMeta.push(Value::object().set("question", static_cast<double>(i)).set("part", part.text).set("facts", from).set("referred", referred)
+                             .set("definition", part.asksDefinition));
         }
       }
       params[3] = double(params.size());
@@ -788,7 +801,7 @@ const kernel::Model* capsuleQaModel() {
       params.insert(params.end(), factRows.begin(), factRows.end());
       std::uint32_t most = 5;
       for (const auto& r : rows) most = std::max<std::uint32_t>(most, static_cast<std::uint32_t>(r[1]) * 5);
-      Plan p = makePlan("capsuleQA", most, 1, params, rows, seedOf(spec), 9);
+      Plan p = makePlan("capsuleQA", most, 1, params, rows, seedOf(spec), 10);
       p.keepAgents = p.agents;
       Value qs = Value::array();
       for (const auto& q : questions) qs.push(Value::object().set("question", q[0]).set("golden", q[1]));
@@ -834,7 +847,7 @@ const kernel::Model* capsuleQaModel() {
         std::size_t best = 0;
         double belief = 0;
         for (std::size_t a = 0; a < from.size() * 5 && a < p.keepAgents; ++a) {
-          const double b = v[(static_cast<std::size_t>(j) * p.keepAgents + a) * 9];
+          const double b = v[(static_cast<std::size_t>(j) * p.keepAgents + a) * 10];
           if (b > belief) {
             belief = b;
             best = a;
@@ -867,14 +880,16 @@ const kernel::Model* capsuleQaModel() {
         Value why = Value::array();
         std::vector<std::pair<double, int>> parts;
         for (int k = 0; k < 8; ++k)
-          parts.push_back({p.params[5 + static_cast<std::size_t>(k)] * v[(static_cast<std::size_t>(j) * p.keepAgents + best) * 9 + 1 + static_cast<std::size_t>(k)], k});
+          parts.push_back({p.params[5 + static_cast<std::size_t>(k)] * v[(static_cast<std::size_t>(j) * p.keepAgents + best) * 10 + 1 + static_cast<std::size_t>(k)], k});
         std::sort(parts.begin(), parts.end(), [](const auto& x, const auto& y) { return x.first > y.first; });
         for (const auto& [c, k] : parts)
           if (c > 0.05) why.push(Value::object().set("habit", memory::kConstructHabits[k]).set("weight", c));
         trace.set("evidence", Value::object().set("subject", join(roles[0])).set("relation", join(roles[1])).set("object", join(roles[2]))
                                   .set("capsule", static_cast<double>(pi)).set("fact", static_cast<double>(fi)))
-            .set("holds", v[(static_cast<std::size_t>(j) * p.keepAgents + best) * 9 + 1])
-            .set("covers", v[(static_cast<std::size_t>(j) * p.keepAgents + best) * 9 + 8])
+            .set("holds", v[(static_cast<std::size_t>(j) * p.keepAgents + best) * 10 + 1])
+            .set("covers", v[(static_cast<std::size_t>(j) * p.keepAgents + best) * 10 + 8])
+            .set("copula", v[(static_cast<std::size_t>(j) * p.keepAgents + best) * 10 + 9] > 0.5)
+            .set("definition", part.at("definition"))
             .set("saying", patterns[pattern])
             .set("reasoning", why)
             .set("belief", belief)

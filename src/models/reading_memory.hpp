@@ -145,6 +145,7 @@ struct QuestionPart {
   std::vector<std::string> stems;     // its informative words (stemmed)
   std::vector<std::string> referred;  // what its pronouns refer to, from the part before
   bool asksNumber = false, asksName = false;
+  bool asksDefinition = false;  // "What is X?", "Who was X?": it asks what something is
 };
 /** The parts of a question: split before a second question word ("What are X and what are their Y?"). */
 std::vector<QuestionPart> questionParts(const std::string& question);

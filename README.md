@@ -435,7 +435,12 @@ library and the WASM build.
   with `found` and `confident` from how much of each part its evidence covers — as a JSON line), `batch`, and
   `ingest OUT TSV` (passages on top of what it knows, as a new segment); `--segments` / `--records` name what it
   knows and remembers. svr-net/ui links it into its binary as `synaptic reader`, reading the segments from the
-  knowledge repo's `reader/` log, and answers with it beside the frame engine.
+  knowledge repo's `reader/` log, and answers with it beside the frame engine; `reader from QUESTION`
+  (`syn::reader::answerFrom`) answers from passages given -- read into a capsule of their own, kept nowhere -- so
+  ui has it reason over the passages the frame engine activates. A part asking what something is ("What is X?",
+  `asksDefinition`) is answered confidently only from a fact that says what something is (its relation a form of
+  "be", "means", "is called": capsuleQA's `copula`), and the reader prefers such a fact (`definitionWeight` 1;
+  readingQA and capsuleQA's default keep 0, so one-part answers still equal readingQA's constructed).
 - **Kept where it lives.** In the browser, the QA page keeps the segments it was taught and the records of what it studied
   in IndexedDB (`web/js/knowledge.js`, storage only) and passes them back to the models. In a knowledge repo
   (svr-net/knowledge), they are an append-only log on its branch — `reader/log.tsv`, `reader/segments/`, `reader/records/`,

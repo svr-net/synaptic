@@ -681,6 +681,11 @@ std::vector<QuestionPart> questionParts(const std::string& question) {
                    lq.find("what year") != std::string::npos || lq.rfind("when", 0) == 0 || lq.find("how long") != std::string::npos ||
                    lq.find("how old") != std::string::npos;
     p.asksName = lq.rfind("who", 0) == 0 || lq.find(" who ") != std::string::npos || lq.find("which person") != std::string::npos;
+    for (const char* d : {"what is ", "what are ", "what was ", "what were ", "who is ", "who was ", "who were ", "who are ", "what does ",
+                          "define ", "what's "})
+      p.asksDefinition = p.asksDefinition || lq.rfind(d, 0) == 0;
+    // "what does X do / mean": only "mean" asks what it is
+    if (lq.rfind("what does ", 0) == 0) p.asksDefinition = lq.find(" mean") != std::string::npos;
     if (!out.empty()) {
       bool refers = false;
       for (const auto& x : words(t, false)) refers = refers || pronouns.count(x);
