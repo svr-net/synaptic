@@ -70,15 +70,15 @@ Value answer(const Knowledge& k, const std::vector<std::string>& questions) {
 }
 
 // Found: its evidence holds some of what the question asks. Confident: every part's evidence covers at least
-// half of what the part asks -- and, where the part asks what something is ("What is X?"), its fact says what
-// something is (a form of "be", "means", "is called"), not merely mentions X.
+// half of what the part asks -- and, where the part asks what something is ("What is X?"), its fact says what X is
+// (X its subject, its relation a form of "be", "means", "is called"), not merely mentions X.
 std::string line(const Value& a) {
   Value v = a;
   const bool said = !a.at("answer").asString().empty();
   bool confident = said, found = false;
   for (const auto& p : a.at("parts").asArray()) {
     confident = confident && p.num("covers", 0) >= 0.5;
-    if (p.has("definition") && p.at("definition").asBool()) confident = confident && p.has("copula") && p.at("copula").asBool();
+    if (p.has("definition") && p.at("definition").asBool()) confident = confident && p.has("defines") && p.at("defines").asBool();
     found = found || p.num("covers", 0) > 0;
   }
   v.set("found", said && found).set("confident", said && found && confident);

@@ -438,8 +438,8 @@ library and the WASM build.
   knowledge repo's `reader/` log, and answers with it beside the frame engine; `reader from QUESTION`
   (`syn::reader::answerFrom`) answers from passages given -- read into a capsule of their own, kept nowhere -- so
   ui has it reason over the passages the frame engine activates. A part asking what something is ("What is X?",
-  `asksDefinition`) is answered confidently only from a fact that says what something is (its relation a form of
-  "be", "means", "is called": capsuleQA's `copula`), and the reader prefers such a fact (`definitionWeight` 1;
+  `asksDefinition`) is answered confidently only from a fact that says what it is (the asked words its subject, its
+  relation a form of "be", "means", "is called": capsuleQA's `defines`), and the reader prefers such a fact (`definitionWeight` 1;
   readingQA and capsuleQA's default keep 0, so one-part answers still equal readingQA's constructed).
 - **Kept where it lives.** In the browser, the QA page keeps the segments it was taught and the records of what it studied
   in IndexedDB (`web/js/knowledge.js`, storage only) and passes them back to the models. In a knowledge repo

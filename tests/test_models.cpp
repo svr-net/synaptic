@@ -828,10 +828,12 @@ TEST(capsule_qa_reasons_and_answers_from_the_capsule_alone) {
     return run("capsuleQA", q).at("answers").asArray()[0].at("parts").asArray()[0];
   };
   const Value mentions = ask("A new lotion speeds DNA repair in mice.");
-  CHECK(mentions.at("definition").asBool() && !mentions.at("copula").asBool());
+  CHECK(mentions.at("definition").asBool() && !mentions.at("defines").asBool());
+  const Value buried = ask("Extracellular release of oxidized mitochondrial DNA is proinflammatory.");
+  CHECK(!buried.at("defines").asBool());  // a copula, but DNA is not its subject
   const Value says = ask("DNA is the molecule that carries the genetic instructions of living things.");
-  CHECK(says.at("copula").asBool() && says.at("answer").asString().find("molecule") != std::string::npos);
+  CHECK(says.at("defines").asBool() && says.at("answer").asString().find("molecule") != std::string::npos);
   // with both, the definitionWeight prefers the fact that says what DNA is
   const Value both = ask("A new lotion speeds DNA repair in mice. DNA is the molecule that carries the genetic instructions of living things.");
-  CHECK(both.at("copula").asBool() && both.at("answer").asString().find("molecule") != std::string::npos);
+  CHECK(both.at("defines").asBool() && both.at("answer").asString().find("molecule") != std::string::npos);
 }

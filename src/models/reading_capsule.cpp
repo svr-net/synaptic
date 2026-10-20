@@ -543,7 +543,10 @@ constexpr const char* qa_agent = R"wgsl(
   }
   var count = 0u;
   var fit = false;
-  var copula = false;   // the fact's relation is a form of "be" (or "means", "is called"): it says what something is
+  var copula = false;   // the fact's relation is a form of "be" (or "means", "is called")
+  var subjectWords = 0u;  // the fact's subject: its words, and the asked words it holds
+  var bySubject : array<bool, 16>;
+  for (var t = 0u; t < 16u; t = t + 1u) { bySubject[t] = false; }
   var firstPlace = 99u;
   for (var stage = 0u; stage < 2u; stage = stage + 1u) {
     for (var which = 0u; which < select(1u, 2u, pattern == 4u); which = which + 1u) {
@@ -563,6 +566,7 @@ constexpr const char* qa_agent = R"wgsl(
           continue;
         }
         if (which == 0u && role == 1u && (u32(P(u32(P(15u)) + word)) & 4u) != 0u) { copula = true; }
+        if (which == 0u && role == 0u) { subjectWords = subjectWords + 1u; }
         // Evidence: the question's words in the fact, by identity of their points.
         for (var t = 0u; t < asked; t = t + 1u) {
           let row = u32(P(3u)) + 3u * (u32(J(3u)) + t);
@@ -570,6 +574,7 @@ constexpr const char* qa_agent = R"wgsl(
             let o = u32(P(0u)) + 3u * u32(P(u32(P(4u)) + u32(P(row + 1u)) + l));
             if (dot5(w, lift(P(o), P(o + 1u), P(o + 2u), 1.0)) > -1e-5) {
               if (which == 0u) { held[t] = true; }
+              if (which == 0u && role == 0u) { bySubject[t] = true; }
               if (inSaid) { said[t] = true; }
             }
           }
@@ -611,11 +616,16 @@ constexpr const char* qa_agent = R"wgsl(
     score = score + P(5u + k) * feature[k];
     quant(1u + k, feature[k]);
   }
-  // Asked what something is, the fact that says what something is weighs more.
-  score = score + select(0.0, P(16u), J(8u) > 0.5 && copula);
+  // The fact says what the asked thing is: its relation a form of "be", its subject the asked words (all of them,
+  // and little else).
+  var inSubject = 0u;
+  for (var t = 0u; t < asked; t = t + 1u) { inSubject = inSubject + select(0u, 1u, bySubject[t]); }
+  let defines = copula && asked > 0u && inSubject == asked && subjectWords <= asked + 1u;
+  // Asked what something is, the fact that says what it is weighs more.
+  score = score + select(0.0, P(16u), J(8u) > 0.5 && defines);
   // The belief that this is the answer: a point of the space.
   quant(0u, chance(atLogit(clamp(score - P(13u), -30.0, 30.0), kA)));
-  quant(9u, select(0.0, 1.0, copula));
+  quant(9u, select(0.0, 1.0, defines));
 )wgsl";
 
 namespace syn::models {
@@ -888,7 +898,7 @@ const kernel::Model* capsuleQaModel() {
                                   .set("capsule", static_cast<double>(pi)).set("fact", static_cast<double>(fi)))
             .set("holds", v[(static_cast<std::size_t>(j) * p.keepAgents + best) * 10 + 1])
             .set("covers", v[(static_cast<std::size_t>(j) * p.keepAgents + best) * 10 + 8])
-            .set("copula", v[(static_cast<std::size_t>(j) * p.keepAgents + best) * 10 + 9] > 0.5)
+            .set("defines", v[(static_cast<std::size_t>(j) * p.keepAgents + best) * 10 + 9] > 0.5)
             .set("definition", part.at("definition"))
             .set("saying", patterns[pattern])
             .set("reasoning", why)
