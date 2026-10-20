@@ -835,6 +835,12 @@ TEST(capsule_qa_reasons_and_answers_from_the_capsule_alone) {
   CHECK(says.at("defines").asBool() && says.at("answer").asString().find("molecule") != std::string::npos);
   const Value found = ask("DNA can be found in many biological materials.");
   CHECK(found.at("definition").asBool() && !found.at("defines").asBool());  // a copula, but "found" is the verb
+  const Value court = ask("DNA testing was first allowed into court as evidence in 1988.");
+  CHECK(!court.at("defines").asBool());  // DNA testing is not DNA; "first allowed" is a passive
+  const Value testing = ask("DNA testing is a method of identifying people.");
+  CHECK(!testing.at("defines").asBool());  // its subject's head is "testing"
+  const Value named = ask("Genomic DNA is the molecule of heredity.");
+  CHECK(named.at("defines").asBool());
   const Value held = ask("DNA is contained in every cell of an organism.");
   CHECK(!held.at("defines").asBool());  // a passive
   const Value known = ask("DNA is known as the molecule of heredity.");
