@@ -61,7 +61,8 @@ Value info(const Knowledge& k) {
 Value answer(const Knowledge& k, const std::vector<std::string>& questions) {
   Value qs = Value::array();
   for (const auto& q : questions) qs.push(Value::object().set("question", q));
-  Value c = Value::object().set("capsule", k.capsule).set("questions", qs);
+  // asked what something is, it prefers the fact that says what something is
+  Value c = Value::object().set("capsule", k.capsule).set("questions", qs).set("definitionWeight", 1.0);
   if (k.records.size() > 0) c.set("memoryRecords", k.records);
   Value spec = Value::object();
   spec.set("capsuleQA", c);
@@ -69,13 +70,15 @@ Value answer(const Knowledge& k, const std::vector<std::string>& questions) {
 }
 
 // Found: its evidence holds some of what the question asks. Confident: every part's evidence covers at least
-// half of what the part asks.
+// half of what the part asks -- and, where the part asks what something is ("What is X?"), its fact says what X is
+// (X its subject, its relation a form of "be", "means", "is called"), not merely mentions X.
 std::string line(const Value& a) {
   Value v = a;
   const bool said = !a.at("answer").asString().empty();
   bool confident = said, found = false;
   for (const auto& p : a.at("parts").asArray()) {
     confident = confident && p.num("covers", 0) >= 0.5;
+    if (p.has("definition") && p.at("definition").asBool()) confident = confident && p.has("defines") && p.at("defines").asBool();
     found = found || p.num("covers", 0) > 0;
   }
   v.set("found", said && found).set("confident", said && found && confident);
@@ -83,6 +86,32 @@ std::string line(const Value& a) {
 }
 
 }  // namespace
+
+std::string answerFrom(const std::vector<std::string>& passages, const std::string& question, const std::vector<std::string>& records) {
+  std::vector<std::string> kept;
+  for (const auto& p : passages)
+    if (p.find_first_not_of(" \t\r\n") != std::string::npos) kept.push_back(p);
+  if (kept.empty()) return Value::object().set("found", false).set("confident", false).set("answer", "").set("parts", Value::array())
+                           .set("passages", 0.0).json();
+  Value spec = Value::object();
+  spec.set("capsuleIngest", Value::object().set("passages", list(kept)));
+  const Value ing = kernel::run("capsuleIngest", spec);
+  const Knowledge k{ing.at("capsule"), Value::array(), false, list(records)};
+  Value a = Value::object();
+  {
+    const Value answered = answer(k, {question});
+    a = answered.at("answers").asArray()[0];
+  }
+  // the line, with how many passages it read
+  const std::string l = line(a);
+  return l.substr(0, l.size() - 1) + ",\"passages\":" + std::to_string(kept.size()) + "}";
+}
+
+std::string answerKnown(const std::vector<std::string>& segments, const std::vector<std::string>& records, const std::string& question) {
+  const Knowledge k = know(segments, records);
+  const Value answered = answer(k, {question});
+  return line(answered.at("answers").asArray()[0]);
+}
 
 std::vector<std::string> blobsOf(const std::string& text) {
   std::vector<std::string> out;
@@ -152,6 +181,14 @@ int run(const std::vector<std::string>& argsIn, std::vector<std::string> segment
           << "\n";
       return 0;
     }
+    if (cmd == "from" && args.size() >= 2) {
+      std::string q;
+      for (std::size_t i = 1; i < args.size(); ++i) q += (i > 1 ? " " : "") + args[i];
+      std::vector<std::string> passages;
+      for (std::string l; std::getline(in, l);) passages.push_back(l.substr(l.rfind('\t') == std::string::npos ? 0 : l.rfind('\t') + 1));
+      out << answerFrom(passages, q, records) << "\n";
+      return 0;
+    }
     const Knowledge k = know(segments, records);
     if (cmd == "info") {
       out << info(k).json() << "\n";
@@ -187,7 +224,7 @@ int run(const std::vector<std::string>& argsIn, std::vector<std::string> segment
       }
       return 0;
     }
-    err << "usage: reader version | info | ask QUESTION | session | batch | ingest OUT TSV [--stored]  [--segments FILE] [--records FILE]\n";
+    err << "usage: reader version | info | ask QUESTION | session | batch | from QUESTION | ingest OUT TSV [--stored]  [--segments FILE] [--records FILE]\n";
     return 2;
   } catch (const std::exception& e) {
     err << "reader: " << e.what() << "\n";

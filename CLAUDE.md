@@ -78,3 +78,7 @@ Cl(4,1) (pure elliptic CGA). Read README.md for the models; this file keeps the 
 - svr-net/ui answers with the reader too (`tools/reader`: `synaptic reader session`, linked into ui's binary from this
   repo through `action.yml`; segments from the knowledge repo's `reader/` log). Keep `tools/reader/reader.hpp`'s
   `syn::reader::run` stable: ui's `docker/synaptic.cpp` calls it.
+- Definition questions (owner's ask: no confident "Lotion speeds DNA repair" for "What is DNA?"): `QuestionPart::asksDefinition`,
+  capsuleQA's `defines` (a copula -- lexicon flag 4 -- with the asked words as the subject) and `definitionWeight` (default 0: the readingQA invariant; the reader uses 1).
+  The reader's `confident` needs `defines` for such a part. `answerFrom` lets ui read the frame engine's lead passages
+  (capsule's `ecga_read`).

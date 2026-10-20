@@ -816,4 +816,24 @@ TEST(capsule_qa_reasons_and_answers_from_the_capsule_alone) {
   Value o = spec(64);
   o.set("capsuleQA", Value::object().set("questions", Value::array().push(Value::object().set("question", "What does the Michigan Makers program help students do?"))));
   CHECK(run("capsuleQA", o).at("answers").asArray()[0].at("answer").asString().find("Michigan Makers") != std::string::npos);
+  // A question asking what something is: the kernel says whether the fact it answers with says what something is
+  // (its relation a form of "be", "means", "is called") -- not merely mentions it.
+  auto ask = [&](const char* passage) {
+    Value in = spec(64);
+    in.set("capsuleIngest", Value::object().set("passages", Value::array().push(passage)));
+    const Value ing = run("capsuleIngest", in);
+    Value q = spec(64);
+    q.set("capsuleQA", Value::object().set("packed", ing.at("packed")).set("questions", Value::array().push(
+        Value::object().set("question", "What is DNA?").set("capsule", 0))).set("definitionWeight", 1.0));
+    return run("capsuleQA", q).at("answers").asArray()[0].at("parts").asArray()[0];
+  };
+  const Value mentions = ask("A new lotion speeds DNA repair in mice.");
+  CHECK(mentions.at("definition").asBool() && !mentions.at("defines").asBool());
+  const Value buried = ask("Extracellular release of oxidized mitochondrial DNA is proinflammatory.");
+  CHECK(!buried.at("defines").asBool());  // a copula, but DNA is not its subject
+  const Value says = ask("DNA is the molecule that carries the genetic instructions of living things.");
+  CHECK(says.at("defines").asBool() && says.at("answer").asString().find("molecule") != std::string::npos);
+  // with both, the definitionWeight prefers the fact that says what DNA is
+  const Value both = ask("A new lotion speeds DNA repair in mice. DNA is the molecule that carries the genetic instructions of living things.");
+  CHECK(both.at("defines").asBool() && both.at("answer").asString().find("molecule") != std::string::npos);
 }
