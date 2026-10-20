@@ -833,6 +833,12 @@ TEST(capsule_qa_reasons_and_answers_from_the_capsule_alone) {
   CHECK(!buried.at("defines").asBool());  // a copula, but DNA is not its subject
   const Value says = ask("DNA is the molecule that carries the genetic instructions of living things.");
   CHECK(says.at("defines").asBool() && says.at("answer").asString().find("molecule") != std::string::npos);
+  const Value found = ask("DNA can be found in many biological materials.");
+  CHECK(found.at("definition").asBool() && !found.at("defines").asBool());  // a copula, but "found" is the verb
+  const Value held = ask("DNA is contained in every cell of an organism.");
+  CHECK(!held.at("defines").asBool());  // a passive
+  const Value known = ask("DNA is known as the molecule of heredity.");
+  CHECK(known.at("defines").asBool());
   // with both, the definitionWeight prefers the fact that says what DNA is
   const Value both = ask("A new lotion speeds DNA repair in mice. DNA is the molecule that carries the genetic instructions of living things.");
   CHECK(both.at("defines").asBool() && both.at("answer").asString().find("molecule") != std::string::npos);
