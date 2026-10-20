@@ -82,3 +82,7 @@ Cl(4,1) (pure elliptic CGA). Read README.md for the models; this file keeps the 
   capsuleQA's `defines` (a copula -- lexicon flag 4 -- with the asked words as the subject) and `definitionWeight` (default 0: the readingQA invariant; the reader uses 1).
   The reader's `confident` needs `defines` for such a part. `answerFrom` lets ui read the frame engine's lead passages
   (capsule's `ecga_read`).
+- Learning as the store grows (owner's ask, 50 GB ingests): `syn::reader::practise` -- lessons -> capsules ->
+  readingStudent (construct, all methods, 3/4 study, 1/4 held out) -> a record kept only if the held-out answers do not
+  drop. ui's `synaptic reader practise --local REPO N` poses the lessons from capsule (ecga_latest, ecga_asked,
+  activation, ecga_read) after every ingest.sh segment (READER_PRACTICE). The knowledge itself stays in capsule's store.

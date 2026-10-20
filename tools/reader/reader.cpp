@@ -113,6 +113,62 @@ std::string answerKnown(const std::vector<std::string>& segments, const std::vec
   return line(answered.at("answers").asArray()[0]);
 }
 
+std::string practise(const std::vector<Lesson>& lessons, const std::vector<std::string>& records, const std::string& source) {
+  std::vector<const Lesson*> usable;
+  for (const auto& l : lessons)
+    if (!l.question.empty() && !l.golden.empty() && !l.passages.empty()) usable.push_back(&l);
+  Value out = Value::object().set("practised", static_cast<double>(usable.size())).set("kept", false);
+  if (usable.size() < 8) return out.set("reason", "fewer than 8 lessons: nothing to learn from yet").json();
+  // Each lesson's passages, one capsule each: read into the space and recalled from the codes, as it answers.
+  Value passages = Value::array();
+  for (const auto* l : usable) {
+    std::string joined;
+    for (const auto& p : l->passages) joined += (joined.empty() ? "" : " ") + p;
+    passages.push(joined);
+  }
+  Value spec = Value::object();
+  spec.set("capsuleIngest", Value::object().set("passages", passages));
+  const Value ing = kernel::run("capsuleIngest", spec);
+  Value rspec = Value::object();
+  rspec.set("capsuleRecall", Value::object().set("capsule", ing.at("capsule")));
+  const Value recalled = kernel::run("capsuleRecall", rspec).at("recalled");
+  // Three quarters to study, every fourth held out.
+  Value train = Value::array(), test = Value::array();
+  for (std::size_t i = 0; i < usable.size(); ++i)
+    (i % 4 == 3 ? test : train).push(Value::object().set("question", usable[i]->question).set("golden", usable[i]->golden).set("capsule", static_cast<double>(i)));
+  auto study = [&](const std::vector<std::string>& remembered) {
+    Value c = Value::object().set("construct", true).set("train", train).set("test", test).set("recalled", recalled).set("students", 16.0)
+                  .set("source", source);
+    if (!remembered.empty()) c.set("memoryRecords", list(remembered));
+    Value s2 = Value::object();
+    s2.set("readingStudent", c);
+    return kernel::run("readingStudent", s2);
+  };
+  auto alone = [](const Value& r) {
+    for (const auto& d : r.at("designs").asArray())
+      if (d.at("name").asString() == "its memory alone, no feedback") return d.num("test", 0);
+    return 0.0;
+  };
+  const Value first = study(records);
+  const Value& next = first.at("remember");
+  const std::string record = next.at("record").asString();
+  std::vector<std::string> with = records;
+  with.push_back(record);
+  const double before = alone(first), after = alone(study(with));
+  const bool kept = after >= before - 1e-9;
+  out.set("train", static_cast<double>(train.size()))
+      .set("test", static_cast<double>(test.size()))
+      .set("before", before)
+      .set("after", after)
+      .set("study", next.num("test", 0))
+      .set("generation", next.num("generation", 0))
+      .set("kept", kept)
+      .set("reason", kept ? "its memory with this study answers the held-out lessons at least as well"
+                          : "its memory with this study answers the held-out lessons worse: not kept");
+  if (kept) out.set("record", record);
+  return out.json();
+}
+
 std::vector<std::string> blobsOf(const std::string& text) {
   std::vector<std::string> out;
   std::size_t i = text.find_first_not_of(" \t\r\n");
@@ -181,6 +237,19 @@ int run(const std::vector<std::string>& argsIn, std::vector<std::string> segment
           << "\n";
       return 0;
     }
+    if (cmd == "practise") {
+      std::vector<Lesson> lessons;
+      for (std::string l; std::getline(in, l);) {
+        std::vector<std::string> f(1);
+        for (char ch : l) {
+          if (ch == '\t') f.emplace_back();
+          else f.back() += ch;
+        }
+        if (f.size() >= 3) lessons.push_back({f[0], f[1], std::vector<std::string>(f.begin() + 2, f.end())});
+      }
+      out << practise(lessons, records, "lessons given to reader practise") << "\n";
+      return 0;
+    }
     if (cmd == "from" && args.size() >= 2) {
       std::string q;
       for (std::size_t i = 1; i < args.size(); ++i) q += (i > 1 ? " " : "") + args[i];
@@ -224,7 +293,7 @@ int run(const std::vector<std::string>& argsIn, std::vector<std::string> segment
       }
       return 0;
     }
-    err << "usage: reader version | info | ask QUESTION | session | batch | from QUESTION | ingest OUT TSV [--stored]  [--segments FILE] [--records FILE]\n";
+    err << "usage: reader version | info | ask QUESTION | session | batch | from QUESTION | practise | ingest OUT TSV [--stored]  [--segments FILE] [--records FILE]\n";
     return 2;
   } catch (const std::exception& e) {
     err << "reader: " << e.what() << "\n";

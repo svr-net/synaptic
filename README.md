@@ -441,6 +441,13 @@ library and the WASM build.
   `asksDefinition`) is answered confidently only from a fact that says what it is (the asked words its subject, its
   relation a form of "be", "means", "is called": capsuleQA's `defines`), and the reader prefers such a fact (`definitionWeight` 1;
   readingQA and capsuleQA's default keep 0, so one-part answers still equal readingQA's constructed).
+  `reader practise` (`syn::reader::practise`) is the reader studying as a student: lessons (a question, the answer it
+  should give, the passages it may answer from) read into capsules, its constructing habits learned by readingStudent
+  with every method from three quarters of them and tested on the rest; the study is kept as a memory record only when
+  its memory with it answers the held-out lessons at least as well. svr-net/ui runs it after every segment of an
+  incremental ingest, its lessons posed by the store itself (each new capsule asked the question its own text answers,
+  answered from what the frame engine activates for it): on a 12.5k-passage store, 64 lessons in 25 s, held-out
+  0.462 → 0.653 F1.
 - **Kept where it lives.** In the browser, the QA page keeps the segments it was taught and the records of what it studied
   in IndexedDB (`web/js/knowledge.js`, storage only) and passes them back to the models. In a knowledge repo
   (svr-net/knowledge), they are an append-only log on its branch — `reader/log.tsv`, `reader/segments/`, `reader/records/`,
