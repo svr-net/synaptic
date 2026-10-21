@@ -841,6 +841,8 @@ TEST(capsule_qa_reasons_and_answers_from_the_capsule_alone) {
   CHECK(!testing.at("defines").asBool());  // its subject's head is "testing"
   const Value named = ask("Genomic DNA is the molecule of heredity.");
   CHECK(named.at("defines").asBool());
+  const Value its = ask("Its DNA is a double helix.");
+  CHECK(!its.at("defines").asBool());  // its subject refers back to another thing
   const Value held = ask("DNA is contained in every cell of an organism.");
   CHECK(!held.at("defines").asBool());  // a passive
   const Value known = ask("DNA is known as the molecule of heredity.");
