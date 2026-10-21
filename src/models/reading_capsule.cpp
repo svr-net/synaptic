@@ -29,7 +29,10 @@
 #include <algorithm>
 #include <array>
 #include <cctype>
+#include <cstdint>
 #include <map>
+#include <memory>
+#include <mutex>
 #include <set>
 #include <string>
 
@@ -662,6 +665,64 @@ constexpr const char* qa_agent = R"wgsl(
 
 namespace syn::models {
 
+namespace {
+
+// What capsuleQA reads of a capsule before any question: its lexicon's forms by stem and flags (1 a digit, 2 a capital,
+// 4 says what something is, 8 goes with a verb, 16 a participle, 32 an adverb, 64 refers back), its word points, and
+// the stems of every fact.
+struct Lexicon {
+  std::uint64_t key = 0;
+  std::map<std::string, std::vector<double>> formsOf;  // a stem's lexicon forms
+  std::vector<double> flags, coords;
+  std::vector<std::vector<std::set<std::string>>> factStems;
+};
+
+Lexicon readLexicon(std::uint64_t key, const Value& dictionary, const std::vector<Value>& passages,
+                    const std::vector<std::vector<std::array<std::size_t, 2>>>& facts, const std::vector<double>& codes) {
+  Lexicon x;
+  x.key = key;
+  for (std::size_t w = 0; w < dictionary.size(); ++w) {
+    const std::string word = dictionary[w].asString();
+    for (const auto& st : memory::stemsOf(word)) x.formsOf[st].push_back(double(w));
+    static const std::set<std::string> saysWhat = {"is", "are", "was", "were", "be", "been", "being", "means", "mean", "meant",
+                                                    "refers", "called", "known", "defined", "consists", "describes"};
+    static const std::set<std::string> withVerb = {"has", "have", "had", "do", "does", "did", "not", "also", "often", "usually",
+                                                   "still", "only", "then", "as", "of", "to", "by", "in", "for", "with", "than"};
+    static const std::set<std::string> irregular = {"found", "made", "given", "seen", "taken", "shown", "done", "held", "kept", "built",
+                                                    "written", "born", "grown", "thrown", "hidden", "broken", "chosen", "spoken",
+                                                    "frozen", "driven", "eaten", "fallen", "brought", "bought", "caught", "taught",
+                                                    "thought", "sent", "spent", "left", "lost", "paid", "said", "sold", "told", "worn"};
+    static const std::set<std::string> adverbs = {"first", "also", "often", "now", "then", "still", "only", "already", "always",
+                                                  "never", "sometimes", "later", "once", "mostly", "soon", "again", "even"};
+    static const std::set<std::string> refersBack = {"its", "their", "his", "her", "our", "my", "your", "this", "these", "that",
+                                                     "those", "it", "they", "such"};
+    auto participle = [&](const std::string& l) {
+      return irregular.count(l) > 0 || (l.size() > 4 && l.compare(l.size() - 2, 2, "ed") == 0 && l.compare(l.size() - 3, 3, "eed") != 0);
+    };
+    std::string lw = word;
+    std::transform(lw.begin(), lw.end(), lw.begin(), [](unsigned char ch) { return static_cast<char>(std::tolower(ch)); });
+    x.flags.push_back((std::any_of(word.begin(), word.end(), [](unsigned char ch) { return std::isdigit(ch) != 0; }) ? 1.0 : 0.0) +
+                    (std::isupper(static_cast<unsigned char>(word[0])) ? 2.0 : 0.0) + (saysWhat.count(lw) ? 4.0 : 0.0) +
+                    (!saysWhat.count(lw) && withVerb.count(lw) ? 8.0 : 0.0) + (participle(lw) ? 16.0 : 0.0) +
+                    (adverbs.count(lw) || (lw.size() > 4 && lw.compare(lw.size() - 2, 2, "ly") == 0) ? 32.0 : 0.0) +
+                    (refersBack.count(lw) ? 64.0 : 0.0));
+  }
+  x.coords = coordinates(dictionary);
+  x.factStems.resize(passages.size());
+  for (std::size_t p = 0; p < passages.size(); ++p) {
+    x.factStems[p].resize(facts[p].size());
+    for (std::size_t f = 0; f < facts[p].size(); ++f)
+      for (std::size_t k = 0; k < facts[p][f][1]; ++k) {
+        const auto code = static_cast<std::size_t>(codes[facts[p][f][0] + k]);
+        const auto word = static_cast<std::size_t>(passages[p].at("vocabulary")[code / 96].asNumber());
+        for (const auto& st : memory::stemsOf(dictionary[word].asString())) x.factStems[p][f].insert(st);
+      }
+  }
+  return x;
+}
+
+}  // namespace
+
 const kernel::Model* capsuleQaModel() {
   static const kernel::Model model = [] {
     kernel::Model m;
@@ -707,55 +768,32 @@ const kernel::Model* capsuleQaModel() {
           at += n;
         }
       }
-      auto wordOf = [&](std::size_t p, double code) {
-        return static_cast<std::size_t>(passages[p].at("vocabulary")[static_cast<std::size_t>(code) / 96].asNumber());
-      };
-      std::map<std::string, std::vector<double>> formsOf;  // a stem's lexicon forms
-      std::vector<double> flags;
-      for (std::size_t w = 0; w < dictionary.size(); ++w) {
-        const std::string word = dictionary[w].asString();
-        for (const auto& st : memory::stemsOf(word)) formsOf[st].push_back(double(w));
-        static const std::set<std::string> saysWhat = {"is", "are", "was", "were", "be", "been", "being", "means", "mean", "meant",
-                                                        "refers", "called", "known", "defined", "consists", "describes"};
-        static const std::set<std::string> withVerb = {"has", "have", "had", "do", "does", "did", "not", "also", "often", "usually",
-                                                       "still", "only", "then", "as", "of", "to", "by", "in", "for", "with", "than"};
-        static const std::set<std::string> irregular = {"found", "made", "given", "seen", "taken", "shown", "done", "held", "kept", "built",
-                                                        "written", "born", "grown", "thrown", "hidden", "broken", "chosen", "spoken",
-                                                        "frozen", "driven", "eaten", "fallen", "brought", "bought", "caught", "taught",
-                                                        "thought", "sent", "spent", "left", "lost", "paid", "said", "sold", "told", "worn"};
-        static const std::set<std::string> adverbs = {"first", "also", "often", "now", "then", "still", "only", "already", "always",
-                                                      "never", "sometimes", "later", "once", "mostly", "soon", "again", "even"};
-        static const std::set<std::string> refersBack = {"its", "their", "his", "her", "our", "my", "your", "this", "these", "that",
-                                                         "those", "it", "they", "such"};
-        auto participle = [&](const std::string& l) {
-          return irregular.count(l) > 0 || (l.size() > 4 && l.compare(l.size() - 2, 2, "ed") == 0 && l.compare(l.size() - 3, 3, "eed") != 0);
-        };
-        std::string lw = word;
-        std::transform(lw.begin(), lw.end(), lw.begin(), [](unsigned char ch) { return static_cast<char>(std::tolower(ch)); });
-        flags.push_back((std::any_of(word.begin(), word.end(), [](unsigned char ch) { return std::isdigit(ch) != 0; }) ? 1.0 : 0.0) +
-                        (std::isupper(static_cast<unsigned char>(word[0])) ? 2.0 : 0.0) + (saysWhat.count(lw) ? 4.0 : 0.0) +
-                        (!saysWhat.count(lw) && withVerb.count(lw) ? 8.0 : 0.0) + (participle(lw) ? 16.0 : 0.0) +
-                        (adverbs.count(lw) || (lw.size() > 4 && lw.compare(lw.size() - 2, 2, "ly") == 0) ? 32.0 : 0.0) +
-                        (refersBack.count(lw) ? 64.0 : 0.0));
+      // What depends on the capsule alone -- its lexicon's stems and flags, its word points, every fact's stems -- is
+      // read once per capsule, not once per question (a session asks one question at a time of the same capsule).
+      std::uint64_t key = 14695981039346656037ull;
+      auto mix = [&](std::uint64_t v) { key = (key ^ v) * 1099511628211ull; };
+      for (std::size_t w = 0; w < dictionary.size(); ++w)
+        for (unsigned char ch : dictionary.asArray()[w].asString()) mix(ch);
+      mix(codes.size());
+      for (double x : codes) mix(static_cast<std::uint64_t>(x));
+      for (const auto& p : passages) {
+        mix(p.at("facts").size());
+        for (std::size_t k = 0; k < p.at("vocabulary").size(); ++k) mix(static_cast<std::uint64_t>(p.at("vocabulary")[k].asNumber()));
       }
+      static std::mutex lexHeld;
+      static std::shared_ptr<const Lexicon> lexCached;
+      std::shared_ptr<const Lexicon> lex;
+      {
+        std::lock_guard<std::mutex> lock(lexHeld);
+        if (!lexCached || lexCached->key != key) lexCached = std::make_shared<const Lexicon>(readLexicon(key, dictionary, passages, facts, codes));
+        lex = lexCached;
+      }
+      const auto& formsOf = lex->formsOf;
+      const auto& flags = lex->flags;
+      auto stemsOfFact = [&](std::size_t p, std::size_t f) -> const std::set<std::string>& { return lex->factStems[p][f]; };
       // Each question's facts: its capsule's, or, with none, the facts of all capsules that share most with it.
       std::vector<std::vector<std::array<std::size_t, 3>>> asked(questions.size());  // (passage, fact, -)
       std::set<std::size_t> used;
-      // A fact's stems, read once (open questions rank every fact of every capsule).
-      std::vector<std::vector<std::set<std::string>>> factStems(passages.size());
-      std::vector<std::vector<bool>> factStemsRead(passages.size());
-      auto stemsOfFact = [&](std::size_t p, std::size_t f) -> const std::set<std::string>& {
-        if (factStems[p].empty()) {
-          factStems[p].resize(facts[p].size());
-          factStemsRead[p].assign(facts[p].size(), false);
-        }
-        if (!factStemsRead[p][f]) {
-          for (std::size_t k = 0; k < facts[p][f][1]; ++k)
-            for (const auto& st : memory::stemsOf(dictionary[wordOf(p, codes[facts[p][f][0] + k])].asString())) factStems[p][f].insert(st);
-          factStemsRead[p][f] = true;
-        }
-        return factStems[p][f];
-      };
       for (std::size_t i = 0; i < questions.size(); ++i) {
         const double cp = capsuleOf[i];
         if (cp >= 0 && cp < static_cast<double>(passages.size())) {
@@ -799,8 +837,7 @@ const kernel::Model* capsuleQaModel() {
       for (int k = 0; k < 8; ++k) params[5 + static_cast<std::size_t>(k)] = mem.construct[k];
       params[13] = c.num("threshold", 1.0);
       params[0] = double(params.size());
-      const auto coords = coordinates(dictionary);
-      params.insert(params.end(), coords.begin(), coords.end());
+      params.insert(params.end(), lex->coords.begin(), lex->coords.end());
       params[1] = double(params.size());
       params.insert(params.end(), codes.begin(), codes.end());
       params[2] = double(params.size());
@@ -830,7 +867,9 @@ const kernel::Model* capsuleQaModel() {
           }
           const double stemFirst = double(stemRows.size() / 3);
           for (const auto& st : stems) {
-            const auto& fs = formsOf[st];
+            static const std::vector<double> none;
+            const auto found = formsOf.find(st);
+            const auto& fs = found == formsOf.end() ? none : found->second;
             stemRows.insert(stemRows.end(), {idf(st), double(forms.size()), double(fs.size())});
             forms.insert(forms.end(), fs.begin(), fs.end());
           }

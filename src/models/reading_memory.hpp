@@ -172,18 +172,13 @@ struct CapsuleBytes {
 std::uint32_t capsuleFingerprint();
 /** The segment of a capsule that extends its first `baseWords` words and `basePassages` passages. */
 CapsuleBytes packSegment(const Value& capsule, std::size_t baseWords, std::size_t basePassages);
-/** The whole capsule as one segment. */
-CapsuleBytes packCapsule(const Value& capsule);
 /** Segments read in order into one capsule ({dictionary, cells, passages}), with a report per segment
  *  (bytes, words, passages, used, and why not). A segment that is damaged, written for another
  *  format, or does not extend the capsule read so far is refused, and so are those after it. */
 Value joinSegments(const std::vector<std::string>& segments);
-/** One segment, read as a capsule. */
-Value unpackCapsule(const std::string& base64);
 
 /** The stored capsule (reader_capsule.inc): the golden passages, ingested; capsuleRecall's default. */
 const std::vector<std::string>& storedSegments();
-const Value& storedCapsule();
 /** The capsule a model's spec names: `capsule` as is; `segments` (or one, `packed`) read in order —
  *  on top of the stored capsule when they extend it (or with `stored`); none: the stored capsule.
  *  {capsule, segments (the report), stored}. */

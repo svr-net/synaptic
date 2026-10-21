@@ -40,7 +40,7 @@ Cl(4,1) (pure elliptic CGA). Read README.md for the models; this file keeps the 
   drop of more than 0.01 below `tools/qa_golden/baseline.json`. The data lives outside the repo (e.g. build/qa_golden).
 - What the reader keeps: `src/models/reading_memory.{hpp,cpp}` loads `student_memory.inc` (reading, note-taking and
   constructing weights, generation, provenance, fingerprint of the habits) and the knowledge capsule `reader_capsule.inc`
-  (the 60 embedded golden passages, packed: base64 of `memory::packCapsule`; no text).
+  (the 60 embedded golden passages, packed: base64 of `memory::packSegment`; no text).
   Changing a habit's definition: bump its version in `memory::fingerprint()` — the old memory is then refused, not misapplied.
 - Owner's rule: constructed answers must never use the original text — only the capsule (codes + lexicon), the grammar
   and the learned habits. The capsule is an index router of grades (owner's ask): a slot is a multivector, grade 0 fact,
