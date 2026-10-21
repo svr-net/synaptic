@@ -522,7 +522,8 @@ constexpr const char* qa_agent = R"wgsl(
   // of the facts (first slot, slots, first word of its capsule's vocabulary, whether the next fact of
   // its passage follows it), P(15) start of the
   // lexicon's flags (1 a digit, 2 a capital, 4 says what something is: a form of "be", "means", "is called"; 8 goes with
-  // a verb without being one: "has", "not", "also", "as", "of"; 16 a past participle: "found", "contained"; 32 an adverb: "first", "mainly"). Job (a part of a question): J(0) its first fact,
+  // a verb without being one: "has", "not", "also", "as", "of"; 16 a past participle: "found", "contained"; 32 an adverb: "first", "mainly"; 64 a word that refers back:
+  // "its", "their", "this"). Job (a part of a question): J(0) its first fact,
   // J(1) facts, J(3) first asked word, J(4) asked words, J(5) asks a number, J(6) asks a name,
   // J(7) the question's parts, J(8) whether it asks what something is; P(16) the weight of a fact that says what
   // something is, for such a part.
@@ -553,6 +554,7 @@ constexpr const char* qa_agent = R"wgsl(
   var nextParticiple = false;
   var headPlace = 0u;     // the subject's last word, its head: an asked word ("DNA testing" is not DNA)
   var headAsked = false;
+  var refers = false;     // the subject refers back ("its source" is another thing's)
   var subjectWords = 0u;  // the fact's subject: its words, and the asked words it holds
   var bySubject : array<bool, 16>;
   for (var t = 0u; t < 16u; t = t + 1u) { bySubject[t] = false; }
@@ -602,6 +604,7 @@ constexpr const char* qa_agent = R"wgsl(
             }
           }
         }
+        if (which == 0u && role == 0u && (wordFlags & 64u) != 0u) { refers = true; }
         if (which == 0u && role == 0u && place >= headPlace) {
           headPlace = place;
           headAsked = hit;
@@ -644,11 +647,12 @@ constexpr const char* qa_agent = R"wgsl(
     quant(1u + k, feature[k]);
   }
   // The fact says what the asked thing is: its relation a form of "be" and no other verb (nor
-  // a passive, even after an adverb), its subject's head an asked word, its subject the asked words (all of them,
+  // a passive, even after an adverb), its subject's head an asked word (not
+  // referring back to another thing), its subject the asked words (all of them,
   // and little else).
   var inSubject = 0u;
   for (var t = 0u; t < asked; t = t + 1u) { inSubject = inSubject + select(0u, 1u, bySubject[t]); }
-  let defines = copula && !otherVerb && !passive && !(adverb && nextParticiple) && headAsked && asked > 0u && inSubject == asked && subjectWords <= asked + 1u;
+  let defines = copula && !otherVerb && !passive && !(adverb && nextParticiple) && headAsked && !refers && asked > 0u && inSubject == asked && subjectWords <= asked + 1u;
   // Asked what something is, the fact that says what it is weighs more.
   score = score + select(0.0, P(16u), J(8u) > 0.5 && defines);
   // The belief that this is the answer: a point of the space.
@@ -721,6 +725,8 @@ const kernel::Model* capsuleQaModel() {
                                                         "thought", "sent", "spent", "left", "lost", "paid", "said", "sold", "told", "worn"};
         static const std::set<std::string> adverbs = {"first", "also", "often", "now", "then", "still", "only", "already", "always",
                                                       "never", "sometimes", "later", "once", "mostly", "soon", "again", "even"};
+        static const std::set<std::string> refersBack = {"its", "their", "his", "her", "our", "my", "your", "this", "these", "that",
+                                                         "those", "it", "they", "such"};
         auto participle = [&](const std::string& l) {
           return irregular.count(l) > 0 || (l.size() > 4 && l.compare(l.size() - 2, 2, "ed") == 0 && l.compare(l.size() - 3, 3, "eed") != 0);
         };
@@ -729,7 +735,8 @@ const kernel::Model* capsuleQaModel() {
         flags.push_back((std::any_of(word.begin(), word.end(), [](unsigned char ch) { return std::isdigit(ch) != 0; }) ? 1.0 : 0.0) +
                         (std::isupper(static_cast<unsigned char>(word[0])) ? 2.0 : 0.0) + (saysWhat.count(lw) ? 4.0 : 0.0) +
                         (!saysWhat.count(lw) && withVerb.count(lw) ? 8.0 : 0.0) + (participle(lw) ? 16.0 : 0.0) +
-                        (adverbs.count(lw) || (lw.size() > 4 && lw.compare(lw.size() - 2, 2, "ly") == 0) ? 32.0 : 0.0));
+                        (adverbs.count(lw) || (lw.size() > 4 && lw.compare(lw.size() - 2, 2, "ly") == 0) ? 32.0 : 0.0) +
+                        (refersBack.count(lw) ? 64.0 : 0.0));
       }
       // Each question's facts: its capsule's, or, with none, the facts of all capsules that share most with it.
       std::vector<std::vector<std::array<std::size_t, 3>>> asked(questions.size());  // (passage, fact, -)
