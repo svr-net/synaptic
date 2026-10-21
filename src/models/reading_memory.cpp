@@ -59,7 +59,7 @@ const Stored kStored =
 #include "student_memory.inc"
     ;
 
-// The stored capsule: its packed bytes (packCapsule), in base64, line by line.
+// The stored capsule: its segments (packSegment), in base64, line by line.
 const char* const kCapsuleBlob[] = {
 #include "reader_capsule.inc"
     nullptr};
@@ -221,10 +221,72 @@ std::string sectionOf(const std::string& f, int section) {
   const auto b = to[section] ? f.find(to[section], a) : std::string::npos;
   return f.substr(a, b == std::string::npos ? std::string::npos : b - a);
 }
-std::uint32_t hash32(const std::string& s) {
+// The bytes of a record or a segment: FNV-1a 32 checksums, varints, little-endian words, base64 -- one of each, for
+// both formats (over std::string or std::vector<std::uint8_t>).
+std::uint32_t fnv32(const void* data, std::size_t n) {
+  const auto* b = static_cast<const std::uint8_t*>(data);
   std::uint32_t h = 2166136261u;
-  for (unsigned char ch : s) h = (h ^ ch) * 16777619u;
+  for (std::size_t i = 0; i < n; ++i) h = (h ^ b[i]) * 16777619u;
   return h;
+}
+std::uint32_t hash32(const std::string& s) { return fnv32(s.data(), s.size()); }
+template <class Bytes>
+void putVar(Bytes& out, std::uint32_t v) {
+  while (v >= 0x80) {
+    out.push_back(static_cast<typename Bytes::value_type>(v | 0x80));
+    v >>= 7;
+  }
+  out.push_back(static_cast<typename Bytes::value_type>(v));
+}
+template <class Bytes>
+std::uint32_t getVar(const Bytes& in, std::size_t& at) {
+  std::uint32_t v = 0;
+  for (int shift = 0; at < in.size() && shift < 35; shift += 7) {
+    const auto b = static_cast<std::uint8_t>(in[at++]);
+    v |= static_cast<std::uint32_t>(b & 0x7f) << shift;
+    if (!(b & 0x80)) break;
+  }
+  return v;
+}
+template <class Bytes>
+void put32(Bytes& out, std::uint32_t v) {
+  for (int k = 0; k < 4; ++k) out.push_back(static_cast<typename Bytes::value_type>(v >> (8 * k)));
+}
+template <class Bytes>
+std::uint32_t get32(const Bytes& in, std::size_t& at) {
+  std::uint32_t v = 0;
+  for (int k = 0; k < 4 && at < in.size(); ++k) v |= std::uint32_t{static_cast<std::uint8_t>(in[at++])} << (8 * k);
+  return v;
+}
+const char* const kB64 = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+std::string base64(const void* data, std::size_t size) {
+  const auto* b = static_cast<const std::uint8_t*>(data);
+  std::string out;
+  for (std::size_t i = 0; i < size; i += 3) {
+    const auto at = [&](std::size_t k) { return k < size ? std::uint32_t{b[k]} : 0u; };
+    const std::uint32_t n = (at(i) << 16) | (at(i + 1) << 8) | at(i + 2);
+    out += kB64[(n >> 18) & 63];
+    out += kB64[(n >> 12) & 63];
+    out += i + 1 < size ? kB64[(n >> 6) & 63] : '=';
+    out += i + 2 < size ? kB64[n & 63] : '=';
+  }
+  return out;
+}
+std::string unbase64(const std::string& s) {
+  std::string out;
+  std::uint32_t acc = 0;
+  int have = 0;
+  for (char c : s) {
+    const char* at = std::strchr(kB64, c);
+    if (!at || c == '\0') continue;  // '=' and anything else end or pad
+    acc = (acc << 6) | static_cast<std::uint32_t>(at - kB64);
+    have += 6;
+    if (have >= 8) {
+      have -= 8;
+      out.push_back(static_cast<char>((acc >> have) & 0xff));
+    }
+  }
+  return out;
 }
 
 }  // namespace
@@ -234,30 +296,6 @@ namespace {
 constexpr std::uint8_t kRecordMagic[4] = {'S', 'Y', 'N', 'M'};
 constexpr std::uint32_t kRecordVersion = 1;
 
-void putVar(std::string& out, std::uint32_t v) {
-  while (v >= 0x80) {
-    out.push_back(static_cast<char>(v | 0x80));
-    v >>= 7;
-  }
-  out.push_back(static_cast<char>(v));
-}
-std::uint32_t getVar(const std::string& in, std::size_t& at) {
-  std::uint32_t v = 0;
-  for (int shift = 0; at < in.size() && shift < 35; shift += 7) {
-    const auto b = static_cast<std::uint8_t>(in[at++]);
-    v |= static_cast<std::uint32_t>(b & 0x7f) << shift;
-    if (!(b & 0x80)) break;
-  }
-  return v;
-}
-void put32(std::string& out, std::uint32_t v) {
-  for (int k = 0; k < 4; ++k) out.push_back(static_cast<char>(v >> (8 * k)));
-}
-std::uint32_t get32(const std::string& in, std::size_t& at) {
-  std::uint32_t v = 0;
-  for (int k = 0; k < 4 && at < in.size(); ++k) v |= std::uint32_t{static_cast<std::uint8_t>(in[at++])} << (8 * k);
-  return v;
-}
 void putF(std::string& out, double d) {
   const auto f = static_cast<float>(d);
   std::uint32_t v;
@@ -279,35 +317,6 @@ std::string getStr(const std::string& in, std::size_t& at) {
   std::string s = in.substr(std::min(at, in.size()), n);
   at += n;
   return s;
-}
-const char* const kB64 = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-std::string b64(const std::string& b) {
-  std::string out;
-  for (std::size_t i = 0; i < b.size(); i += 3) {
-    const auto at = [&](std::size_t k) { return k < b.size() ? std::uint32_t{static_cast<std::uint8_t>(b[k])} : 0u; };
-    const std::uint32_t n = (at(i) << 16) | (at(i + 1) << 8) | at(i + 2);
-    out += kB64[(n >> 18) & 63];
-    out += kB64[(n >> 12) & 63];
-    out += i + 1 < b.size() ? kB64[(n >> 6) & 63] : '=';
-    out += i + 2 < b.size() ? kB64[n & 63] : '=';
-  }
-  return out;
-}
-std::string unb64(const std::string& s) {
-  std::string out;
-  std::uint32_t acc = 0;
-  int have = 0;
-  for (char c : s) {
-    const char* at = std::strchr(kB64, c);
-    if (!at || c == '\0') continue;
-    acc = (acc << 6) | static_cast<std::uint32_t>(at - kB64);
-    have += 6;
-    if (have >= 8) {
-      have -= 8;
-      out.push_back(static_cast<char>((acc >> have) & 0xff));
-    }
-  }
-  return out;
 }
 
 // The stored memory with its records folded in, in order.
@@ -355,12 +364,12 @@ std::string packRecord(const Record& r) {
   putStr(b, r.design);
   putStr(b, r.source);
   put32(b, hash32(b));
-  return b64(b);
+  return base64(b.data(), b.size());
 }
 
 Record unpackRecord(const std::string& base64, std::string* error) {
   Record r;
-  const std::string b = unb64(base64);
+  const std::string b = unbase64(base64);
   auto fail = [&](const char* why) {
     if (error) *error = why;
     return r;
@@ -813,22 +822,6 @@ std::vector<Fact> factsFor(const std::string& question, const std::vector<std::v
 
 namespace {
 
-void putVarint(std::vector<std::uint8_t>& out, std::uint32_t v) {
-  while (v >= 0x80) {
-    out.push_back(static_cast<std::uint8_t>(v | 0x80));
-    v >>= 7;
-  }
-  out.push_back(static_cast<std::uint8_t>(v));
-}
-std::uint32_t getVarint(const std::vector<std::uint8_t>& in, std::size_t& at) {
-  std::uint32_t v = 0;
-  for (int shift = 0; at < in.size(); shift += 7) {
-    const std::uint8_t b = in[at++];
-    v |= static_cast<std::uint32_t>(b & 0x7f) << shift;
-    if (!(b & 0x80)) break;
-  }
-  return v;
-}
 // Bits per code of a passage: the codebooks of its levels — its vocabulary × the grammar's
 // 3 roles × 32 places.
 unsigned codeBits(std::size_t vocabulary) {
@@ -836,7 +829,6 @@ unsigned codeBits(std::size_t vocabulary) {
   while ((std::size_t{1} << b) < std::max<std::size_t>(2, vocabulary * 96)) ++b;
   return b;
 }
-const char* const kBase64 = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
 
 }  // namespace
 
@@ -846,19 +838,6 @@ constexpr std::uint8_t kMagic[4] = {'S', 'Y', 'N', 'K'};
 constexpr std::uint32_t kSegmentVersion = 1;
 constexpr unsigned kCellBits = 12;  // the index's 16³ cells
 
-std::uint32_t fnv(const std::uint8_t* b, std::size_t n) {
-  std::uint32_t h = 2166136261u;
-  for (std::size_t i = 0; i < n; ++i) h = (h ^ b[i]) * 16777619u;
-  return h;
-}
-void putU32(std::vector<std::uint8_t>& out, std::uint32_t v) {
-  for (int k = 0; k < 4; ++k) out.push_back(static_cast<std::uint8_t>(v >> (8 * k)));
-}
-std::uint32_t getU32(const std::vector<std::uint8_t>& in, std::size_t& at) {
-  std::uint32_t v = 0;
-  for (int k = 0; k < 4 && at < in.size(); ++k) v |= std::uint32_t{in[at++]} << (8 * k);
-  return v;
-}
 // Bit-packing: values of `bits` bits, least significant first.
 struct BitWriter {
   std::vector<std::uint8_t>& b;
@@ -895,33 +874,6 @@ struct BitReader {
     return v;
   }
 };
-std::string toBase64(const std::vector<std::uint8_t>& b) {
-  std::string out;
-  for (std::size_t i = 0; i < b.size(); i += 3) {
-    const std::uint32_t n = (std::uint32_t{b[i]} << 16) | (i + 1 < b.size() ? std::uint32_t{b[i + 1]} << 8 : 0u) | (i + 2 < b.size() ? b[i + 2] : 0u);
-    out += kBase64[(n >> 18) & 63];
-    out += kBase64[(n >> 12) & 63];
-    out += i + 1 < b.size() ? kBase64[(n >> 6) & 63] : '=';
-    out += i + 2 < b.size() ? kBase64[n & 63] : '=';
-  }
-  return out;
-}
-std::vector<std::uint8_t> fromBase64(const std::string& base64) {
-  std::vector<std::uint8_t> b;
-  std::uint32_t acc = 0;
-  int have = 0;
-  for (char c : base64) {
-    const char* at = std::strchr(kBase64, c);
-    if (!at || c == '\0') continue;  // '=' and anything else end or pad
-    acc = (acc << 6) | static_cast<std::uint32_t>(at - kBase64);
-    have += 6;
-    if (have >= 8) {
-      have -= 8;
-      b.push_back(static_cast<std::uint8_t>((acc >> have) & 0xff));
-    }
-  }
-  return b;
-}
 
 // One segment read: what it adds, or why it cannot be read.
 struct Read {
@@ -935,33 +887,34 @@ struct Read {
 
 Read readSegment(const std::string& base64) {
   Read r;
-  const std::vector<std::uint8_t> b = fromBase64(base64);
+  const std::string text = unbase64(base64);
+  const std::vector<std::uint8_t> b(text.begin(), text.end());
   r.bytes = b.size();
   if (b.size() < 12 || !std::equal(kMagic, kMagic + 4, b.begin())) {
     r.error = "not a capsule segment";
     return r;
   }
   std::size_t end = b.size() - 4, sumAt = end;
-  if (getU32(b, sumAt) != fnv(b.data(), end)) {
+  if (get32(b, sumAt) != fnv32(b.data(), end)) {
     r.error = "its checksum does not match (damaged)";
     return r;
   }
   std::size_t at = 4;
-  if (getVarint(b, at) != kSegmentVersion) {
+  if (getVar(b, at) != kSegmentVersion) {
     r.error = "written by another version of the segment format";
     return r;
   }
-  if (getU32(b, at) != capsuleFingerprint()) {
+  if (get32(b, at) != capsuleFingerprint()) {
     r.error = "written for another grammar or index (fingerprint differs)";
     return r;
   }
-  r.baseWords = getVarint(b, at);
-  r.basePassages = getVarint(b, at);
+  r.baseWords = getVar(b, at);
+  r.basePassages = getVar(b, at);
   // The words it adds to the lexicon, front-coded, and the cell of the index each lies in.
   std::string last;
-  const std::uint32_t words = getVarint(b, at);
+  const std::uint32_t words = getVar(b, at);
   for (std::uint32_t w = 0; w < words && at < end; ++w) {
-    const std::uint32_t shared = getVarint(b, at), rest = getVarint(b, at);
+    const std::uint32_t shared = getVar(b, at), rest = getVar(b, at);
     std::string word = last.substr(0, shared);
     word.append(reinterpret_cast<const char*>(b.data() + at), std::min<std::size_t>(rest, end - at));
     at += rest;
@@ -972,16 +925,16 @@ Read readSegment(const std::string& base64) {
     BitReader bits{b, at};
     for (std::uint32_t w = 0; w < words; ++w) r.cells.push_back(static_cast<double>(bits.get(kCellBits)));
   }
-  const std::uint32_t count = at < end ? getVarint(b, at) : 0;
+  const std::uint32_t count = at < end ? getVar(b, at) : 0;
   for (std::uint32_t p = 0; p < count && at <= end; ++p) {
     std::vector<double> vocabulary, facts, codes;
-    const std::uint32_t nv = getVarint(b, at);
+    const std::uint32_t nv = getVar(b, at);
     std::uint32_t prev = 0;
-    for (std::uint32_t k = 0; k < nv; ++k) vocabulary.push_back(prev += getVarint(b, at));
-    const std::uint32_t nf = getVarint(b, at);
+    for (std::uint32_t k = 0; k < nv; ++k) vocabulary.push_back(prev += getVar(b, at));
+    const std::uint32_t nf = getVar(b, at);
     std::size_t slots = 0;
     for (std::uint32_t k = 0; k < nf; ++k) {
-      facts.push_back(getVarint(b, at));
+      facts.push_back(getVar(b, at));
       slots += static_cast<std::size_t>(facts.back());
     }
     BitReader bits{b, at};
@@ -1001,7 +954,7 @@ std::uint32_t capsuleFingerprint() {
         "capsule v2: slots (fact; word point lift(u) of wordCoordinates, fnv1a-64 + fmix64, 16-bit grid of [-2,2]^3; grammar bivector, "
         "role 2.0943951, step 0.19634954); codes (vocabulary * 3 + role) * 32 + place; index cells 16^3 (spheres u_a = t, t = -2 + j/4); "
         "lexicon front-coded";
-    return fnv(reinterpret_cast<const std::uint8_t*>(s.data()), s.size());
+    return fnv32(reinterpret_cast<const std::uint8_t*>(s.data()), s.size());
   }();
   return f;
 }
@@ -1010,22 +963,22 @@ CapsuleBytes packSegment(const Value& capsule, std::size_t baseWords, std::size_
   CapsuleBytes out;
   std::vector<std::uint8_t>& b = out.bytes;
   b.insert(b.end(), kMagic, kMagic + 4);
-  putVarint(b, kSegmentVersion);
-  putU32(b, capsuleFingerprint());
-  putVarint(b, static_cast<std::uint32_t>(baseWords));
-  putVarint(b, static_cast<std::uint32_t>(basePassages));
+  putVar(b, kSegmentVersion);
+  put32(b, capsuleFingerprint());
+  putVar(b, static_cast<std::uint32_t>(baseWords));
+  putVar(b, static_cast<std::uint32_t>(basePassages));
   out.header = b.size();
   // The lexicon's new words, front-coded: the prefix each shares with the word before, and the rest.
   const Value& dict = capsule.at("dictionary");
   const std::size_t words = dict.size() > baseWords ? dict.size() - baseWords : 0;
-  putVarint(b, static_cast<std::uint32_t>(words));
+  putVar(b, static_cast<std::uint32_t>(words));
   std::string last;
   for (std::size_t w = baseWords; w < dict.size(); ++w) {
     const std::string word = dict[w].asString();
     std::size_t shared = 0;
     while (shared < last.size() && shared < word.size() && last[shared] == word[shared]) ++shared;
-    putVarint(b, static_cast<std::uint32_t>(shared));
-    putVarint(b, static_cast<std::uint32_t>(word.size() - shared));
+    putVar(b, static_cast<std::uint32_t>(shared));
+    putVar(b, static_cast<std::uint32_t>(word.size() - shared));
     b.insert(b.end(), word.begin() + static_cast<std::ptrdiff_t>(shared), word.end());
     last = word;
   }
@@ -1041,25 +994,25 @@ CapsuleBytes packSegment(const Value& capsule, std::size_t baseWords, std::size_
   }
   out.cells = b.size() - at;
   const auto& passages = capsule.at("passages").asArray();
-  putVarint(b, static_cast<std::uint32_t>(passages.size() > basePassages ? passages.size() - basePassages : 0));
+  putVar(b, static_cast<std::uint32_t>(passages.size() > basePassages ? passages.size() - basePassages : 0));
   for (std::size_t pi = basePassages; pi < passages.size(); ++pi) {
     const Value& p = passages[pi];
     // Level 1's codebook: the passage's vocabulary (lexicon indices, ascending, as differences).
     at = b.size();
     const Value& vocab = p.at("vocabulary");
-    putVarint(b, static_cast<std::uint32_t>(vocab.size()));
+    putVar(b, static_cast<std::uint32_t>(vocab.size()));
     std::uint32_t prev = 0;
     for (std::size_t k = 0; k < vocab.size(); ++k) {
       const auto v = static_cast<std::uint32_t>(vocab[k].asNumber());
-      putVarint(b, v - prev);
+      putVar(b, v - prev);
       prev = v;
     }
     out.vocabulary += b.size() - at;
     // Level 0: the facts, as run lengths of their slots.
     at = b.size();
     const Value& facts = p.at("facts");
-    putVarint(b, static_cast<std::uint32_t>(facts.size()));
-    for (std::size_t k = 0; k < facts.size(); ++k) putVarint(b, static_cast<std::uint32_t>(facts[k].asNumber()));
+    putVar(b, static_cast<std::uint32_t>(facts.size()));
+    for (std::size_t k = 0; k < facts.size(); ++k) putVar(b, static_cast<std::uint32_t>(facts[k].asNumber()));
     out.facts += b.size() - at;
     // Levels 1 and 2: each slot's code, bit-packed.
     at = b.size();
@@ -1070,13 +1023,11 @@ CapsuleBytes packSegment(const Value& capsule, std::size_t baseWords, std::size_
     bits.flush();
     out.codes += b.size() - at;
   }
-  putU32(b, fnv(b.data(), b.size()));
+  put32(b, fnv32(b.data(), b.size()));
   out.header += 4;
-  out.base64 = toBase64(b);
+  out.base64 = base64(b.data(), b.size());
   return out;
 }
-
-CapsuleBytes packCapsule(const Value& capsule) { return packSegment(capsule, 0, 0); }
 
 Value joinSegments(const std::vector<std::string>& segments) {
   Value dictionary = Value::array(), passages = Value::array(), report = Value::array();
@@ -1110,8 +1061,6 @@ Value joinSegments(const std::vector<std::string>& segments) {
       .set("segments", report);
 }
 
-Value unpackCapsule(const std::string& base64) { return joinSegments({base64}).at("capsule"); }
-
 const std::vector<std::string>& storedSegments() {
   static const std::vector<std::string> v = [] {
     std::vector<std::string> out(1);
@@ -1125,11 +1074,6 @@ const std::vector<std::string>& storedSegments() {
     if (out.back().empty()) out.pop_back();
     return out;
   }();
-  return v;
-}
-
-const Value& storedCapsule() {
-  static const Value v = joinSegments(storedSegments()).at("capsule");
   return v;
 }
 

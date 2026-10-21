@@ -4,6 +4,8 @@
 #include <fstream>
 #include <iomanip>
 #include <iostream>
+#include <memory>
+#include <mutex>
 #include <sstream>
 
 #include "../../src/models/reading_memory.hpp"
@@ -108,7 +110,25 @@ std::string answerFrom(const std::vector<std::string>& passages, const std::stri
 }
 
 std::string answerKnown(const std::vector<std::string>& segments, const std::vector<std::string>& records, const std::string& question) {
-  const Knowledge k = know(segments, records);
+  // What it knows does not change within a session: decoded once, while the segments and records stay the same.
+  static std::mutex held;
+  static std::uint64_t key = 0;
+  static std::shared_ptr<const Knowledge> cached;
+  std::uint64_t h = 14695981039346656037ull;
+  for (const auto* blobs : {&segments, &records}) {
+    for (const auto& b : *blobs) {
+      for (unsigned char c : b) h = (h ^ c) * 1099511628211ull;
+      h = (h ^ 0xff) * 1099511628211ull;
+    }
+    h = (h ^ 0xfe) * 1099511628211ull;
+  }
+  std::shared_ptr<const Knowledge> known;
+  {
+    std::lock_guard<std::mutex> lock(held);
+    if (!cached || key != h) cached = std::make_shared<const Knowledge>(know(segments, records)), key = h;
+    known = cached;
+  }
+  const Knowledge& k = *known;
   const Value answered = answer(k, {question});
   return line(answered.at("answers").asArray()[0]);
 }
