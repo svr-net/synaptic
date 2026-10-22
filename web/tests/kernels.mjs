@@ -40,18 +40,11 @@ const logs = [];
 page.on('console', (m) => { if (m.type() === 'error' || m.type() === 'warning') logs.push(m.text()); });
 await page.goto(`${base}/kernels.html`);
 
-// Small specifications keep the run fast. `flips`: an absolute allowance for models whose agents
-// take threshold decisions, where 32-bit rounding can flip one agent's path (1/agents per flip).
-// `relative`: a wider relative tolerance for ratios of small variances (sensitivity's variance
-// reduction divides by the variance of common-random-number differences, which amplifies rounding).
+// Small specifications keep the run fast; the tolerances are the library's (syn::kernel::compareResults).
 const SPECS = {
-  default: { spec: { sim: { learners: 300, seed: 11 } } },
-  equilibration: { spec: { sim: { seed: 11 } }, flips: 0.02 },
-  // Cleaning up a binding under crosstalk is an argmax among near-ties.
-  fgaAlgebra: { spec: { sim: { seed: 11 } }, flips: 0.01 },
-  sensitivity: { spec: { sim: { learners: 300, seed: 11 } }, relative: 0.03 },
-  // A student's path of lessons turns on argmax choices among near-ties (exp is approximate on GPUs).
-  readingStudent: { spec: { sim: { learners: 300, seed: 11 } }, relative: 0.05 },
+  default: { sim: { learners: 300, seed: 11 } },
+  equilibration: { sim: { seed: 11 } },
+  fgaAlgebra: { sim: { seed: 11 } },
 };
 
 const report = await page.evaluate(async ({ specs, filter }) => {
@@ -59,35 +52,18 @@ const report = await page.evaluate(async ({ specs, filter }) => {
   const { runOnGpu, runOnSoftwareGpu } = await import('/js/engine/run.js');
   const models = await run('models', {});
   const out = [];
-  const leaves = (v, p, acc) => {
-    if (typeof v === 'number') acc.push([p, v]);
-    else if (ArrayBuffer.isView(v) || Array.isArray(v)) Array.from(v).forEach((x, i) => leaves(x, `${p}[${i}]`, acc));
-    else if (v && typeof v === 'object') for (const k of Object.keys(v)) if (!['engineMs', 'adapter'].includes(k)) leaves(v[k], `${p}.${k}`, acc);
-    return acc;
-  };
   for (const { name } of models) {
     if (filter && !name.includes(filter)) continue;
-    const { spec, flips = 0, relative = 2e-3 } = specs[name] || specs.default;
+    const spec = specs[name] || specs.default;
     const row = { name };
     try {
       const gpu = await runOnGpu(name, spec);
       const soft = await runOnSoftwareGpu(name, spec);
       row.gpuMs = Math.round(gpu.engineMs);
       row.softMs = Math.round(soft.engineMs);
-      const G = leaves(gpu, '', []), S = leaves(soft, '', []);
-      row.values = S.length;
-      if (G.length !== S.length) {
-        row.error = `WebGPU: ${G.length} values vs ${S.length}`;
-      } else {
-        let worst = { excess: 0 };
-        G.forEach(([p, x], i) => {
-          const y = S[i][1];
-          if (!Number.isFinite(x) || !Number.isFinite(y)) { if (Number.isFinite(x) !== Number.isFinite(y)) worst = { excess: Infinity, path: p, x, y }; return; }
-          const excess = Math.abs(x - y) / (2e-3 + flips + relative * Math.abs(y));
-          if (excess > worst.excess) worst = { excess, path: p, x, y };
-        });
-        row.worst = worst;
-      }
+      const c = await run('compareResults', { model: name, a: gpu, b: soft });
+      row.values = c.values;
+      row.worst = c;
     } catch (e) {
       row.error = String(e.message || e);
     }

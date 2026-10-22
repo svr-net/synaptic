@@ -152,7 +152,9 @@ const kernel::Model* zpdModel() {
                       .set("zoneShare", zones)
                       .set("gain", ot.mean(t, j, 256)));
       }
-      r.set("tutoring", runs);
+      std::vector<double> gains;
+      for (const auto& x : runs.asArray()) gains.push_back(x.num("gain", 0));
+      r.set("tutoring", runs).set("bestTutoring", bestOf(gains));
       (void)c;
       return r;
     };

@@ -86,7 +86,7 @@ jobs:
       - name: Committed web/wasm matches the sources
         run: |
           if ! git diff --quiet -- web/wasm; then
-            echo "::error::web/wasm/syn.{js,wasm} are out of date. Rebuild them (docker build --target wasm-artifacts --output web/wasm .) and commit."
+            echo "::error::web/wasm/{syn.js,syn.wasm,defaults.js} are out of date. Rebuild them (docker build --target wasm-artifacts --output web/wasm .) and commit."
             git diff --stat -- web/wasm
             exit 1
           fi

@@ -50,7 +50,7 @@ runButton(page, 'Run the course', async (spec) => {
     scatterChart(card(g, 'Cultural capital and the delayed score', 'Each point a learner (the first 400, read back from the kernel on every engine).'), {
       xLabel: 'cultural capital', yLabel: 'delayed score', series: [{ name: 'learners', x: Array.from(r.capital), y: Array.from(r.delayed) }],
     });
-    histogram(card(g, 'Delayed test scores', ''), Array.from(r.delayedAll), { bins: 30, name: 'learners', xFormat: (v) => v.toFixed(2) });
+    histogram(card(g, 'Delayed test scores', ''), r.delayedHistogram, { name: 'learners', xFormat: (v) => v.toFixed(2) });
   }
   const idx = [0, ...sd.map((d) => days.findIndex((x) => x >= d + 1)), days.length - 1].filter((k, i, a) => k >= 0 && a.indexOf(k) === i);
   table(card(g, 'Profile table', ''), ['day', 'mean', 'q10', 'median', 'q90', 'at risk', 'recall'],

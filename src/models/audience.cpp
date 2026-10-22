@@ -218,7 +218,9 @@ const kernel::Model* audienceModel() {
                        .set("teachingMinutes", teaching)
                        .set("analysedShare", analysed));
       }
-      r.set("instruments", table);
+      std::vector<double> research;
+      for (const auto& x : table.asArray()) research.push_back(x.nums("gain", {0, 0})[1]);
+      r.set("instruments", table).set("bestInstrument", bestOf(research));
       Value bySize = Value::array();
       const Plan& q = plans[1];
       int idx = 0;

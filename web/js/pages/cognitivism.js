@@ -29,7 +29,7 @@ runButton(page, 'Run', async (spec) => {
   // Lasting recall: at the end of the horizon, well after the test (when the cram has faded).
   const lasting = (p) => p.recall[p.recall.length - 1];
   const horizon = m.plans[0].days[m.plans[0].days.length - 1];
-  const massed = m.plans[0], best = m.plans.reduce((a, b) => (lasting(b) > lasting(a) ? b : a));
+  const massed = m.plans[0], best = m.plans[m.bestLasting];
   tiles(page.content, [
     { label: `Recall on day ${m.testDay}: massed rereading`, value: fmt.pct(massed.recallAtTest, 0) },
     { label: `Best lasting recall (day ${horizon})`, value: fmt.pct(lasting(best), 0), hint: best.name },

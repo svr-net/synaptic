@@ -461,12 +461,9 @@ export const lineChart = (el, cfg) => new LineChart(el, cfg);
 export const barChart = (el, cfg) => new BarChart(el, cfg);
 export const scatterChart = (el, cfg) => new ScatterChart(el, cfg);
 
-/** Histogram of raw values as a bar chart. */
-export function histogram(el, values, { bins = 40, name = 'paths', xFormat = (v) => fmt.compact(v), height } = {}) {
-  const [lo, hi] = extent(values);
-  const width = (hi - lo) / bins || 1;
-  const counts = new Array(bins).fill(0);
-  for (const v of values) counts[Math.min(bins - 1, Math.floor((v - lo) / width))]++;
-  const labels = counts.map((_, i) => xFormat(lo + (i + 0.5) * width));
-  return barChart(el, { labels, series: [{ name, values: counts.map((c) => c / values.length) }], yFormat: (v) => fmt.pct(v, 0), tooltipFormat: (v) => fmt.pct(v, 2), height });
+/** A histogram the library binned ({ lo, hi, share }: each equal bin's share of the values) as a bar chart. */
+export function histogram(el, { lo, hi, share }, { name = 'paths', xFormat = (v) => fmt.compact(v), height } = {}) {
+  const width = (hi - lo) / share.length;
+  const labels = Array.from(share, (_, i) => xFormat(lo + (i + 0.5) * width));
+  return barChart(el, { labels, series: [{ name, values: Array.from(share) }], yFormat: (v) => fmt.pct(v, 0), tooltipFormat: (v) => fmt.pct(v, 2), height });
 }

@@ -154,7 +154,13 @@ const kernel::Model* assessmentActivitiesModel() {
           parts.push(Value::object().set("alignment", Value::Numbers(al)).set("information", Value::Numbers(inf)).set("fit", Value::Numbers(fit))
                          .set("timeCost", Value::Numbers(cost)));
         }
-        audiences.push(Value::object().set("name", kAudiences[au].name).set("value", byLevel).set("parts", parts));
+        Value top = Value::array();
+        for (const auto& v : byLevel.asArray()) {
+          auto ranked = rankedBy(v.asNumbers());
+          ranked.resize(std::min<std::size_t>(3, ranked.size()));
+          top.push(Value::Numbers(ranked));
+        }
+        audiences.push(Value::object().set("name", kAudiences[au].name).set("value", byLevel).set("parts", parts).set("top", top));
       }
       r.set("audiences", audiences);
       const Plan& q = plans[1];

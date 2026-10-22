@@ -152,14 +152,14 @@ docker run --rm synaptic:native                    # end-to-end demo
 docker build --target e2e .                        # every page in headless Chromium, WebGPU on SwiftShader:
                                                    # dev site over HTTP, standalone from file:// and over HTTP
 docker build --target standalone-artifacts --output dist .  # export the standalone site and zip
-docker build --target wasm-artifacts --output web/wasm .    # export syn.js / syn.wasm to the host
+docker build --target wasm-artifacts --output web/wasm .    # export syn.js, syn.wasm and defaults.js to the host
 ```
 
 | Target | Base image | Contents |
 |---|---|---|
 | `native` | `ubuntu:24.04` | Library, unit tests and demo binary; installed headers and CMake package in `/opt/syn` |
 | `wasm` | `emscripten/emsdk:4.0.10` | Embind module built from source and checked with `web/tests/wasm.test.mjs` |
-| `wasm-artifacts` | `scratch` | Only `syn.js` and `syn.wasm`, for `--output` |
+| `wasm-artifacts` | `scratch` | Only `syn.js`, `syn.wasm` and `defaults.js` (the pages' defaults, from the library: `wasm/defaults.mjs`), for `--output` |
 | `standalone` | `node:22-alpine` | Copy-deployable site built with the pinned esbuild |
 | `standalone-artifacts` | `scratch` | `standalone/` folder and `synaptic-standalone.zip`, for `--output` |
 | `e2e` | `mcr.microsoft.com/playwright` | Browser test of all pages in three modes, and every model's kernel on WebGPU and on the software GPU |
@@ -271,6 +271,7 @@ Docker (`--target wasm-artifacts` above), or with Emscripten 4.0.10:
 ```sh
 emcmake cmake -S . -B build-wasm -DCMAKE_BUILD_TYPE=Release
 cmake --build build-wasm                 # writes web/wasm/syn.js and syn.wasm
+node wasm/defaults.mjs                   # writes web/wasm/defaults.js from the library
 node web/tests/wasm.test.mjs             # every model plus the chapters' checks, in Node
 node web/tests/kernels.mjs               # every model on WebGPU and on the software GPU, value by value
 node web/tests/e2e.mjs                   # every page in headless Chromium (Playwright; WebGPU via SwiftShader)

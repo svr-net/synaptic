@@ -23,16 +23,15 @@ runButton(page, 'Allocate', async (spec) => {
   const runResult = await runModel('allocation', { ...spec, allocation: { baseline: THEORY_PRESETS[baseline()], permutations: permutations() } });
   const r = runResult.result;
   window.__synEngineRun = { page: 'allocation', engine: runResult.label, totalGain: r.totalGain, shapleySum: r.shapleySum };
-  const sum = (k) => r.levers.reduce((s, l) => s + l[k], 0);
   tiles(page.content, [
     { label: 'Design score', value: fmt.num(r.designScore, 3), hint: `baseline (${baseline()}): ${fmt.num(r.baselineScore, 3)}` },
     { label: 'Gain to allocate', value: fmt.num(r.totalGain, 3) },
     { label: 'Σ Shapley', value: fmt.num(r.shapleySum, 3), hint: 'adds up exactly' },
-    { label: 'Σ standalone / Σ incremental', value: `${fmt.num(sum('standalone'), 3)} / ${fmt.num(sum('incremental'), 3)}`, hint: 'interactions: do not add up' },
+    { label: 'Σ standalone / Σ incremental', value: `${fmt.num(r.standaloneSum, 3)} / ${fmt.num(r.incrementalSum, 3)}`, hint: 'interactions: do not add up' },
     { label: 'Courses run', value: fmt.num(r.evaluations), hint: `${r.permutations} orders, one batch, ${fmt.num(r.engineMs)} ms on ${runResult.label}` },
   ]);
   const g = grid(page.content, true);
-  const sorted = [...r.levers].sort((a, b) => b.shapley - a.shapley);
+  const sorted = Array.from(r.ranked, (i) => r.levers[i]);
   barChart(card(g, 'Contribution of each practice', 'Same learners and random numbers in every run (common random numbers).'), {
     labels: sorted.map((l) => l.lever),
     series: [{ name: 'Shapley', values: sorted.map((l) => l.shapley) }, { name: 'incremental', values: sorted.map((l) => l.incremental) }, { name: 'standalone', values: sorted.map((l) => l.standalone) }],
@@ -40,7 +39,7 @@ runButton(page, 'Allocate', async (spec) => {
   });
   table(card(g, 'Allocation table', ''), ['practice', 'theory', 'baseline → design', 'Shapley', 'share', 'incremental', 'standalone'], [
     ...sorted.map((l) => [l.lever, l.theory, `${fmt.num(l.baseline, 2)} → ${fmt.num(l.design, 2)}`, fmt.num(l.shapley, 4), r.totalGain ? fmt.pct(l.shapley / r.totalGain, 1) : '–', fmt.num(l.incremental, 4), fmt.num(l.standalone, 4)]),
-    ['total', '', '', fmt.num(r.shapleySum, 4), passFail(Math.abs(r.shapleySum - r.totalGain) < 1e-9, 'adds up'), fmt.num(sum('incremental'), 4), fmt.num(sum('standalone'), 4)],
+    ['total', '', '', fmt.num(r.shapleySum, 4), passFail(Math.abs(r.shapleySum - r.totalGain) < 1e-9, 'adds up'), fmt.num(r.incrementalSum, 4), fmt.num(r.standaloneSum, 4)],
   ]);
   return engineNote(runResult, performance.now() - t0);
 });

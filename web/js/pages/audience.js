@@ -27,9 +27,9 @@ runButton(page, 'Run', async (spec) => {
   const r = { ...one, community, ...isp };
   const P = r.priors.length;
   const assumption = 0, research = 1;
-  const best = r.instruments.reduce((a, b) => (b.gain[research] > a.gain[research] ? b : a));
+  const best = r.instruments[r.bestInstrument];
   const c = r.community;
-  const bestZone = r.zones.reduce((a, z) => (Math.max(...z.onTime) > Math.max(...a.onTime) ? z : a));
+  const bestZone = r.zones[r.bestZone];
   tiles(page.content, [
     { label: 'Best instrument (research prior)', value: best.instrument, hint: `learning gain ${fmt.num(best.gain[research], 4)} vs ${fmt.num(r.instruments[0].gain[research], 4)} without` },
     { label: 'Individual needs explained', value: `${fmt.pct(c.intersectionR2, 0)} vs ${fmt.pct(c.preAssessmentR2, 0)}`, hint: 'demographic intersections vs a pre-assessment' },

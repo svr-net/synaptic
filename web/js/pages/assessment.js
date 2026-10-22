@@ -36,9 +36,9 @@ runButton(page, 'Run', async (spec) => {
     { label: 'Signal of learning', value: `r = ${fmt.num(r.signals.direct, 2)}`, hint: `direct assessment; grades ${fmt.num(r.signals.grade, 2)}, satisfaction ${fmt.num(r.signals.satisfaction, 2)}` },
   ]);
   const w = grid(page.content, true);
-  const top = (vals) => Array.from(vals, (v, i) => [v, i]).sort((a, b) => b[0] - a[0]).slice(0, 3).map(([v, i]) => `${r.activities[i].name} (${fmt.num(v, 2)})`).join(' · ');
+  const top = (k) => Array.from(au.top[k], (i) => `${r.activities[i].name} (${fmt.num(au.value[k][i], 2)})`).join(' · ');
   table(card(w, `Selecting an assessment activity: ${au.name}, ${minutes()}-minute session`, 'The three best activities for an outcome at each Bloom level: alignment × information × fit to the audience, less the share of the session it takes.'),
-    ['outcome level', 'best activities (value)'], r.levels.map((l, k) => [l, top(au.value[k])]));
+    ['outcome level', 'best activities (value)'], r.levels.map((l, k) => [l, top(k)]));
   const g = grid(page.content);
   barChart(card(g, 'Assessment is not grading or evaluation', 'Correlation with what learners actually learned.'), {
     labels: ['direct assessment', 'grade', 'self-report', 'satisfaction'],

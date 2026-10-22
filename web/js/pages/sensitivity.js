@@ -23,7 +23,7 @@ runButton(page, 'Compute sensitivities', async (spec) => {
   const runResult = await runModel('sensitivity', { ...spec, sensitivity: { bump: bump(), replications: reps(), maxLearners: 300 } });
   const r = runResult.result;
   window.__synEngineRun = { page: 'sensitivity', engine: runResult.label, varianceReduction: r.varianceReduction, score: r.score };
-  const sorted = [...r.levers].sort((a, b) => b.crn - a.crn);
+  const sorted = Array.from(r.ranked, (i) => r.levers[i]);
   tiles(page.content, [
     { label: 'Delayed score', value: fmt.num(r.score, 3) },
     { label: 'Most valuable next step', value: sorted[0].lever, hint: `+${fmt.num(sorted[0].crn * 0.1, 4)} per +0.1` },

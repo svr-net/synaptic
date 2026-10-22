@@ -12,7 +12,7 @@
 #                                                   # WebGPU on SwiftShader);
 #                                                   # behind a TLS-intercepting proxy add
 #                                                   # --secret id=ca,src=<proxy CA bundle>
-#   docker build --target wasm-artifacts --output web/wasm .   # export syn.js/syn.wasm to the host
+#   docker build --target wasm-artifacts --output web/wasm .   # export syn.js, syn.wasm and defaults.js to the host
 #   docker build --target standalone-artifacts --output dist .  # export the standalone site + zip
 #
 # Every build stage runs its tests, so a successful build means they passed.
@@ -67,7 +67,8 @@ COPY wasm wasm
 RUN --mount=type=cache,target=/ccache/wasm \
     emcmake cmake -S . -B build-wasm -DCMAKE_BUILD_TYPE=Release \
  && cmake --build build-wasm -j"$(nproc)" \
- && ccache --show-stats
+ && ccache --show-stats \
+ && node wasm/defaults.mjs
 
 FROM wasm-build AS wasm
 COPY web/js web/js
@@ -75,12 +76,12 @@ COPY web/tests web/tests
 RUN node web/tests/wasm.test.mjs
 
 FROM scratch AS wasm-artifacts
-COPY --from=wasm /src/web/wasm/syn.js /src/web/wasm/syn.wasm /
+COPY --from=wasm /src/web/wasm/syn.js /src/web/wasm/syn.wasm /src/web/wasm/defaults.js /
 
 # The development site: web/ with the module built from source in place of the committed one.
 FROM scratch AS site
 COPY web /web
-COPY --from=wasm /src/web/wasm/syn.js /src/web/wasm/syn.wasm /web/wasm/
+COPY --from=wasm /src/web/wasm/syn.js /src/web/wasm/syn.wasm /src/web/wasm/defaults.js /web/wasm/
 
 # ---------------------------------------------------------------- standalone (copy-deployable) site
 # One folder of static files with the .wasm embedded: no ES modules, no fetch, no server

@@ -30,7 +30,11 @@ Cl(4,1) (pure elliptic CGA). Read README.md for the models; this file keeps the 
 - Exact geometric tests on WebGPU: normalise (cos, sin) of any rotor you compare exactly (`grammarTurn`), or points leave S³.
 - `Value::operator[]` returns a copy: never bind a reference into it (`x[i].at(..)`); use `asArray()[i]`.
 - WebGPU (SwiftShader): arrays declared inside loops are not re-zeroed — zero them explicitly; sin/cos/exp are approximate —
-  normalise rotors (`mvNormaliseRotor`); exact-½ belief ties flip — allow flips in `web/kernels.mjs` / `gpu.js` `ALLOW`.
+  normalise rotors (`mvNormaliseRotor`); exact-½ belief ties flip — allow flips in `src/kernel/compare.cpp` (`compareResults`,
+  used by the GPU page and `web/tests/kernels.mjs`).
+- The pages draw; the library decides: defaults (`syn::models::defaults`, written to `web/wasm/defaults.js` by the WASM
+  build), the comparison of two devices' results, and the picks a page shows (`ranked`, `best…`, `top`, histograms) come
+  from C++. A new pick goes into the model's summary, and into `compare.cpp`'s skipped keys if near-ties can flip it.
 - clang needs `<algorithm>` for `std::clamp`. Local gcc dangling-reference warnings in tests are pre-existing.
 - Docker builds here need the proxy build-args, `--secret id=ca,src=/root/.ccr/ca-bundle.crt` and `--network host`;
   start the daemon with `sudo dockerd &` if it is down. Never `pkill -f` a pattern that matches your own shell.

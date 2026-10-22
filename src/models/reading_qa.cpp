@@ -447,8 +447,11 @@ const kernel::Model* readingQaModel() {
         }
         answers.push(a);
       }
+      std::vector<double> f1s;
+      for (const auto& a : answers.asArray()) f1s.push_back(a.num("f1", 0));
       Value result = Value::object()
                          .set("answers", answers)
+                         .set("ranked", Value::Numbers(rankedBy(f1s)))
                          .set("vocabulary", meta.at("vocabulary"))
                          .set("documents", meta.at("documents"))
                          .set("passages", meta.at("passages"))

@@ -24,6 +24,7 @@ add_library(syn
   src/space/space.cpp
   src/space/algebra.cpp
   src/kernel/kernel.cpp
+  src/kernel/compare.cpp
   src/gpu/wgsl_compiler.cpp
   src/gpu/software_gpu.cpp
   ${SYN_MODEL_SOURCES}

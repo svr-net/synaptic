@@ -156,7 +156,12 @@ const kernel::Model* ispModel() {
           }
           zones.push(Value::object().set("stage", kStages[stage].name).set("onTime", Value::Numbers(onTime)).set("helped", Value::Numbers(helped)));
         }
-        r.set("sessionDays", Value::Numbers(days)).set("zones", zones).set("noSession", o.mean(p, 0, 647));
+        std::vector<double> peak;
+        for (const auto& z : zones.asArray()) {
+          const auto t = z.nums("onTime", {});
+          peak.push_back(t.empty() ? 0.0 : *std::max_element(t.begin(), t.end()));
+        }
+        r.set("sessionDays", Value::Numbers(days)).set("zones", zones).set("noSession", o.mean(p, 0, 647)).set("bestZone", bestOf(peak));
       }
       return r;
     };

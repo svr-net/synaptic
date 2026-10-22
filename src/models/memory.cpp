@@ -175,7 +175,9 @@ const kernel::Model* memoryModel() {
         list.push(x);
       }
       Value r = Value::object();
-      r.set("plans", list).set("testDay", p.params[1]);
+      std::vector<double> lasting;
+      for (std::uint32_t j = 0; j < p.jobs; ++j) lasting.push_back(o.mean(p, j, static_cast<std::uint32_t>(horizon)));
+      r.set("plans", list).set("testDay", p.params[1]).set("bestLasting", bestOf(lasting));
       r.set("gainR", Value::Numbers(grid(0.05, 1.0, 40)));
       r.set("gainRestudy", Value::Numbers(column(plans[1], out[1], 0))).set("gainRetrieval", Value::Numbers(column(plans[1], out[1], 1)));
       return r;

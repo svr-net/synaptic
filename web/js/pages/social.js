@@ -19,7 +19,7 @@ const scaffold = toolbarNumber(page, 'scaffolding s (logits)', 1.5, { step: 0.1 
 
 runButton(page, 'Run', async (spec) => {
   const { results: [z, d], note } = await runModels([['zpd', { ...spec, zpd: { scaffold: scaffold() } }], ['dialogue', spec]], page);
-  const best = z.tutoring.reduce((a, b) => (b.gain > a.gain ? b : a));
+  const best = z.tutoring[z.bestTutoring];
   const none = d.runs.find((r) => r.grouping.startsWith('individual') && r.inclusivity === 0);
   const mixedInc = d.runs.find((r) => r.grouping.startsWith('mixed') && r.inclusivity > 0);
   tiles(page.content, [

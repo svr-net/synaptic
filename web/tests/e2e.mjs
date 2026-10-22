@@ -133,7 +133,7 @@ for (const { name, file, spec, expectEngine, expectReason, pair, side, device, g
     const r = await page.evaluate(() => window.__synKernelCheck);
     if (!r) problems.push('no validation result');
     else {
-      if (r.passed !== r.models) problems.push(`${r.models - r.passed} model(s) disagree across engines: ${r.rows.filter((x) => x.error || x.cpu > 1 || x.gpu > 1).map((x) => x.name).join(', ')}`);
+      if (r.passed !== r.models) problems.push(`${r.models - r.passed} model(s) disagree across engines: ${r.rows.filter((x) => x.error || x.diff > 1).map((x) => `${x.name} (${x.error || x.diff})`).join(', ')}`);
       if (!gpuStub && !r.adapter) problems.push('the GPU page found no WebGPU adapter');
       if (gpuStub && r.adapter) problems.push(`without an adapter the GPU page must run the software GPU only: ${r.adapter}`);
       console.log(`       ${r.passed}/${r.models} models ${r.adapter ? `agree on WebGPU (${r.adapter}) and the software GPU` : 'run on the software GPU'}`);
