@@ -539,9 +539,16 @@ std::vector<Clause> clauses(const std::string& passage) {
   // cues; which word is the verb is the geometry's to decide (capsuleIngest).
   static const std::set<std::string> before = {"of", "with", "in", "on", "for", "by", "to", "from", "other", "many", "some", "all",
                                                "these", "those", "their", "its", "his", "her", "our", "your", "and", "or"};
+  // A list's number before a sentence ("2 Culture is ...", from "2. Culture is ...") marks its place in the list, not
+  // a word of what it says.
+  auto listMarker = [](const std::vector<std::string>& t) {
+    return t.size() > 1 && t[0].size() <= 2 && std::all_of(t[0].begin(), t[0].end(), [](char c) { return std::isdigit(static_cast<unsigned char>(c)); }) &&
+           std::isupper(static_cast<unsigned char>(t[1][0]));
+  };
   std::vector<Clause> out;
   for (const auto& sentence : sentences(passage))
-    for (const auto& t : clausesOf(sentence)) {
+    for (auto t : clausesOf(sentence)) {
+      if (listMarker(t)) t.erase(t.begin());
       if (t.size() < 3) continue;
       Clause c;
       c.words = t;
