@@ -66,17 +66,25 @@ Value answer(const Knowledge& k, const std::vector<std::string>& questions) {
 
 // Found: its evidence holds some of what the question asks. Confident: every part's evidence covers at least
 // half of what the part asks -- and, where the part asks what something is ("What is X?"), its fact says what X is
-// (X its subject, its relation a form of "be", "means", "is called"), not merely mentions X.
+// (X its subject, its relation a form of "be", "means", "is called"), not merely mentions X. Why it is not, when it is
+// found but not confident: a part that asks what something is answered by a fact that does not say what it is, or
+// evidence covering less than half of what the question asks.
 std::string line(const Value& a) {
   Value v = a;
   const bool said = !a.at("answer").asString().empty();
-  bool confident = said, found = false;
+  bool confident = said, found = false, undefined = false;
   for (const auto& p : a.at("parts").asArray()) {
     confident = confident && p.num("covers", 0) >= 0.5;
-    if (p.has("definition") && p.at("definition").asBool()) confident = confident && p.has("defines") && p.at("defines").asBool();
+    const bool asks = p.has("definition") && p.at("definition").asBool(), says = p.has("defines") && p.at("defines").asBool();
+    if (asks) confident = confident && says;
+    if (asks && !says && p.has("answer") && !p.at("answer").asString().empty()) undefined = true;
     found = found || p.num("covers", 0) > 0;
   }
-  v.set("found", said && found).set("confident", said && found && confident);
+  found = said && found, confident = found && confident;
+  v.set("found", found).set("confident", confident)
+      .set("why", !found || confident ? ""
+                  : undefined         ? "the fact it answers with does not say what that is"
+                                      : "its evidence covers less than half of what the question asks");
   return v.json();
 }
 
