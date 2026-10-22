@@ -32,7 +32,6 @@
 #include <cstdint>
 #include <map>
 #include <memory>
-#include <mutex>
 #include <set>
 #include <string>
 
@@ -780,14 +779,10 @@ const kernel::Model* capsuleQaModel() {
         mix(p.at("facts").size());
         for (std::size_t k = 0; k < p.at("vocabulary").size(); ++k) mix(static_cast<std::uint64_t>(p.at("vocabulary")[k].asNumber()));
       }
-      static std::mutex lexHeld;
-      static std::shared_ptr<const Lexicon> lexCached;
-      std::shared_ptr<const Lexicon> lex;
-      {
-        std::lock_guard<std::mutex> lock(lexHeld);
-        if (!lexCached || lexCached->key != key) lexCached = std::make_shared<const Lexicon>(readLexicon(key, dictionary, passages, facts, codes));
-        lex = lexCached;
-      }
+      // Each thread keeps its own (a session asks on one): nothing shared, nothing to lock.
+      thread_local std::shared_ptr<const Lexicon> lexCached;
+      if (!lexCached || lexCached->key != key) lexCached = std::make_shared<const Lexicon>(readLexicon(key, dictionary, passages, facts, codes));
+      const std::shared_ptr<const Lexicon> lex = lexCached;
       const auto& formsOf = lex->formsOf;
       const auto& flags = lex->flags;
       auto stemsOfFact = [&](std::size_t p, std::size_t f) -> const std::set<std::string>& { return lex->factStems[p][f]; };

@@ -12,18 +12,14 @@
 // the library.
 //
 //   qa_golden DATA_DIR [--baseline FILE] [--write-baseline FILE] [--write-memory FILE]
-//                      [--write-capsule FILE] [--capsule-passages N] [--write-knowledge DIR]
+//                      [--write-capsule FILE] [--capsule-passages N]
 //
 // DATA_DIR holds qa.tsv, corpus.tsv and train.tsv (tools/qa_golden/prepare.py). Writes
 // DATA_DIR/report.md and DATA_DIR/answers.tsv. With --baseline, fails (exit 1) if a score drops
 // more than 0.01 below the recorded one. With --write-memory, writes what the student learned in
 // this run, starting from its memory, as its next memory (src/models/student_memory.inc); with
 // --write-capsule, the packed capsule of the first N test passages (default 60, the embedded
-// golden set; src/models/reader_capsule.inc). With --write-knowledge, what it knows and what it
-// studied, to keep and grow (svr-net/knowledge's reader/, by svr-net/store's synstore_reader):
-// DIR/segments/000000.seg the stored capsule's segment, 000001.seg the knowledge corpus ingested on
-// top of it (its words routed through the growing index), and DIR/records/ the records of this run's
-// studies its memory keeps (those that answer at least as well as the memory alone).
+// golden set; src/models/reader_capsule.inc).
 #include <algorithm>
 #include <cctype>
 #include <cmath>
@@ -125,7 +121,7 @@ int main(int argc, char** argv) {
     return 2;
   }
   const std::string dir = argv[1];
-  std::string baselineIn, baselineOut, memoryOut, capsuleOut, knowledgeOut;
+  std::string baselineIn, baselineOut, memoryOut, capsuleOut;
   std::size_t capsulePassages = 60;
   for (int i = 2; i + 1 < argc; i += 2) {
     const std::string k = argv[i];
@@ -133,7 +129,6 @@ int main(int argc, char** argv) {
     else if (k == "--write-baseline") baselineOut = argv[i + 1];
     else if (k == "--write-memory") memoryOut = argv[i + 1];
     else if (k == "--write-capsule") capsuleOut = argv[i + 1];
-    else if (k == "--write-knowledge") knowledgeOut = argv[i + 1];
     else if (k == "--capsule-passages") capsulePassages = static_cast<std::size_t>(std::max(1, std::stoi(argv[i + 1])));
   }
   const auto qa = readTsv(dir + "/qa.tsv");
@@ -331,44 +326,6 @@ int main(int argc, char** argv) {
     writeCapsule(capsuleOut, own);
     md << "Capsule of " << first.size() << " passages (" << own.at("bytes").num("total", 0) << " bytes, " << std::round(1000 * own.at("bytes").num("ratio", 0)) / 10
        << "% of their text) written to " << capsuleOut << ".\n";
-  }
-  if (!knowledgeOut.empty()) {
-    // What it knows, as segments: the stored capsule, then the knowledge corpus grown on top of it.
-    Value first = Value::array();
-    for (std::size_t i = 0; i < capsulePassages && i < passages.size(); ++i) first.push(passages[i]);
-    const Value own = run("capsuleIngest", Value::object().set("passages", first));
-    const Value grown = run("capsuleIngest", Value::object().set("passages", docs).set("base", own.at("segments")));
-    const Value back = run("capsuleRecall", Value::object().set("segments", grown.at("segments")));
-    std::filesystem::create_directories(knowledgeOut + "/segments");
-    std::filesystem::create_directories(knowledgeOut + "/records");
-    std::ofstream(knowledgeOut + "/segments/000000.seg") << own.at("segment").asString() << "\n";
-    std::ofstream(knowledgeOut + "/segments/000001.seg") << grown.at("segment").asString() << "\n";
-    md << "\n## What it keeps, to grow\n\n| segment | passages | words new to it | words it knew | bytes | text bytes | routed |\n|---|---:|---:|---:|---:|---:|---:|\n";
-    for (const Value* g : {&own, &grown})
-      md << "| " << (g == &own ? "000000 (the stored capsule)" : "000001 (the knowledge corpus, on top)") << " | " << g->num("passages", 0) << " | "
-         << g->num("newWords", 0) << " | " << g->num("knownWords", 0) << " | " << g->at("bytes").num("total", 0) << " | " << g->at("bytes").num("text", 0)
-         << " | " << g->num("routed", 0) << " |\n";
-    md << "\nRecalled from both segments: " << back.at("recalled").at("passages").size() << " passages, " << back.num("recovered", 0) * 100
-       << "% of the words exactly.\n\nThe records of this run's studies: what each would make of the memory — its weights folded in by their evidence — "
-       << "answering the test (the reading habits: remembering; the constructing habits: constructing). A record is kept only when the memory "
-       << "with it answers at least as well as without it.\n\n| record | generation | evidence (lessons) | its study alone | memory | memory with it | kept |\n"
-       << "|---|---:|---:|---:|---:|---:|---|\n";
-    for (const auto& [name, r, key] : std::vector<std::tuple<std::string, const Value*, const char*>>{
-             {"answer", &nextHabits, "remembered"}, {"notes", &nextNotes, ""}, {"construct", &nextConstruct, "constructed"}}) {
-      double with = -1;
-      if (*key) {
-        const Value folded = run("readingQA", Value::object().set("passages", passages).set("questions", questions).set("corpus", docs)
-                                                  .set("recalled", recalled).set("memoryRecords", Value::array().push(r->at("record"))));
-        with = folded.at("scores").num(key, 0);
-      }
-      const double without = *key ? scores.num(key, 0) : 0;
-      const bool keepIt = *key ? with >= without : r->at("accepted").asBool();
-      if (keepIt) std::ofstream(knowledgeOut + "/records/" + name + ".rec") << r->at("record").asString() << "\n";
-      md << "| " << name << ".rec | " << r->num("generation", 0) << " | " << r->num("evidence", 0) << " | " << r3(r->num("test", 0)) << " | "
-         << (*key ? std::to_string(r3(without)).substr(0, 5) : std::string("–")) << " | " << (*key ? std::to_string(r3(with)).substr(0, 5) : std::string("–")) << " | "
-         << (keepIt ? std::string("kept") : *key ? std::string("not kept: the memory answers worse with it") : r->at("reason").asString()) << " |\n";
-    }
-    md << "\nWritten to " << knowledgeOut << ".\n";
   }
   std::ofstream(dir + "/report.md") << md.str();
   std::cout << md.str();

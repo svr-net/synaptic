@@ -4,9 +4,10 @@
 #include <cmath>
 #include <map>
 #include <memory>
-#include <mutex>
 #include <stdexcept>
 #include <thread>
+
+#include "../core/compute_parallel.hpp"
 
 #include "syn/gpu/software_gpu.hpp"
 #include "syn/space/space.hpp"
@@ -72,15 +73,11 @@ struct Shaders {
   std::shared_ptr<const gpu::Shader> agent, reduce, quantile;
 };
 
-Shaders shaders(const Model& m) {
-  static std::mutex lock;
-  static std::map<std::string, std::shared_ptr<const gpu::Shader>> agents;
+Shaders shaders(const Model& m) {   // no lock: a model's kernel compiled by whichever thread asks first (compute::Lazy)
+  static compute::Lazy<std::string, std::shared_ptr<const gpu::Shader>> agents(256);
   static const auto reduce = gpu::Shader::compile(reduceKernel());
   static const auto quantile = gpu::Shader::compile(quantileKernel());
-  std::lock_guard<std::mutex> guard(lock);
-  auto& a = agents[m.name];
-  if (!a) a = gpu::Shader::compile(agentKernel(m));
-  return {a, reduce, quantile};
+  return {agents.get(m.name, [&] { return gpu::Shader::compile(agentKernel(m)); }), reduce, quantile};
 }
 
 // The buffers of a plan, as the WebGPU host creates them (at least 16 bytes each).
@@ -104,8 +101,8 @@ Buffers buffers(const Plan& p, bool trackWrites) {
 }
 
 // The agent kernel over workgroups [first, last). Natively the workgroups are spread over the
-// cores (they write disjoint words, as on a GPU); in WebAssembly the page spreads them over
-// workers instead (simulateSlices).
+// cores (they write disjoint words, as on a GPU) with compute's lanes -- no lock, no blocking wait;
+// in WebAssembly the page spreads them over workers instead (simulateSlices).
 void agents(const Plan& p, const Shaders& sh, Buffers& b, std::size_t first, std::size_t last) {
   const std::vector<gpu::Buffer*> bind = {&b.header, &b.constants, &b.seeds, &b.scratch, &b.partials};
 #if defined(__EMSCRIPTEN__)
@@ -117,19 +114,9 @@ void agents(const Plan& p, const Shaders& sh, Buffers& b, std::size_t first, std
     gpu::dispatch(*sh.agent, bind, p.workgroups(), p.jobs, 1, first, last);
     return;
   }
-  std::vector<std::thread> pool;
-  std::vector<std::exception_ptr> errors(threads);
-  for (std::size_t t = 0; t < threads; ++t)
-    pool.emplace_back([&, t] {
-      try {
-        gpu::dispatch(*sh.agent, bind, p.workgroups(), p.jobs, 1, first + groups * t / threads, first + groups * (t + 1) / threads);
-      } catch (...) {
-        errors[t] = std::current_exception();
-      }
-    });
-  for (auto& th : pool) th.join();
-  for (auto& e : errors)
-    if (e) std::rethrow_exception(e);
+  compute::lanes(threads, [&](std::size_t t) {
+    gpu::dispatch(*sh.agent, bind, p.workgroups(), p.jobs, 1, first + groups * t / threads, first + groups * (t + 1) / threads);
+  }, threads);
 #endif
 }
 
