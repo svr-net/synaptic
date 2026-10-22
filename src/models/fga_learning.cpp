@@ -24,7 +24,7 @@
 #include <sstream>
 #include <string>
 
-#include "syn/core/multivector.hpp"
+#include "../core/compute_algebra.hpp"
 #include "syn/models/models.hpp"
 #include "syn/space/algebra.hpp"
 
@@ -411,7 +411,7 @@ const kernel::Model* fgaLearningModel() {
             if (it == blades.end()) continue;
             const auto ci = static_cast<unsigned>(it - blades.begin());
             if (!entityBlade(list, a) || !relationBlade(list, b) || !entityBlade(list, ci)) continue;
-            const double tau = Multivector::bladeSign(blades[a], blades[b], 4) * Multivector::bladeSign(cm, cm, 4);
+            const double tau = compute::algebra::bladeSign(blades[a], blades[b]) * compute::algebra::bladeSign(cm, cm);
             q.insert(q.end(), {double(a), double(b), double(ci), tau});
             ++count;
             ++term;

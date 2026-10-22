@@ -20,8 +20,6 @@ option(SYN_BUILD_EXAMPLES "Build the example programs" ON)
 file(GLOB SYN_MODEL_SOURCES CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/src/models/*.cpp)
 
 add_library(syn
-  src/core/multivector.cpp
-  src/core/elliptic_cga.cpp
   src/core/value.cpp
   src/space/space.cpp
   src/space/algebra.cpp
@@ -78,7 +76,6 @@ if(SYN_BUILD_TESTS)
   enable_testing()
   add_executable(syn_tests
     tests/test_main.cpp
-    tests/test_cga.cpp
     tests/test_space.cpp
     tests/test_software_gpu.cpp
     tests/test_models.cpp

@@ -173,9 +173,10 @@ If the network goes through a TLS-intercepting proxy, give the npm stages the pr
 The space every model works in is Cl(4, 1), the conformal model of S³ (`include/syn/space/space.hpp`). Its directions are N (the
 learner, the pole), A (cognitive), B (affective) and C (social), plus e with e² = −1. It exists once, in WGSL
 (`src/space/space.cpp`), and every kernel includes it. Its functions are closed forms of versor sandwiches;
-`tests/test_space.cpp` runs each on the software GPU and checks it against the geometric product of `core/multivector.hpp`
-(`core/elliptic_cga.hpp` is the general model of Sⁿ the tests use as reference). The whole algebra — multivectors of every
-grade, for functional geometric algebra — is `include/syn/space/algebra.hpp`, also in WGSL only (`src/space/algebra.cpp`).
+`tests/test_space.cpp` runs each on the software GPU and checks it against the geometric product of svr-net/compute's
+reference algebra. The whole algebra — multivectors of every grade, for functional geometric algebra — is svr-net/compute's
+`algebra_cga.hpp` (carried in `src/core/compute_algebra.hpp`, refreshed by `tools/sync_compute.sh`); the space gives it its
+sign table and the models their constants (`include/syn/space/algebra.hpp`, `src/space/algebra.cpp`).
 
 | Object | In the space | Reads as |
 |---|---|---|
