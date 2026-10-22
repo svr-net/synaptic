@@ -71,16 +71,18 @@ Cl(4,1) (pure elliptic CGA). Read README.md for the models; this file keeps the 
   Ingest routes grade 1 through the growing index (cells cut by spheres, entries by coincidence) whose WGSL is svr-net/compute's
   `index_cga.hpp`, carried in `src/models/compute_index.inc` — change it in compute, then `tools/sync_compute.sh`. Changing the
   word points, index or packing: change `capsuleFingerprint()` and regenerate the capsule. Word coordinates are 48 bits of a
-  64-bit FNV (the old LCG kept 24 bits: "fruit" and "tended" coincided). Kept in the browser by `web/js/knowledge.js` (IndexedDB), in
-  svr-net/knowledge's `reader/` by svr-net/store's `ReaderLog` (`synstore_reader`); `qa_golden --write-knowledge DIR` writes
-  segments and only records whose folded memory answers the test at least as well. compute, store and knowledge are private:
-  synaptic's CI (public) cannot fetch them, so it carries the compute helpers verbatim.
+  64-bit FNV (the old LCG kept 24 bits: "fruit" and "tended" coincided). Kept in the browser by `web/js/knowledge.js` (IndexedDB).
+  compute, store and knowledge are private: synaptic's CI (public) cannot fetch them, so it carries what it needs from
+  compute verbatim (`tools/sync_compute.sh`: the index helpers, and `src/core/compute_parallel.hpp`).
+- Parallel work (owner's ask: no locking, no blocking wait -- spin waits and compare-exchange): compute's `lanes`, `Once` and
+  `Lazy` (`src/core/compute_parallel.hpp`); a cache one session reads is the thread's own (`thread_local`).
 - svr-net/ui answers with the reader too (`tools/reader`, linked into ui's binary from this repo through `action.yml`):
   Synaptic's answer is the reader's. One capsule (owner's ask): there the store's capsule (svr-net/capsule) is the only
   knowledge -- ui's reader keeps no segments, it reads the passages the frame engine activated (by id, `ecga_read_many`)
-  through `answerFrom`, and its `reader/` log keeps only records and lessons (accepted answers, passages by id).
-  `answerKnown` and segments stay for this library (web QA page, qa_golden). Keep `tools/reader/reader.hpp`'s API
-  (`run`, `answerFrom`, `practise`) stable: ui's `docker/reader.cpp` calls it.
+  through `answerFrom`, and its `reader/` log (svr-net/store's `ReaderLog`) keeps only records and lessons (accepted
+  answers, passages by id). The reader tool knows no segments: asked alone it knows its stored capsule. Segments stay for
+  this library (the web QA page). `tools/reader/reader.hpp`'s API (`run`, `answerFrom`, `practise`) is what ui's
+  `docker/reader.cpp` calls: change both together.
 - Definition questions (owner's ask: no confident "Lotion speeds DNA repair" for "What is DNA?"): `QuestionPart::asksDefinition`,
   capsuleQA's `defines` (a copula -- lexicon flag 4 -- with the asked words as the subject) and `definitionWeight` (default 0: the readingQA invariant; the reader uses 1).
   The reader's `confident` needs `defines` for such a part. `answerFrom` lets ui read the frame engine's lead passages

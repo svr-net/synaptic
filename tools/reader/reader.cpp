@@ -5,7 +5,6 @@
 #include <iomanip>
 #include <iostream>
 #include <memory>
-#include <mutex>
 #include <sstream>
 
 #include "../../src/models/reading_memory.hpp"
@@ -32,18 +31,14 @@ Value list(const std::vector<std::string>& xs) {
   return v;
 }
 
-// What it knows, decoded once.
+// What it knows -- its stored capsule (the golden passages) -- and what it remembers, decoded once.
 struct Knowledge {
-  Value capsule, report;
-  bool stored = false;
+  Value capsule;
   Value records;
 };
 
-Knowledge know(const std::vector<std::string>& segments, const std::vector<std::string>& records) {
-  Value spec = Value::object();
-  if (!segments.empty()) spec.set("segments", list(segments));
-  const Value joined = memory::capsuleOf(spec);
-  return {joined.at("capsule"), joined.at("segments"), joined.at("stored").asBool(), list(records)};
+Knowledge know(const std::vector<std::string>& records) {
+  return {memory::capsuleOf(Value::object()).at("capsule"), list(records)};
 }
 
 Value info(const Knowledge& k) {
@@ -54,8 +49,6 @@ Value info(const Knowledge& k) {
       .set("passages", static_cast<double>(k.capsule.at("passages").size()))
       .set("facts", facts)
       .set("words", static_cast<double>(k.capsule.at("dictionary").size()))
-      .set("stored", k.stored)
-      .set("segments", k.report)
       .set("memory", Value::object().set("generation", mem.generation).set("lessons", mem.lessons).set("records", mem.records));
 }
 
@@ -73,17 +66,25 @@ Value answer(const Knowledge& k, const std::vector<std::string>& questions) {
 
 // Found: its evidence holds some of what the question asks. Confident: every part's evidence covers at least
 // half of what the part asks -- and, where the part asks what something is ("What is X?"), its fact says what X is
-// (X its subject, its relation a form of "be", "means", "is called"), not merely mentions X.
+// (X its subject, its relation a form of "be", "means", "is called"), not merely mentions X. Why it is not, when it is
+// found but not confident: a part that asks what something is answered by a fact that does not say what it is, or
+// evidence covering less than half of what the question asks.
 std::string line(const Value& a) {
   Value v = a;
   const bool said = !a.at("answer").asString().empty();
-  bool confident = said, found = false;
+  bool confident = said, found = false, undefined = false;
   for (const auto& p : a.at("parts").asArray()) {
     confident = confident && p.num("covers", 0) >= 0.5;
-    if (p.has("definition") && p.at("definition").asBool()) confident = confident && p.has("defines") && p.at("defines").asBool();
+    const bool asks = p.has("definition") && p.at("definition").asBool(), says = p.has("defines") && p.at("defines").asBool();
+    if (asks) confident = confident && says;
+    if (asks && !says && p.has("answer") && !p.at("answer").asString().empty()) undefined = true;
     found = found || p.num("covers", 0) > 0;
   }
-  v.set("found", said && found).set("confident", said && found && confident);
+  found = said && found, confident = found && confident;
+  v.set("found", found).set("confident", confident)
+      .set("why", !found || confident ? ""
+                  : undefined         ? "the fact it answers with does not say what that is"
+                                      : "its evidence covers less than half of what the question asks");
   return v.json();
 }
 
@@ -98,7 +99,7 @@ std::string answerFrom(const std::vector<std::string>& passages, const std::stri
   Value spec = Value::object();
   spec.set("capsuleIngest", Value::object().set("passages", list(kept)));
   const Value ing = kernel::run("capsuleIngest", spec);
-  const Knowledge k{ing.at("capsule"), Value::array(), false, list(records)};
+  const Knowledge k{ing.at("capsule"), list(records)};
   Value a = Value::object();
   {
     const Value answered = answer(k, {question});
@@ -107,30 +108,6 @@ std::string answerFrom(const std::vector<std::string>& passages, const std::stri
   // the line, with how many passages it read
   const std::string l = line(a);
   return l.substr(0, l.size() - 1) + ",\"passages\":" + std::to_string(kept.size()) + "}";
-}
-
-std::string answerKnown(const std::vector<std::string>& segments, const std::vector<std::string>& records, const std::string& question) {
-  // What it knows does not change within a session: decoded once, while the segments and records stay the same.
-  static std::mutex held;
-  static std::uint64_t key = 0;
-  static std::shared_ptr<const Knowledge> cached;
-  std::uint64_t h = 14695981039346656037ull;
-  for (const auto* blobs : {&segments, &records}) {
-    for (const auto& b : *blobs) {
-      for (unsigned char c : b) h = (h ^ c) * 1099511628211ull;
-      h = (h ^ 0xff) * 1099511628211ull;
-    }
-    h = (h ^ 0xfe) * 1099511628211ull;
-  }
-  std::shared_ptr<const Knowledge> known;
-  {
-    std::lock_guard<std::mutex> lock(held);
-    if (!cached || key != h) cached = std::make_shared<const Knowledge>(know(segments, records)), key = h;
-    known = cached;
-  }
-  const Knowledge& k = *known;
-  const Value answered = answer(k, {question});
-  return line(answered.at("answers").asArray()[0]);
 }
 
 std::string practise(const std::vector<Lesson>& lessons, const std::vector<std::string>& records, const std::string& source) {
@@ -210,19 +187,14 @@ std::vector<std::string> blobsOf(const std::string& text) {
   return out;
 }
 
-int run(const std::vector<std::string>& argsIn, std::vector<std::string> segments, std::vector<std::string> records, std::istream& in,
-        std::ostream& out, std::ostream& err) {
+int run(const std::vector<std::string>& argsIn, std::vector<std::string> records, std::istream& in, std::ostream& out,
+        std::ostream& err) {
   std::vector<std::string> args;
-  bool stored = false;
   try {
     for (std::size_t i = 0; i < argsIn.size(); ++i) {
-      if ((argsIn[i] == "--segments" || argsIn[i] == "--records") && i + 1 < argsIn.size()) {
-        auto blobs = blobsOf(readFile(argsIn[i + 1]));
-        auto& to = argsIn[i] == "--segments" ? segments : records;
-        to.insert(to.end(), blobs.begin(), blobs.end());
-        ++i;
-      } else if (argsIn[i] == "--stored") {
-        stored = true;
+      if (argsIn[i] == "--records" && i + 1 < argsIn.size()) {
+        auto blobs = blobsOf(readFile(argsIn[++i]));
+        records.insert(records.end(), blobs.begin(), blobs.end());
       } else {
         args.push_back(argsIn[i]);
       }
@@ -232,29 +204,6 @@ int run(const std::vector<std::string>& argsIn, std::vector<std::string> segment
       std::ostringstream fp;
       fp << std::hex << std::setw(8) << std::setfill('0') << memory::capsuleFingerprint();
       out << "synaptic reader: capsule " << fp.str() << ", " << memory::storedSegments().size() << " stored segment(s)\n";
-      return 0;
-    }
-    if (cmd == "ingest" && args.size() >= 3) {
-      Value passages = Value::array();
-      for (const auto& l : blobsOf(readFile(args[2]))) passages.push(l.substr(l.rfind('\t') == std::string::npos ? 0 : l.rfind('\t') + 1));
-      Value c = Value::object().set("passages", passages);
-      if (!segments.empty()) c.set("base", list(segments));
-      if (stored) c.set("stored", true);
-      Value spec = Value::object();
-      spec.set("capsuleIngest", c);
-      const Value r = kernel::run("capsuleIngest", spec);
-      std::ofstream(args[1]) << r.at("segment").asString() << "\n";
-      out << Value::object()
-                 .set("segment", args[1])
-                 .set("passages", r.at("passages"))
-                 .set("facts", r.at("facts"))
-                 .set("newWords", r.at("newWords"))
-                 .set("knownWords", r.at("knownWords"))
-                 .set("routed", r.at("routed"))
-                 .set("bytes", r.at("bytes"))
-                 .set("base", r.at("base"))
-                 .json()
-          << "\n";
       return 0;
     }
     if (cmd == "practise") {
@@ -278,7 +227,7 @@ int run(const std::vector<std::string>& argsIn, std::vector<std::string> segment
       out << answerFrom(passages, q, records) << "\n";
       return 0;
     }
-    const Knowledge k = know(segments, records);
+    const Knowledge k = know(records);
     if (cmd == "info") {
       out << info(k).json() << "\n";
       return 0;
@@ -287,15 +236,6 @@ int run(const std::vector<std::string>& argsIn, std::vector<std::string> segment
       std::string q;
       for (std::size_t i = 1; i < args.size(); ++i) q += (i > 1 ? " " : "") + args[i];
       out << line(answer(k, {q}).at("answers").asArray()[0]) << "\n";
-      return 0;
-    }
-    if (cmd == "batch") {
-      std::vector<std::string> qs;
-      for (std::string l; std::getline(in, l);)
-        if (!l.empty()) qs.push_back(l);
-      if (qs.empty()) return 0;
-      const Value answered = answer(k, qs);
-      for (const auto& a : answered.at("answers").asArray()) out << line(a) << "\n";
       return 0;
     }
     if (cmd == "session") {
@@ -313,7 +253,7 @@ int run(const std::vector<std::string>& argsIn, std::vector<std::string> segment
       }
       return 0;
     }
-    err << "usage: reader version | info | ask QUESTION | session | batch | from QUESTION | practise | ingest OUT TSV [--stored]  [--segments FILE] [--records FILE]\n";
+    err << "usage: reader version | info | ask QUESTION | session | from QUESTION | practise  [--records FILE]\n";
     return 2;
   } catch (const std::exception& e) {
     err << "reader: " << e.what() << "\n";

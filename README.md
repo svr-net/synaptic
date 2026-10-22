@@ -388,10 +388,9 @@ library and the WASM build.
   stored memory: each is folded into its section by its evidence, (N·w + n·w_b)/(N + n), so a small study moves a well-learned
   habit a little and a fresh one all the way (`remember.folded`, `remember.evidence`). A record that is damaged, learned for
   other habits, or does not follow its section's generation is refused, with the reason (`memory.records`).
-  `remember.accepted` says whether the study answered at least as well as the memory alone; `qa_golden --write-knowledge`
-  keeps a record only when the memory with it folded in answers the golden test at least as well as without it (on the 200
-  questions none of this run's records passes: 0.373 against 0.374 remembering, 0.341 against 0.342 constructing — the
-  memory stays generation 4).
+  `remember.accepted` says whether the study answered at least as well as the memory alone (on the 200 golden questions
+  none of a run's records passes: 0.373 against 0.374 remembering, 0.341 against 0.342 constructing — the memory stays
+  generation 4).
 - **Knowledge: a capsule in the space, packed by an index router of grades** (`reading_capsule.cpp`; stored:
   `reader_capsule.inc`, the 60 embedded golden passages). `capsuleIngest`: the grammar reads every clause as a fact — subject,
   relation, object, the verb found by a cap of the space (below) — and every word of a fact becomes one multivector of Cl(4, 1) whose grades are the levels of the index:
@@ -432,10 +431,9 @@ library and the WASM build.
   is three 16-bit coordinates of its 64-bit FNV hash (48 bits of the word), so two words of a lexicon never coincide.
 - **The reader as a native tool** (`tools/reader`, `synaptic_reader`; `action.yml` makes synaptic a component other
   svr-net builds fetch): `version`, `info`, `ask QUESTION`, `session` (a question per line, its answer — capsuleQA's,
-  with `found` and `confident` from how much of each part its evidence covers — as a JSON line), `batch`, and
-  `ingest OUT TSV` (passages on top of what it knows, as a new segment); `--segments` / `--records` name what it
-  knows and remembers. svr-net/ui links it into its binary as `synaptic reader`, reading the segments from the
-  knowledge repo's `reader/` log, and answers with it beside the frame engine; `reader from QUESTION`
+  with `found` and `confident` from how much of each part its evidence covers — as a JSON line), over its stored
+  capsule; `--records` names what it remembers. svr-net/ui links it into its binary as `synaptic reader`, its
+  knowledge the store's capsule, and answers with it beside the frame engine; `reader from QUESTION`
   (`syn::reader::answerFrom`) answers from passages given -- read into a capsule of their own, kept nowhere -- so
   ui has it reason over the passages the frame engine activates. A part asking what something is ("What is X?",
   `asksDefinition`) is answered confidently only from a fact that says what it is (the asked words its subject, its
@@ -449,10 +447,9 @@ library and the WASM build.
   answered from what the frame engine activates for it): on a 12.5k-passage store, 64 lessons in 25 s, held-out
   0.462 → 0.653 F1.
 - **Kept where it lives.** In the browser, the QA page keeps the segments it was taught and the records of what it studied
-  in IndexedDB (`web/js/knowledge.js`, storage only) and passes them back to the models. In a knowledge repo
-  (svr-net/knowledge), they are an append-only log on its branch — `reader/log.tsv`, `reader/segments/`, `reader/records/`,
-  one incremental commit per append, each blob checked against its checksum — kept by svr-net/store's `ReaderLog`
-  (`synstore_reader REPO list|append|cat|export`); `qa_golden DATA --write-knowledge DIR` writes them.
+  in IndexedDB (`web/js/knowledge.js`, storage only) and passes them back to the models. In svr-net/ui, the store's
+  `reader/` log keeps the records and the lessons — an append-only log, one incremental commit per append, each blob
+  checked against its checksum — by svr-net/store's `ReaderLog`; the knowledge is the store's capsule.
 - **Constructed answers** (`readingQA` with `recalled`): the grammar says candidate answers from the recalled facts — the
   whole fact, its predicate, its object, its subject, or two facts — and the constructing habits (learned as a student,
   with all methods) choose one. The text never reaches this answer. With no passage at all, it answers from the facts of all

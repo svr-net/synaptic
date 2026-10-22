@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
-# Refresh src/models/compute_index.inc, the index kernel's WGSL helpers carried from svr-net/compute
-# (include/compute/index_cga.hpp, kIndexHelpersWgsl). compute is the home of the fused kernels; the
-# helpers are carried verbatim, with the commit they came from.
+# Refresh what synaptic carries from svr-net/compute, verbatim, with the commit it came from (compute is the home of
+# the fused kernels and of the lock-free parallel work):
+#   src/models/compute_index.inc   the index kernel's WGSL helpers (include/compute/index_cga.hpp, kIndexHelpersWgsl)
+#   src/core/compute_parallel.hpp  lanes, Once and Lazy -- no lock, no blocking wait (include/compute/parallel.hpp)
 #
 #   tools/sync_compute.sh [COMPUTE_CHECKOUT]     (default: ../compute)
 set -euo pipefail
@@ -18,3 +19,10 @@ out="$here/src/models/compute_index.inc"
   echo ')WGSL"'
 } > "$out"
 echo "wrote $out from compute@$commit"
+parallel="$here/src/core/compute_parallel.hpp"
+{
+  echo "// Carried verbatim from svr-net/compute@$commit (include/compute/parallel.hpp)."
+  echo "// Refresh with tools/sync_compute.sh; do not edit by hand."
+  cat "$compute/include/compute/parallel.hpp"
+} > "$parallel"
+echo "wrote $parallel from compute@$commit"
