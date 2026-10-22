@@ -9,6 +9,8 @@
 //   simulateSlices({model, ..., part, parts})  worker `part`'s share of the agent kernel
 //   analyseSlices({model, ..., parts: [slices of every worker]})  reduce, quantiles, summary
 //   runModel({model, ...})  all of it in one call (one worker)
+//   defaults()            the levers, the theories' designs, the populations and the default specification
+//   compareResults({model, a, b})  two devices' results, number by number: { values, excess, path, x, y }
 // Specifications and results are syn::Value trees converted to and from plain JavaScript.
 // Errors are returned as { error } rather than thrown across the boundary.
 
@@ -20,6 +22,7 @@
 
 #include "syn/core/value.hpp"
 #include "syn/kernel/kernel.hpp"
+#include "syn/models/models.hpp"
 
 using emscripten::val;
 using syn::Value;
@@ -203,6 +206,23 @@ val analyseSlices(val spec) {
   }
 }
 
+val defaults(val) {
+  try {
+    return toJs(syn::models::defaults());
+  } catch (const std::exception& e) {
+    return errorOf(e.what());
+  }
+}
+
+val compareResults(val spec) {
+  try {
+    const Value s = fromJs(spec);
+    return toJs(syn::kernel::compareResults(modelName(s), s.at("a"), s.at("b")));
+  } catch (const std::exception& e) {
+    return errorOf(e.what());
+  }
+}
+
 val version(val) {
   val o = val::object();
   o.set("library", std::string("synaptic ") + SYN_VERSION);
@@ -221,4 +241,6 @@ EMSCRIPTEN_BINDINGS(syn) {
   emscripten::function("modelAnalyse", &modelAnalyse);
   emscripten::function("simulateSlices", &simulateSlices);
   emscripten::function("analyseSlices", &analyseSlices);
+  emscripten::function("defaults", &defaults);
+  emscripten::function("compareResults", &compareResults);
 }

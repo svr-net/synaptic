@@ -1,4 +1,4 @@
-// The growing index's WGSL helpers, carried verbatim from svr-net/compute@f4f07623eb771fac98b1525b1d3d8730a48f982a
+// The growing index's WGSL helpers, carried verbatim from svr-net/compute@c8b8594141f292c3a638e6735c0ff319d36ea76f
 // (include/compute/index_cga.hpp, kIndexHelpersWgsl). Refresh with tools/sync_compute.sh; do not edit by hand.
 R"WGSL(
 // compute/index_cga.hpp: an index of points of S³ in Cl(4,1), grown by appending.

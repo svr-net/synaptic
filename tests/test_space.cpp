@@ -1,5 +1,5 @@
 // The space exists once, in WGSL. These tests run its functions on the software GPU (32-bit
-// floats, as on a GPU) and check them against the geometric product of Cl(4, 1) (syn::Multivector,
+// floats, as on a GPU) and check them against the geometric product of Cl(4, 1) (svr-net/compute's Mv,
 // 64-bit) and against the closed forms of the readings.
 #include <algorithm>
 #include <cctype>
@@ -7,7 +7,7 @@
 #include <string>
 #include <vector>
 
-#include "syn/core/multivector.hpp"
+#include "../src/core/compute_algebra.hpp"
 #include "syn/gpu/software_gpu.hpp"
 #include "syn/kernel/kernel.hpp"
 #include "syn/space/algebra.hpp"
@@ -15,6 +15,12 @@
 #include "test_framework.hpp"
 
 using namespace syn;
+using compute::algebra::Mv;
+using compute::algebra::grade;
+using compute::algebra::reverse;
+using compute::algebra::sandwich;
+using compute::algebra::wedge;
+const auto scalarProduct = compute::algebra::scalar;
 
 namespace {
 
@@ -39,14 +45,14 @@ struct P5 {
   double x[4], e;
 };
 P5 at(const std::vector<float>& v, std::size_t i) { return {{v[i * 5], v[i * 5 + 1], v[i * 5 + 2], v[i * 5 + 3]}, v[i * 5 + 4]}; }
-Multivector mv(const P5& v) { return Multivector::vector(4, 1, {v.x[0], v.x[1], v.x[2], v.x[3], v.e}); }
-double maxDiff(const Multivector& a, const P5& b) {
-  const auto x = a.vectorPart();
+Mv mv(const P5& v) { return Mv::vector(v.x[0], v.x[1], v.x[2], v.x[3], v.e); }
+double maxDiff(const Mv& a, const P5& b) {
+  const double x[5] = {a[1], a[2], a[4], a[8], a[16]};
   double d = std::fabs(x[4] - b.e);
   for (int i = 0; i < 4; ++i) d = std::max(d, std::fabs(x[i] - b.x[i]));
   return d;
 }
-Multivector basis(int i) { return Multivector::basis(4, 1, i); }
+Mv basis(unsigned i) { return Mv::basis(i); }
 
 }  // namespace
 
@@ -94,10 +100,10 @@ TEST(space_shift_is_the_dilation_versor) {
   const P5 p = at(v, 0);
   for (int i = 0; i < 3; ++i) {
     const double d = ds[i];
-    const Multivector Ne = basis(0) * basis(4);
-    const Multivector D = Multivector::scalar(4, 1, std::cosh(d / 4)) - Ne * std::sinh(d / 4);
-    Multivector y = sandwich(D, mv(p)).grade(1);
-    y = y / y.vectorPart()[4];  // normalise the weight
+    const Mv Ne = compute::algebra::product(basis(0), basis(4));
+    const Mv D = Mv::scalar(std::cosh(d / 4)) - Ne * std::sinh(d / 4);
+    Mv y = grade(sandwich(D, mv(p)), 1);
+    y = y / y[16];  // normalise the weight
     CHECK(maxDiff(y, at(v, i + 1)) < 2e-6);
     CHECK_NEAR(v[30 + i], 0.6 + d, 1e-4);
   }
@@ -111,8 +117,8 @@ TEST(space_rotate_is_a_rotor) {
     let p = atLogit(0.4, kA);
     put(0u, p); put(1u, rotate(p, kA, kB, 0.9));
     putf(20u, chance(p)); putf(21u, chance(rotate(p, kA, kB, 0.9)));)");
-  const Multivector R = Multivector::scalar(4, 1, std::cos(a / 2)) - basis(1) * basis(2) * std::sin(a / 2);
-  CHECK(maxDiff(sandwich(R, mv(at(v, 0))).grade(1), at(v, 1)) < 2e-6);
+  const Mv R = Mv::scalar(std::cos(a / 2)) - compute::algebra::product(basis(1), basis(2)) * std::sin(a / 2);
+  CHECK(maxDiff(grade(sandwich(R, mv(at(v, 0))), 1), at(v, 1)) < 2e-6);
   CHECK_NEAR(v[21], v[20], 1e-6);
 }
 
@@ -128,11 +134,11 @@ TEST(space_towards_is_the_geodesic_rotor) {
   CHECK_NEAR(v[21], v[22], 1e-6);
   CHECK_NEAR(v[23], v[24], 1e-6);
   // The rotor of the plane p∧q: R = cos(tθ/2) − sin(tθ/2)·B̂ with B̂ = x̂∧ŷ/|x̂∧ŷ|.
-  const Multivector x = mv(at(v, 0)) - basis(4), y = mv(at(v, 1)) - basis(4);
-  const Multivector B = x ^ y;
-  const double s2 = B.normSquared(), theta = std::acos(scalarProduct(x, y)), t = 0.5;
-  const Multivector R = Multivector::scalar(4, 1, std::cos(t * theta / 2)) - B / std::sqrt(s2) * std::sin(t * theta / 2);
-  CHECK(maxDiff(sandwich(R, mv(at(v, 0))).grade(1), at(v, 2)) < 2e-6);
+  const Mv x = mv(at(v, 0)) - basis(4), y = mv(at(v, 1)) - basis(4);
+  const Mv B = wedge(x, y);
+  const double s2 = scalarProduct(B, reverse(B)), theta = std::acos(scalarProduct(x, y)), t = 0.5;
+  const Mv R = Mv::scalar(std::cos(t * theta / 2)) - B / std::sqrt(s2) * std::sin(t * theta / 2);
+  CHECK(maxDiff(grade(sandwich(R, mv(at(v, 0))), 1), at(v, 2)) < 2e-6);
 }
 
 TEST(space_mixtures_and_caps) {
@@ -160,7 +166,7 @@ TEST(space_mixtures_and_caps) {
 }
 
 TEST(space_algebra_products_match_the_reference_algebra) {
-  // Two dense multivectors of Cl(4, 1); every product of the WGSL algebra against syn::Multivector.
+  // Two dense multivectors of Cl(4, 1); every product of the WGSL algebra against compute's Mv.
   std::vector<double> a(32), b(32);
   for (int i = 0; i < 32; ++i) {
     a[i] = std::sin(1.3 * i + 0.4);
@@ -192,15 +198,16 @@ fn main() {
   gpu::Buffer constants = gpu::Buffer::ofFloats(table);
   gpu::dispatch(*shader, {&out, &constants}, 1, 1, 1);
   const auto v = out.floats();
-  Multivector A(4, 1), B(4, 1);
+  Mv A, B;
   for (std::uint32_t i = 0; i < 32; ++i) {
     A[i] = static_cast<float>(a[i]);
     B[i] = static_cast<float>(b[i]);
   }
-  const Multivector expected[5] = {A * B, A | B, (B.reverse() | A.reverse()).reverse(), A ^ B, A.reverse()};
+  using namespace compute::algebra;
+  const Mv expected[5] = {product(A, B), left(A, B), right(A, B), wedge(A, B), reverse(A)};
   for (int op = 0; op < 5; ++op)
     for (std::uint32_t i = 0; i < 32; ++i) CHECK_NEAR(v[op * 32 + i], expected[op][i], 1e-4);
-  CHECK_NEAR(v[160], (A * B).scalarPart(), 1e-4);
+  CHECK_NEAR(v[160], product(A, B)[0], 1e-4);
 }
 
 TEST(space_model_checks_on_the_software_gpu) {

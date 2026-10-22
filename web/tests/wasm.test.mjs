@@ -144,7 +144,7 @@ if (cls) {
 }
 const th = model('theories');
 if (th) {
-  // The JS presets used by the spec editor mirror the library's theory designs.
+  // The presets the spec editor offers are the library's own (web/wasm/defaults.js, from syn::models::defaults).
   check(th.designs.length === Object.keys(THEORY_PRESETS).length, 'same number of theory presets');
   Object.values(THEORY_PRESETS).forEach((design, i) => {
     for (const [k, v] of Object.entries(design)) near(th.designs[i][k], v, 1e-12, `preset ${i}.${k}`);
@@ -152,10 +152,28 @@ if (th) {
   for (const p of th.populations) {
     const d = p.results.map((x) => x.delayedScore);
     check(d[d.length - 1] === Math.max(...d), `blended design is best for ${p.population}`);
+    check(p.best === d.indexOf(Math.max(...d)), `${p.population}: the best design named`);
+    const single = d.slice(1, -1);
+    check(p.bestSingle === 1 + single.indexOf(Math.max(...single)), `${p.population}: the best single theory named`);
   }
 }
 const al = model('allocation');
-if (al) near(al.shapleySum, al.totalGain, 1e-9, 'Shapley allocation adds up');
+if (al) {
+  near(al.shapleySum, al.totalGain, 1e-9, 'Shapley allocation adds up');
+  const sh = Array.from(al.ranked, (i) => al.levers[i].shapley);
+  check(sh.every((v, i) => i === 0 || sh[i - 1] >= v) && sh.length === al.levers.length, 'levers ranked by their Shapley share');
+  near(al.standaloneSum, al.levers.reduce((s, l) => s + l.standalone, 0), 1e-9, 'standalone shares summed');
+}
+// Two devices' results compared number by number in the library (syn::kernel::compareResults).
+{
+  const a = syn.runModel({ ...small, model: 'conditioning' });
+  const same = syn.compareResults({ model: 'conditioning', a, b: a });
+  check(same.excess === 0 && same.values > 10, `a result agrees with itself (${same.values} values)`);
+  const b = structuredClone(a);
+  b.pavlov[3] += 1;
+  const off = syn.compareResults({ model: 'conditioning', a: b, b: a });
+  check(off.excess > 1 && off.path === '.pavlov[3]', `a changed value is found: ${off.path}`);
+}
 const sens = model('sensitivity');
 if (sens) check(sens.varianceReduction > 5, `CRN variance reduction ${sens.varianceReduction}`);
 

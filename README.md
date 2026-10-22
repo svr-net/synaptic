@@ -152,14 +152,14 @@ docker run --rm synaptic:native                    # end-to-end demo
 docker build --target e2e .                        # every page in headless Chromium, WebGPU on SwiftShader:
                                                    # dev site over HTTP, standalone from file:// and over HTTP
 docker build --target standalone-artifacts --output dist .  # export the standalone site and zip
-docker build --target wasm-artifacts --output web/wasm .    # export syn.js / syn.wasm to the host
+docker build --target wasm-artifacts --output web/wasm .    # export syn.js, syn.wasm and defaults.js to the host
 ```
 
 | Target | Base image | Contents |
 |---|---|---|
 | `native` | `ubuntu:24.04` | Library, unit tests and demo binary; installed headers and CMake package in `/opt/syn` |
 | `wasm` | `emscripten/emsdk:4.0.10` | Embind module built from source and checked with `web/tests/wasm.test.mjs` |
-| `wasm-artifacts` | `scratch` | Only `syn.js` and `syn.wasm`, for `--output` |
+| `wasm-artifacts` | `scratch` | Only `syn.js`, `syn.wasm` and `defaults.js` (the pages' defaults, from the library: `wasm/defaults.mjs`), for `--output` |
 | `standalone` | `node:22-alpine` | Copy-deployable site built with the pinned esbuild |
 | `standalone-artifacts` | `scratch` | `standalone/` folder and `synaptic-standalone.zip`, for `--output` |
 | `e2e` | `mcr.microsoft.com/playwright` | Browser test of all pages in three modes, and every model's kernel on WebGPU and on the software GPU |
@@ -173,9 +173,10 @@ If the network goes through a TLS-intercepting proxy, give the npm stages the pr
 The space every model works in is Cl(4, 1), the conformal model of S³ (`include/syn/space/space.hpp`). Its directions are N (the
 learner, the pole), A (cognitive), B (affective) and C (social), plus e with e² = −1. It exists once, in WGSL
 (`src/space/space.cpp`), and every kernel includes it. Its functions are closed forms of versor sandwiches;
-`tests/test_space.cpp` runs each on the software GPU and checks it against the geometric product of `core/multivector.hpp`
-(`core/elliptic_cga.hpp` is the general model of Sⁿ the tests use as reference). The whole algebra — multivectors of every
-grade, for functional geometric algebra — is `include/syn/space/algebra.hpp`, also in WGSL only (`src/space/algebra.cpp`).
+`tests/test_space.cpp` runs each on the software GPU and checks it against the geometric product of svr-net/compute's
+reference algebra. The whole algebra — multivectors of every grade, for functional geometric algebra — is svr-net/compute's
+`algebra_cga.hpp` (carried in `src/core/compute_algebra.hpp`, refreshed by `tools/sync_compute.sh`); the space gives it its
+sign table and the models their constants (`include/syn/space/algebra.hpp`, `src/space/algebra.cpp`).
 
 | Object | In the space | Reads as |
 |---|---|---|
@@ -270,6 +271,7 @@ Docker (`--target wasm-artifacts` above), or with Emscripten 4.0.10:
 ```sh
 emcmake cmake -S . -B build-wasm -DCMAKE_BUILD_TYPE=Release
 cmake --build build-wasm                 # writes web/wasm/syn.js and syn.wasm
+node wasm/defaults.mjs                   # writes web/wasm/defaults.js from the library
 node web/tests/wasm.test.mjs             # every model plus the chapters' checks, in Node
 node web/tests/kernels.mjs               # every model on WebGPU and on the software GPU, value by value
 node web/tests/e2e.mjs                   # every page in headless Chromium (Playwright; WebGPU via SwiftShader)

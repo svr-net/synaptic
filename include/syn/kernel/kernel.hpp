@@ -105,6 +105,15 @@ Value analyseSlices(const std::string& name, const Value& spec, const std::vecto
 Value analyseOutputs(const std::string& name, const Value& spec, std::vector<Output> outputs,
                      const std::vector<std::vector<double>>& scratch = {});
 
+/**
+ * Two results of the same model on two devices (WebGPU and the software GPU), number by number (timings and device
+ * names left out): { values, excess, path, x, y } -- the worst |x − y| / (2e-3 + flips + relative·|y|) and where it
+ * is; they agree when excess ≤ 1. 32-bit rounding differs between devices (transcendentals, fused multiply-adds);
+ * the models whose agents take threshold decisions may flip one agent's path (`flips`), and ratios of small variances
+ * amplify rounding (`relative`). Different shapes: { error }.
+ */
+Value compareResults(const std::string& name, const Value& a, const Value& b);
+
 // ---------------------------------------------------------------- WGSL
 
 /**

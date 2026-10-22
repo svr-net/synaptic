@@ -4,6 +4,7 @@
 // Every model lives in src/models/<name>.cpp: its agent program (WGSL), how a specification
 // compiles to plans, and how the per-job means become the result.
 
+#include <algorithm>
 #include <cmath>
 #include <cstdint>
 #include <stdexcept>
@@ -66,6 +67,29 @@ inline std::vector<double> grid(double a, double b, int n) {
   std::vector<double> v;
   for (int i = 0; i < n; ++i) v.push_back(n == 1 ? a : a + (b - a) * i / (n - 1));
   return v;
+}
+
+/** What the pages start from: the levers of a design (key, name, theory), the lesson each theory designs, the learner
+ *  populations and the default specification (population, course, design, simulation). */
+Value defaults();
+
+/** The indices of `key`, largest first (ties in index order): what a page ranks or picks the best of. */
+inline std::vector<double> rankedBy(const std::vector<double>& key) {
+  std::vector<double> idx(key.size());
+  for (std::size_t i = 0; i < idx.size(); ++i) idx[i] = static_cast<double>(i);
+  std::stable_sort(idx.begin(), idx.end(), [&](double a, double b) { return key[static_cast<std::size_t>(a)] > key[static_cast<std::size_t>(b)]; });
+  return idx;
+}
+inline int bestOf(const std::vector<double>& key) { return key.empty() ? -1 : static_cast<int>(rankedBy(key)[0]); }
+
+/** A histogram of `values` in `bins` equal bins over their range: { lo, hi, share } (each bin's share of the values). */
+inline Value histogramOf(const std::vector<double>& values, int bins) {
+  double lo = values.empty() ? 0.0 : values[0], hi = lo;
+  for (double v : values) lo = std::min(lo, v), hi = std::max(hi, v);
+  const double width = hi > lo ? (hi - lo) / bins : 1.0;
+  std::vector<double> share(static_cast<std::size_t>(bins), 0.0);
+  for (double v : values) share[static_cast<std::size_t>(std::min(bins - 1, static_cast<int>((v - lo) / width)))] += 1.0 / values.size();
+  return Value::object().set("lo", lo).set("hi", lo + width * bins).set("share", Value::Numbers(share));
 }
 
 /** Statistic `stat` of every job of a plan. */

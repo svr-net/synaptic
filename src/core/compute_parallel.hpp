@@ -1,4 +1,4 @@
-// Carried verbatim from svr-net/compute@f4f07623eb771fac98b1525b1d3d8730a48f982a (include/compute/parallel.hpp).
+// Carried verbatim from svr-net/compute@c8b8594141f292c3a638e6735c0ff319d36ea76f (include/compute/parallel.hpp).
 // Refresh with tools/sync_compute.sh; do not edit by hand.
 /******************************************************************************************
     compute/parallel.hpp -- work over the CPU's cores, with no lock and no blocking wait

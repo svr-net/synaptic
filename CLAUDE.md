@@ -16,7 +16,8 @@ Cl(4,1) (pure elliptic CGA). Read README.md for the models; this file keeps the 
 
 - Blades: N=1, A=2, B=4, C=8, e=16 (e² = −1). Points are null vectors; beliefs are `chance(atLogit(x, kA))`.
 - A model is agents × jobs: `P(i)` constants, `J(i)` job row, `U(k)` uniforms, `stat(i, v)`, `quant()`; module helpers go in
-  `Model.helpersWgsl`; run with `kernel::run(name, spec)`. Multivector helpers: `src/space/algebra.cpp` (`algebraWgsl`).
+  `Model.helpersWgsl`; run with `kernel::run(name, spec)`. Multivector helpers: `src/space/algebra.cpp` (`algebraWgsl`): the algebra is
+  svr-net/compute's `algebra_cga.hpp` (vendored as `src/core/compute_algebra.hpp`; change it in compute, then `tools/sync_compute.sh`).
 - New model: add to `src/models/all_models.cpp`, the model count in `tests/test_models.cpp`, a test, a page if it has one
   (`web/*.html`, `web/js/pages/*.js`, nav in `web/js/app.js`, `web/e2e.mjs`), and README tables.
 
@@ -29,7 +30,11 @@ Cl(4,1) (pure elliptic CGA). Read README.md for the models; this file keeps the 
 - Exact geometric tests on WebGPU: normalise (cos, sin) of any rotor you compare exactly (`grammarTurn`), or points leave S³.
 - `Value::operator[]` returns a copy: never bind a reference into it (`x[i].at(..)`); use `asArray()[i]`.
 - WebGPU (SwiftShader): arrays declared inside loops are not re-zeroed — zero them explicitly; sin/cos/exp are approximate —
-  normalise rotors (`mvNormaliseRotor`); exact-½ belief ties flip — allow flips in `web/kernels.mjs` / `gpu.js` `ALLOW`.
+  normalise rotors (`mvNormaliseRotor`); exact-½ belief ties flip — allow flips in `src/kernel/compare.cpp` (`compareResults`,
+  used by the GPU page and `web/tests/kernels.mjs`).
+- The pages draw; the library decides: defaults (`syn::models::defaults`, written to `web/wasm/defaults.js` by the WASM
+  build), the comparison of two devices' results, and the picks a page shows (`ranked`, `best…`, `top`, histograms) come
+  from C++. A new pick goes into the model's summary, and into `compare.cpp`'s skipped keys if near-ties can flip it.
 - clang needs `<algorithm>` for `std::clamp`. Local gcc dangling-reference warnings in tests are pre-existing.
 - Docker builds here need the proxy build-args, `--secret id=ca,src=/root/.ccr/ca-bundle.crt` and `--network host`;
   start the daemon with `sudo dockerd &` if it is down. Never `pkill -f` a pattern that matches your own shell.
@@ -73,7 +78,7 @@ Cl(4,1) (pure elliptic CGA). Read README.md for the models; this file keeps the 
   word points, index or packing: change `capsuleFingerprint()` and regenerate the capsule. Word coordinates are 48 bits of a
   64-bit FNV (the old LCG kept 24 bits: "fruit" and "tended" coincided). Kept in the browser by `web/js/knowledge.js` (IndexedDB).
   compute, store and knowledge are private: synaptic's CI (public) cannot fetch them, so it carries what it needs from
-  compute verbatim (`tools/sync_compute.sh`: the index helpers, and `src/core/compute_parallel.hpp`).
+  compute verbatim (`tools/sync_compute.sh`: the index helpers, `src/core/compute_parallel.hpp` and `src/core/compute_algebra.hpp`).
 - Parallel work (owner's ask: no locking, no blocking wait -- spin waits and compare-exchange): compute's `lanes`, `Once` and
   `Lazy` (`src/core/compute_parallel.hpp`); a cache one session reads is the thread's own (`thread_local`).
 - svr-net/ui answers with the reader too (`tools/reader`, linked into ui's binary from this repo through `action.yml`):

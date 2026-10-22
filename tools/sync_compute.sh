@@ -3,6 +3,7 @@
 # the fused kernels and of the lock-free parallel work):
 #   src/models/compute_index.inc   the index kernel's WGSL helpers (include/compute/index_cga.hpp, kIndexHelpersWgsl)
 #   src/core/compute_parallel.hpp  lanes, Once and Lazy -- no lock, no blocking wait (include/compute/parallel.hpp)
+#   src/core/compute_algebra.hpp   the algebra Cl(4,1): the CPU reference and its WGSL (include/compute/algebra_cga.hpp)
 #
 #   tools/sync_compute.sh [COMPUTE_CHECKOUT]     (default: ../compute)
 set -euo pipefail
@@ -26,3 +27,10 @@ parallel="$here/src/core/compute_parallel.hpp"
   cat "$compute/include/compute/parallel.hpp"
 } > "$parallel"
 echo "wrote $parallel from compute@$commit"
+algebra="$here/src/core/compute_algebra.hpp"
+{
+  echo "// Carried verbatim from svr-net/compute@$commit (include/compute/algebra_cga.hpp)."
+  echo "// Refresh with tools/sync_compute.sh; do not edit by hand."
+  cat "$compute/include/compute/algebra_cga.hpp"
+} > "$algebra"
+echo "wrote $algebra from compute@$commit"

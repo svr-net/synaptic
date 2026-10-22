@@ -560,6 +560,37 @@ kernel::Model base(const char* name, const char* title) {
 
 }  // namespace
 
+Value defaults() {
+  Value levers = Value::array();
+  for (int k = 0; k < kLevers; ++k)
+    levers.push(Value::object().set("key", kLeverKeys[k]).set("name", kLeverNames[k]).set("theory", kLeverTheories[k]));
+  // in order (a Value object keeps its keys sorted): the lists the pages offer
+  Value presets = Value::array();
+  for (int t = 0; t < 8; ++t) presets.push(Value::object().set("name", kTheories[t]).set("design", designValue(kTheoryDesigns[t])));
+  Value populations = Value::array();
+  Value population;
+  for (const char* name : {"children", "secondary", "adults"}) {
+    const Population p = preset(name);
+    populations.push(Value::object().set("preset", name).set("label", p.name).set("age", p.age).set("anxietyMean", p.anxietyMean)
+                              .set("growthMean", p.growthMean).set("efficacyMean", p.efficacyMean).set("intrinsicMean", p.intrinsicMean)
+                              .set("capitalMean", p.capitalMean));
+    if (std::string(name) == "secondary") population = populations.asArray().back();
+  }
+  const Population s = preset("secondary");
+  const Course c;
+  population.set("priorMean", s.priorMean).set("priorSd", s.priorSd).set("capitalSd", s.capitalSd);
+  // the chapter's Activity 3.3: a short course on keywords and Boolean operators
+  const Value spec = Value::object()
+                         .set("population", population)
+                         .set("course", Value::object().set("sessions", c.sessions).set("sessionGap", c.gap).set("difficulty", c.difficulty)
+                                            .set("difficultyStep", c.step).set("delayedTest", c.delayedTest).set("abstraction", c.abstraction)
+                                            .set("atRiskBelow", c.atRisk))
+                         .set("designPreset", "blended")
+                         .set("design", designValue(kTheoryDesigns[7]))
+                         .set("sim", Value::object().set("learners", 500).set("seed", 2024));
+  return Value::object().set("levers", levers).set("theories", presets).set("populations", populations).set("spec", spec);
+}
+
 const kernel::Model* classroomModel() {
   static const kernel::Model model = [] {
     kernel::Model m = base("classroom", "The classroom: every theory acting on the same learners over a course, with a delayed test");
@@ -580,7 +611,7 @@ const kernel::Model* classroomModel() {
         gain.push_back(2.0 * std::log(g / (1.0 - g)));
       }
       r.set("capital", Value::Numbers(capital)).set("delayed", Value::Numbers(delayed)).set("gain", Value::Numbers(gain));
-      r.set("delayedAll", Value::Numbers(delayed));
+      r.set("delayedHistogram", histogramOf(delayed, 30));
       return r;
     };
     return m;
@@ -611,14 +642,19 @@ const kernel::Model* theoriesModel() {
       for (std::size_t i = 0; i < plans.size(); ++i) {
         Value list = Value::array();
         const Layout l = layoutOf(c, true);
+        std::vector<double> delayed;
         for (std::uint32_t j = 0; j < plans[i].jobs; ++j) {
           Value x = summary(plans[i], out[i], j, c);
+          delayed.push_back(x.num("delayedScore", 0));
           std::vector<double> mean;
           for (std::size_t k = 0; k < l.days.size(); ++k) mean.push_back(out[i].mean(plans[i], j, static_cast<std::uint32_t>(k * 4)));
           x.set("days", Value::Numbers(l.days)).set("mean", Value::Numbers(mean));
           list.push(x);
         }
-        pops.push(Value::object().set("population", preset(names[i]).name).set("results", list));
+        // the best design, and the best of the single theories (all but the banking lecture and the blend)
+        const std::vector<double> single(delayed.begin() + 1, delayed.end() - 1);
+        pops.push(Value::object().set("population", preset(names[i]).name).set("results", list).set("best", bestOf(delayed))
+                      .set("bestSingle", 1 + bestOf(single)));
       }
       r.set("populations", pops);
       return r;
@@ -657,9 +693,12 @@ const kernel::Model* allocationModel() {
       }
       Value levers = Value::array();
       double sum = 0.0;
+      double standaloneSum = 0, incrementalSum = 0;
       for (std::size_t j = 0; j < mcount; ++j) {
         const int k = q.active[j];
         sum += shapley[j];
+        standaloneSum += f.at(1ULL << j) - baseScore;
+        incrementalSum += designScore - f.at(full & ~(1ULL << j));
         levers.push(Value::object()
                         .set("lever", kLeverNames[k])
                         .set("theory", kLeverTheories[k])
@@ -674,9 +713,12 @@ const kernel::Model* allocationModel() {
           .set("designScore", designScore)
           .set("totalGain", designScore - baseScore)
           .set("shapleySum", sum)
+          .set("standaloneSum", standaloneSum)
+          .set("incrementalSum", incrementalSum)
           .set("permutations", q.permutations)
           .set("evaluations", static_cast<double>(q.masks.size()))
-          .set("levers", levers);
+          .set("levers", levers)
+          .set("ranked", Value::Numbers(rankedBy(shapley)));
     };
     return m;
   }();
@@ -702,6 +744,7 @@ const kernel::Model* sensitivityModel() {
         return std::make_pair(avg, std::sqrt(s2 / v.size()));
       };
       Value levers = Value::array();
+      std::vector<double> crnMeans;
       double ratio = 0;
       int count = 0;
       for (int k = 0; k < kLevers; ++k) {
@@ -713,6 +756,7 @@ const kernel::Model* sensitivityModel() {
         }
         const auto [cm, cs] = meanSe(crn);
         const auto [im, is] = meanSe(ind);
+        crnMeans.push_back(cm);
         if (cs > 0) {
           ratio += (is / cs) * (is / cs);
           ++count;
@@ -726,7 +770,8 @@ const kernel::Model* sensitivityModel() {
           .set("replications", q.replications)
           .set("learners", static_cast<double>(plans[0].agents))
           .set("varianceReduction", count ? ratio / count : 0.0)
-          .set("levers", levers);
+          .set("levers", levers)
+          .set("ranked", Value::Numbers(rankedBy(crnMeans)));
     };
     return m;
   }();

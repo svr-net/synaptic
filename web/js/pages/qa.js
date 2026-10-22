@@ -141,7 +141,7 @@ runButton(page, 'Run', async (spec) => {
     yFormat: (v) => v.toFixed(0),
   });
   const g2 = grid(page.content, true);
-  const rows = r.answers.map((a) => a).sort((x, y) => y.f1 - x.f1);
+  const rows = Array.from(r.ranked, (i) => r.answers[i]);
   table(card(g2, 'Every question', 'Sorted by the reader\'s F1. Where the reader falls short of the oracle, the question\'s words matched a sentence that does not answer it, ' +
     'or the answer is paraphrased (other words) or spread over several sentences.'),
   ['question · golden answer · the reader\'s answers', 'F1', 'remembering', 'constructed', 'ceiling'],

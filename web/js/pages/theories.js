@@ -20,8 +20,7 @@ runButton(page, 'Compare', async (spec) => {
   const r = runResult.result;
   window.__synEngineRun = { page: 'theories', engine: runResult.label, blended: r.populations[1].results[7].delayedScore, banking: r.populations[1].results[0].delayedScore };
   const [kids, teens, adults] = r.populations;
-  const best = (p) => p.results.reduce((a, b, i) => (b.delayedScore > p.results[a].delayedScore ? i : a), 0);
-  const single = (p) => p.results.slice(1, -1).reduce((a, b, i) => (b.delayedScore > p.results[a + 1].delayedScore ? i : a), 0) + 1;
+  const best = (p) => p.best, single = (p) => p.bestSingle;
   tiles(page.content, [
     { label: 'Best design (all populations)', value: r.theories[best(teens)] },
     { label: 'Best single theory, children', value: r.theories[single(kids)], hint: fmt.num(kids.results[single(kids)].delayedScore, 3) },

@@ -18,25 +18,6 @@ const page = initPage({
 specEditor(page, ['population', 'course', 'design', 'simulation']);
 const learners = toolbarNumber(page, 'classroom learners', 4000, { step: 500, width: 80 });
 
-// Every value of a result, in order (timings and device names left out).
-function leaves(v, acc = []) {
-  if (typeof v === 'number') acc.push(v);
-  else if (ArrayBuffer.isView(v) || Array.isArray(v)) for (const x of v) leaves(x, acc);
-  else if (v && typeof v === 'object') for (const k of Object.keys(v)) if (!['engineMs', 'adapter'].includes(k)) leaves(v[k], acc);
-  return acc;
-}
-// Two devices running the same WGSL in 32-bit floats differ only by rounding (transcendental
-// functions, fused multiply-adds). Models whose agents take threshold decisions may see one
-// agent's path flip; sensitivity's variance reduction is a ratio of small variances.
-const ALLOW = { equilibration: { flips: 0.02 }, sensitivity: { relative: 0.03 }, fgaAlgebra: { flips: 0.01 }, readingStudent: { relative: 0.05 } };
-function worst(a, b, { flips = 0, relative = 2e-3 } = {}) {
-  const x = leaves(a), y = leaves(b);
-  if (x.length !== y.length) return Infinity;
-  let w = 0;
-  x.forEach((v, i) => { if (Number.isFinite(v) && Number.isFinite(y[i])) w = Math.max(w, Math.abs(v - y[i]) / (2e-3 + flips + relative * Math.abs(y[i]))); });
-  return w;
-}
-
 runButton(page, 'Validate every kernel', async (spec) => {
   const probe = await probeAdapters();
   window.__synWebGpuProbe = probe;
@@ -50,11 +31,13 @@ runButton(page, 'Validate every kernel', async (spec) => {
     try {
       const s = await runOnSoftwareGpu(m.name, small);
       row.softMs = s.engineMs;
-      row.values = leaves(s).length;
       if (adapter) {
         const g = await runOnGpu(m.name, small);
         row.gpuMs = g.engineMs;
-        row.diff = worst(g, s, ALLOW[m.name]);
+        // number by number, within the rounding two devices may differ by (syn::kernel::compareResults)
+        const c = await run('compareResults', { model: m.name, a: g, b: s });
+        row.values = c.values;
+        row.diff = c.excess;
       }
     } catch (e) {
       row.error = e.message;

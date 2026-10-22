@@ -110,6 +110,10 @@ std::string answerFrom(const std::vector<std::string>& passages, const std::stri
   return l.substr(0, l.size() - 1) + ",\"passages\":" + std::to_string(kept.size()) + "}";
 }
 
+// How much worse than before the golden questions may be answered with a study kept (tools/qa_golden's baseline
+// tolerance).
+constexpr double kGoldenDrop = 0.01;
+
 std::string practise(const std::vector<Lesson>& lessons, const std::vector<std::string>& records, const std::string& source) {
   std::vector<const Lesson*> usable;
   for (const auto& l : lessons)
@@ -146,13 +150,23 @@ std::string practise(const std::vector<Lesson>& lessons, const std::vector<std::
       if (d.at("name").asString() == "its memory alone, no feedback") return d.num("test", 0);
     return 0.0;
   };
+  // The golden questions (the library's 60, about its stored capsule): what it remembers must not answer them worse.
+  auto golden = [](const std::vector<std::string>& remembered) {
+    Value c = Value::object().set("definitionWeight", 1.0);
+    if (!remembered.empty()) c.set("memoryRecords", list(remembered));
+    Value s2 = Value::object();
+    s2.set("capsuleQA", c);
+    return kernel::run("capsuleQA", s2).num("f1", 0);
+  };
   const Value first = study(records);
   const Value& next = first.at("remember");
   const std::string record = next.at("record").asString();
   std::vector<std::string> with = records;
   with.push_back(record);
   const double before = alone(first), after = alone(study(with));
-  const bool kept = after >= before - 1e-9;
+  const bool heldOut = after >= before - 1e-9;
+  const double goldenBefore = heldOut ? golden(records) : 0.0, goldenAfter = heldOut ? golden(with) : 0.0;
+  const bool kept = heldOut && goldenAfter >= goldenBefore - kGoldenDrop;
   out.set("train", static_cast<double>(train.size()))
       .set("test", static_cast<double>(test.size()))
       .set("before", before)
@@ -160,8 +174,10 @@ std::string practise(const std::vector<Lesson>& lessons, const std::vector<std::
       .set("study", next.num("test", 0))
       .set("generation", next.num("generation", 0))
       .set("kept", kept)
-      .set("reason", kept ? "its memory with this study answers the held-out lessons at least as well"
-                          : "its memory with this study answers the held-out lessons worse: not kept");
+      .set("reason", kept      ? "its memory with this study answers the held-out lessons and the golden questions at least as well"
+                     : heldOut ? "its memory with this study answers the golden questions worse: not kept"
+                               : "its memory with this study answers the held-out lessons worse: not kept");
+  if (heldOut) out.set("goldenBefore", goldenBefore).set("goldenAfter", goldenAfter);
   if (kept) out.set("record", record);
   return out.json();
 }
