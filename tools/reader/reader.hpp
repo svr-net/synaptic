@@ -37,8 +37,9 @@ struct Lesson {
 };
 /** Practice as a student (readingStudent, constructing, with every learning method): its constructing habits learned
  *  from three quarters of the lessons and tested on the rest, held out. The study is kept -- as a memory record -- only
- *  when its memory with it folded in answers the held-out lessons at least as well as without it. One JSON line:
- *  {practised, train, test, before, after, study, kept, record (base64, when kept), generation, reason}. `records`: what
+ *  when its memory with it folded in answers the held-out lessons at least as well as without it, and the library's
+ *  golden questions (about its stored capsule) no more than 0.01 worse. One JSON line: {practised, train, test, before,
+ *  after, goldenBefore, goldenAfter, study, kept, record (base64, when kept), generation, reason}. `records`: what
  *  it remembers already. A server that ingests knowledge incrementally (svr-net/ui) practises after each segment. */
 std::string practise(const std::vector<Lesson>& lessons, const std::vector<std::string>& records, const std::string& source);
 
